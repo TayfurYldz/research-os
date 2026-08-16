@@ -91,18 +91,26 @@ Keep these concepts strictly separate:
 
 | Concept | Meaning |
 | --- | --- |
-| Observation | Directly observed fact |
+| Observation | Directly observed fact from deterministic ingestion |
 | Hypothesis | Prediction that must be tested |
 | Experiment | Controlled research that evaluates a hypothesis |
-| Evidence | Verifiable artifact/data from an experiment or trusted observation |
-| Candidate | Potential security issue not yet fully verified |
-| Finding | Issue that has passed verification |
+| Evidence | Observation/Artifact admitted as verifiable support |
+| Candidate | Potential security issue not yet a Finding |
+| Candidate VALIDATED | Verification-processed, Evidence-supported, eligible for FindingProposal; not a Finding |
+| FindingProposal | Research proposal asking Human Review to accept a VALIDATED Candidate |
+| Finding | Accepted internal security issue created only after a VALIDATED Candidate yields a FindingProposal, Human Review approves it, and that decision is recorded through Core Approval semantics |
 
 Critical:
 
 - Observation != Hypothesis
 - Hypothesis != Evidence
 - Evidence != Finding
+- Candidate VALIDATED != Finding
+- FindingProposal != Finding
+
+Research may produce a Candidate, a Verification result, and a FindingProposal.
+
+Research must not create a Finding directly.
 
 Keep evidence immutable whenever possible.
 
@@ -114,11 +122,15 @@ For important data, record when possible: source, timestamp, target, discovery m
 
 Use persistent research memory. Do not use LLM conversation history as durable memory.
 
+Research Memory is a read/retrieval/organization abstraction. It does not create new truth.
+
+Lists such as technologies, behaviors, endpoints, and accepted/rejected findings are not independent truth sources. They are read from authoritative domain records, typed projections, or curated procedural knowledge.
+
 Memory must have at least three logical categories:
 
-- **Factual Memory:** assets, endpoints, technologies, observations, behaviors
-- **Episodic Memory:** hypotheses, experiments, results, failures, negative evidence
-- **Procedural Memory:** methodologies, research patterns, historical knowledge, accepted/rejected findings, analyst notes
+- **Factual Memory:** authoritative records such as assets, observations, observed/derived relations, accepted Findings, and deterministic change events. Endpoints, technologies, and behaviors appear only as records or typed projections, not as separate truth sources.
+- **Episodic Memory:** hypotheses, experiments, untrusted WorkerResults, evidence, failures, negative evidence, verification records
+- **Procedural Memory:** methodologies, curated patterns, historical outcome-linked heuristics, analyst notes, and links to accepted/rejected Candidate/Finding outcomes
 
 ## 7. Development Rules
 
@@ -164,6 +176,17 @@ Support human approval for high-side-effect or critical operations.
 
 Keep AI recommendation and final judgment separate.
 
+Authority chain:
+
+- AI/Research proposes
+- Core authorizes/controls
+- Workers execute
+- Evidence supports
+- Research validates Candidate state
+- Human Review decides
+- Core records Approval
+- Finding is created only after approval
+
 ## 9. Auditability
 
 Important decisions and tool executions must be auditable.
@@ -192,12 +215,16 @@ Do not set up Docker, databases, or frameworks yet unless the user explicitly as
 ## 11. Authorization Boundary
 
 - Research OS operates only on explicitly authorized targets.
-- Written program/scope information is a required system input.
+- Keep these authorization concepts separate:
+  - **Program:** engagement context
+  - **AuthorizationSource:** explicit/written authority instrument
+  - **ScopeRule:** allow / deny / out-of-scope rules
+- Active research requires a valid AuthorizationSource and resolvable effective ScopeRules.
 - Assumptions such as "probably in-scope", "belongs to the same company", or "same domain family" are not authorization.
 - Authorization evaluation is performed outside the model.
 - The LLM must never declare a target authorized on its own.
-- Program rules, explicit allow/deny rules, and out-of-scope assets are enforced in the policy/scope layer.
+- Program context, AuthorizationSource, ScopeRules, and out-of-scope assets are enforced in the policy/scope layer.
 - When scope is ambiguous, the default decision must be DENY or REQUIRE_HUMAN_REVIEW.
-- Do not start active testing if scope information is missing.
+- Do not start active testing if AuthorizationSource or effective scope is missing.
 - Derived targets such as redirects, discovered assets, or new subdomains must not be treated as automatically authorized.
-- Every research run must carry a traceable reference to the authorization/scope source it relies on.
+- Every research run must carry a traceable reference to the AuthorizationSource it relies on.

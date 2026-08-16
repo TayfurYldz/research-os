@@ -50,22 +50,20 @@ Core is the final authority for:
 **Contains:**
 
 - authorization boundary evaluation
-- written authorization source and written program/scope as required system inputs
-- program rules
-- explicit allow/deny rules
-- out-of-scope asset enforcement
+- AuthorizationSource and Program as required system inputs
+- ScopeRules
 - policy and permission contracts
 - budget policy ownership: max requests, max runtime, max tool calls, max concurrency, and related limits
 - approval requirement, approval state, and approval decision semantics
-- Candidate → Finding promotion contract
+- FindingProposal → Human Review → Core Approval → Finding promotion contract
 - execution control contracts
 - audit semantics for control decisions
 
-Authorization, program rules, explicit allow/deny rules, out-of-scope assets, and written authorization source are enforced in Core's policy/scope layer.
+AuthorizationSource, ScopeRules, out-of-scope assets, and Program context are enforced in Core's policy/scope layer.
 
 Ambiguous scope must resolve to **DENY** or **REQUIRE_HUMAN_REVIEW**.
 
-If authorization is missing, active execution does not start.
+If a valid AuthorizationSource or resolvable effective ScopeRules are missing, active execution does not start.
 
 **Must not:**
 
@@ -77,7 +75,7 @@ If authorization is missing, active execution does not start.
 - treat LLM output as authorization, scope, policy, or budget
 - declare a target authorized from model reasoning
 - accept "probably in-scope", "same company", or "same domain family" as authorization
-- start active testing when scope or authorization information is missing
+- start active testing when AuthorizationSource or effective ScopeRules are missing
 - treat derived targets (redirects, discovered assets, new subdomains) as automatically authorized
 - perform side effects
 - let budget limits be raised, changed, or bypassed after they are issued
@@ -90,6 +88,21 @@ If authorization is missing, active execution does not start.
 
 **Responsibility:** Plan, hypothesize, prioritize, and propose controlled work. Produce untrusted structured proposals. Research may depend on Core contracts. Research cannot change Core decisions.
 
+Research may produce a Candidate, a Verification result, and a FindingProposal. Research must not create a Finding.
+
+Promotion flow:
+
+```
+Research
+→ Candidate
+→ Verification
+→ Candidate VALIDATED
+→ FindingProposal
+→ Human Review
+→ Core Approval
+→ Finding
+```
+
 **Contains:**
 
 - planning
@@ -99,7 +112,8 @@ If authorization is missing, active execution does not start.
 - verification logic
 - Candidate proposals
 - verification-result proposals
-- Finding proposals
+- FindingProposal creation from VALIDATED Candidates
+- Evidence proposals
 - adaptive reasoning
 - chain reasoning
 - prioritization
@@ -112,6 +126,7 @@ If authorization is missing, active execution does not start.
 - obtain direct shell, network, or browser authority
 - treat its own claim as evidence or its own hypothesis as fact
 - accept a Candidate or Finding on its own
+- create a Finding directly
 - bypass Core
 - import concrete Integrations or concrete Platform implementations
 - use LLM conversation history as durable system memory or authoritative persistent state
@@ -124,26 +139,31 @@ Research produces proposals only. Agent decision and actual tool execution remai
 
 **Purpose:** Act as the system's truth and persistence layer.
 
-**Responsibility:** Store durable research state in explicit data models, preserve provenance, and keep Observation, Hypothesis, Experiment, Evidence, Candidate, and Finding strictly separate.
+**Responsibility:** Store durable research state in explicit data models, preserve provenance, and keep Observation, Hypothesis, Experiment, Evidence, Candidate, FindingProposal, and Finding strictly separate.
 
 LLM conversation history is not durable system memory or authoritative persistent state.
 
 Persistent state is held only in explicit data models.
 
+Data persists accepted domain records. Data does not decide promotion.
+
 **Contains:**
 
 - assets
 - observations
+- artifacts
 - hypotheses
 - experiments
+- worker results (untrusted durable output)
 - evidence
 - candidates
+- finding proposals
 - findings
 - snapshots
 - research memory (factual, episodic, procedural)
 - provenance
 - relationships
-- authorization/scope source references for research runs
+- AuthorizationSource references for research runs
 
 **Must not:**
 
@@ -152,10 +172,10 @@ Persistent state is held only in explicit data models.
 - mutate evidence in place when immutability is possible
 - drop provenance for important records (source, timestamp, target, discovery method, related run, artifact reference)
 - encode policy or execution authority
-- decide Candidate → Finding promotion
+- decide Candidate → FindingProposal → Finding promotion
 - leak persistence-implementation details into domain logic
 
-Data stores Candidate and Finding records. Data does not decide promotion.
+Data stores Candidate, FindingProposal, and Finding records. Data does not decide promotion.
 
 ---
 
@@ -197,6 +217,8 @@ Tools, Workers, and Integrations are distinct:
 
 **Responsibility:** Run authorized execution requests after Core has allowed them. Workers are the only execution layer that may perform side effects.
 
+Workers execute and produce WorkerResult. They do not declare truth records.
+
 **Contains:**
 
 - recon worker
@@ -212,18 +234,40 @@ Tools, Workers, and Integrations are distinct:
 - bypass policy
 - raise, change, or bypass budget limits
 - write directly to the persistent Data truth layer
-- declare Observation, Evidence, or Finding records as truth
+- declare Observation, Evidence, FindingProposal, or Finding records as truth
 - treat derived or discovered targets as automatically authorized
 - continue after a redirect, new hostname, discovered asset, new subdomain, or any other scope-changing event without a new Core decision
 
-Worker results re-enter the system as:
+WorkerResult re-enters the system through two transitions:
+
+**Transition A — Deterministic Ingestion**
 
 ```
 Worker
-→ controlled result boundary
-→ Research/Core-approved processing
-→ Data persistence
+→ WorkerResult
+→ schema/integrity validation
+→ deterministic normalization
+→ Observation and/or Artifact
 ```
+
+Rules:
+
+- no semantic interpretation
+- no hypothesis generation
+- no evidence promotion
+- no vulnerability inference
+
+**Transition B — Evidence Admission**
+
+```
+Observation and/or Artifact
+→ Research evaluation
+→ Evidence proposal
+→ explicit auditable evidence-admission transition
+→ Evidence
+```
+
+Evidence is not created during WorkerResult ingestion.
 
 On redirect, new hostname, discovered asset, new subdomain, or any event that requires a scope change:
 
@@ -308,7 +352,7 @@ Orchestration callers sit below Research in the trust hierarchy. They dispatch w
 
 Interface presents approval screens/flows. Core owns approval requirement, approval state, and approval decision semantics. Interface cannot define approval logic on its own.
 
-Human Review gives final acceptance/judgment for Finding promotion.
+Human Review gives final acceptance/judgment for FindingProposal. Finding is created only after that decision is recorded as Core Approval.
 
 **Contains:**
 
@@ -333,14 +377,25 @@ Human Review gives final acceptance/judgment for Finding promotion.
 
 One rule, applied across layers:
 
-- **Research** produces proposals. It does not execute.
-- **Core** decides authorization, policy, scope, and budget. It does not perform the side effect.
+- **Research** produces proposals. It does not execute. It runs Candidate/Verification/FindingProposal/Evidence-proposal domain logic. It does not create Findings.
+- **Core** decides authorization, policy, scope, and budget, and owns approval semantics. It does not perform the side effect.
 - **Tools** define capability contracts. They do not perform side effects. They do not set policy.
-- **Workers** perform authorized execution. They are the only execution layer that may perform side effects.
+- **Workers** perform authorized execution and produce WorkerResult. They are the only execution layer that may perform side effects. They do not declare truth records.
 - **Integrations** are concrete adapters used by Workers, for example a Strix, Burp, or provider adapter. They cannot make authorization decisions on their own.
-- **Data** persists truth after Research/Core-approved processing. It is not an execution layer.
+- **Data** persists accepted domain records after Transition A/B. It does not decide promotion.
 - **Platform** provides contracts and later concrete infrastructure. It is not an execution-authorization layer.
 - **Interface** presents interaction and approval UI. It is not an execution layer.
+
+Authority chain:
+
+- AI/Research proposes
+- Core authorizes/controls
+- Workers execute
+- Evidence supports
+- Research validates Candidate state
+- Human Review decides
+- Core records Approval
+- Finding is created only after approval
 
 ---
 
@@ -418,18 +473,32 @@ Every active operation still follows `request → policy → scope → budget �
 
 External content (web, API responses, email, documentation, and other outside sources) is untrusted input. Prompt injection must never change system policy.
 
-Every research run must carry a traceable reference to the authorization/scope source it relies on.
+Every research run must carry a traceable reference to the AuthorizationSource it relies on.
 
 Important decisions and tool executions must remain auditable: workflow, agent/model, tool, target, policy decision, budget, evidence, and result.
 
-Candidate → Finding promotion:
+Finding promotion:
 
-- Research may propose a Candidate, a verification result, and a Finding.
+```
+Research
+→ Candidate
+→ Verification
+→ Candidate VALIDATED
+→ FindingProposal
+→ Human Review
+→ Core Approval
+→ Finding
+```
+
+- Research may propose a Candidate, a Verification result, and a FindingProposal.
+- Research must not create a Finding.
 - Data stores the records and does not promote them.
-- Core applies approval semantics and the final promotion contract.
-- Human Review gives final acceptance/judgment.
+- Core applies approval semantics and records the Approval decision.
+- Human Review decides; Core records that decision.
+- Candidate VALIDATED != Finding.
+- FindingProposal != Finding.
 
-This keeps the core loop: AI reasons. System decides. Tools execute. Evidence proves. Human validates.
+This keeps the authority chain: AI/Research proposes. Core authorizes/controls. Workers execute. Evidence supports. Research validates Candidate state. Human Review decides. Core records Approval. Finding is created only after approval.
 
 ---
 
