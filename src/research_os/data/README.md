@@ -49,5 +49,14 @@ This is **not** a database copy of DOMAIN_MODEL.md.
 - ExecutionAttempt is durable dispatch coordination for one intended Worker invocation. It is not Evidence and not a WorkerResult. `request_id` is unique.
 - JSONB is only for untrusted/extensible WorkerResult bags and typed Observation/Audit payloads. It is not scope, authorization, Approval, Evidence, Finding, or budget authority.
 - Connection URLs come from the environment (`RESEARCH_OS_DATABASE_URL` / `RESEARCH_OS_TEST_DATABASE_URL`). Use `postgresql+psycopg://…`. Passwords are not logged.
+- Integration tests require an explicit `RESEARCH_OS_TEST_DATABASE_URL`. They never default to the application URL, never infer `PG*` variables, and refuse SQLite, `postgres`/`template*` catalogs, and a database named `research_os`. The test database name must contain `test`. Tests `TRUNCATE CASCADE` that database only.
+
+Phase A local test cluster (existing WSL PostgreSQL binaries, user-space data dir, no sudo, not Docker architecture):
+
+```
+python scripts/start_wsl_test_postgres.py
+$env:RESEARCH_OS_TEST_DATABASE_URL = "postgresql+psycopg://research_os_test@127.0.0.1:55432/research_os_test"
+uv run python -m unittest discover -s tests/integration -v
+```
 
 Python records here are **not** language-neutral architectural contracts. Worker wire truth remains `contracts/`.

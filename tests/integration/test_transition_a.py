@@ -44,6 +44,13 @@ from research_os.platform.worker import InvocationStatus, WorkerInvocationOutcom
 from support.worker_requests import valid_worker_request
 
 TEST_URL = os.environ.get(TEST_DATABASE_URL_ENV)
+if TEST_URL:
+    from research_os.data.postgres.engine import validate_test_database_url
+
+    TEST_URL = validate_test_database_url(
+        TEST_URL, application_url=os.environ.get("RESEARCH_OS_DATABASE_URL")
+    )
+
 NOW = datetime(2026, 8, 16, 21, 0, tzinfo=timezone.utc)
 
 
@@ -204,6 +211,152 @@ class TransitionAPostgresTests(unittest.TestCase):
         assert audit is not None
         self.assertEqual(audit.event_type, "WORKER_RESULT_INGESTED")
         self.assertNotIn("raw_result", audit.payload)
+
+    def test_unique_request_id_is_enforced(self) -> None:
+        assert self.engine is not None
+        with PostgresUnitOfWork(self.engine) as uow:
+            _seed(uow)
+            uow.commit()
+        use_case = IngestCompletedWorkerInvocation(
+            PostgresUnitOfWorkFactory(self.engine),
+            clock=FixedClock(),
+        )
+        request = valid_worker_request()
+        first = use_case.execute(request, _completed(request))
+        self.assertEqual(first.status, IngestionStatus.INGESTED)
+        from research_os.data.errors import PersistenceConflictError
+        from research_os.data.records import WorkerResultRecord
+
+        with PostgresUnitOfWork(self.engine) as uow:
+            with self.assertRaises(PersistenceConflictError):
+                uow.worker_results.insert(
+                    WorkerResultRecord(
+                        worker_result_id="wr-dup",
+                        experiment_id="exp-1",
+                        research_run_id="run-1",
+                        request_id="req-1",
+                        correlation_id="corr-other",
+                        worker_capability="diagnostic.echo",
+                        action="echo",
+                        authorization_decision_reference="authz-1",
+                        budget_id="budget-1",
+                        side_effect_level=0,
+                        contract_version="v1",
+                        worker_id="worker-1",
+                        status="SUCCEEDED",
+                        received_at=NOW,
+                    )
+                )
+
+    def test_equal_payloads_with_distinct_request_ids_are_not_collapsed(self) -> None:
+        assert self.engine is not None
+        with PostgresUnitOfWork(self.engine) as uow:
+            _seed(uow)
+            uow.commit()
+        use_case = IngestCompletedWorkerInvocation(
+            PostgresUnitOfWorkFactory(self.engine),
+            clock=FixedClock(),
+        )
+        first_req = valid_worker_request()
+        second_req = valid_worker_request()
+        second_req["correlation"] = dict(first_req["correlation"])
+        second_req["correlation"]["request_id"] = "req-2"
+        first = use_case.execute(first_req, _completed(first_req))
+        second = use_case.execute(second_req, _completed(second_req))
+        self.assertEqual(first.status, IngestionStatus.INGESTED)
+        self.assertEqual(second.status, IngestionStatus.INGESTED)
+        self.assertNotEqual(first.worker_result_id, second.worker_result_id)
+        with PostgresUnitOfWork(self.engine) as uow:
+            one = uow.observations.list_for_worker_result(first.worker_result_id or "")
+            two = uow.observations.list_for_worker_result(second.worker_result_id or "")
+        self.assertEqual(len(one), 1)
+        self.assertEqual(len(two), 1)
+        self.assertEqual(one[0].payload, two[0].payload)
+        self.assertNotEqual(one[0].observation_id, two[0].observation_id)
+
+    def test_observed_at_and_normalization_version_are_persisted(self) -> None:
+        assert self.engine is not None
+        with PostgresUnitOfWork(self.engine) as uow:
+            _seed(uow)
+            uow.commit()
+        use_case = IngestCompletedWorkerInvocation(
+            PostgresUnitOfWorkFactory(self.engine),
+            clock=FixedClock(),
+        )
+        request = valid_worker_request()
+        outcome = use_case.execute(request, _completed(request))
+        with PostgresUnitOfWork(self.engine) as uow:
+            stored = uow.worker_results.get_by_request_id("req-1")
+            observations = uow.observations.list_for_worker_result(
+                outcome.worker_result_id or ""
+            )
+        assert stored is not None
+        self.assertEqual(len(observations), 1)
+        observation = observations[0]
+        self.assertEqual(observation.normalization_version, "diagnostic.echo.v1")
+        self.assertEqual(stored.authorization_decision_reference, "authz-1")
+        self.assertEqual(stored.budget_id, "budget-1")
+        self.assertEqual(stored.action, "echo")
+        self.assertNotEqual(observation.observed_at, observation.created_at)
+        self.assertEqual(observation.created_at, NOW)
+
+    def test_midway_observation_failure_rolls_back_worker_result(self) -> None:
+        assert self.engine is not None
+        from research_os.data.errors import PersistenceError
+
+        with PostgresUnitOfWork(self.engine) as uow:
+            _seed(uow)
+            uow.commit()
+
+        class FailingUnitOfWork(PostgresUnitOfWork):
+            def __enter__(self):
+                entered = super().__enter__()
+
+                def boom(record):
+                    raise PersistenceError("injected observation failure")
+
+                entered.observations.insert = boom  # type: ignore[method-assign]
+                return entered
+
+        class FailingFactory:
+            def __init__(self, engine) -> None:
+                self._engine = engine
+
+            def open(self):
+                return FailingUnitOfWork(self._engine)
+
+        use_case = IngestCompletedWorkerInvocation(
+            FailingFactory(self.engine),
+            clock=FixedClock(),
+        )
+        request = valid_worker_request()
+        with self.assertRaises(PersistenceError):
+            use_case.execute(request, _completed(request))
+        with PostgresUnitOfWork(self.engine) as uow:
+            self.assertIsNone(uow.worker_results.get_by_request_id("req-1"))
+            self.assertEqual(uow.observations.list_for_worker_result("wr:req-1"), [])
+
+    def test_observation_fk_rejects_orphan(self) -> None:
+        assert self.engine is not None
+        from sqlalchemy.exc import IntegrityError
+        from research_os.data.records import ObservationRecord
+
+        with PostgresUnitOfWork(self.engine) as uow:
+            _seed(uow)
+            uow.commit()
+        with self.engine.begin() as connection:
+            with self.assertRaises(IntegrityError):
+                connection.execute(
+                    text(
+                        "INSERT INTO observation ("
+                        "observation_id, worker_result_id, observation_kind, "
+                        "payload, normalization_version, observed_at, created_at"
+                        ") VALUES ("
+                        "'obs-orphan', 'wr-missing', 'diagnostic.echo', "
+                        "'{\"echoed\": \"x\"}'::jsonb, 'diagnostic.echo.v1', now(), now()"
+                        ")"
+                    )
+                )
 
 
 if __name__ == "__main__":

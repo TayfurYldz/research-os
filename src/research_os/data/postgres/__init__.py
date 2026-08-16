@@ -6,6 +6,7 @@ from research_os.data.postgres.engine import (
     create_sync_engine,
     database_url_from_env,
     redacted_database_url,
+    validate_test_database_url,
 )
 from research_os.data.postgres.unit_of_work import PostgresUnitOfWork
 
@@ -16,4 +17,5 @@ __all__ = [
     "create_sync_engine",
     "database_url_from_env",
     "redacted_database_url",
+    "validate_test_database_url",
 ]

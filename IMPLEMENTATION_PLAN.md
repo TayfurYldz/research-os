@@ -105,7 +105,9 @@ Artifact identity/reference/hash as a **wire** contract is not part of A1. Decid
 
 **Verify:** Alembic upgrade is the schema path (`create_all` is not startup). Core/Research import no SQLAlchemy/psycopg/Alembic. WorkerResult insert does not create Observation or Evidence. IssuedBudget is immutable after insert; 0 is no allowance. AuditEvent is append-only. Integration tests run only when `RESEARCH_OS_TEST_DATABASE_URL` is set.
 
-**A3 PostgreSQL validation debt:** skipped integration tests are **PENDING, not PASS**. Before the first E2E vertical research loop is accepted, `tests/integration` against a real PostgreSQL URL **must** pass. Do not install Docker automatically. If `RESEARCH_OS_TEST_DATABASE_URL` is absent, report PENDING.
+**A3 PostgreSQL validation:** GATE 01 runs `tests/integration` against an explicit `RESEARCH_OS_TEST_DATABASE_URL`. Skipped tests remain **PENDING, not PASS**. Do not install Docker automatically. If the URL is absent, report PENDING.
+
+Preferred local sources, in order: existing local PostgreSQL; existing WSL PostgreSQL; an explicit local install; a container only if the developer chooses it later. Docker/Kubernetes are not architecture.
 
 ### Slice A4 — Minimal out-of-process Worker runtime (Decision 021)
 
@@ -169,13 +171,23 @@ Human-seeded Hypothesis
 - Persistent budget consumption ledger is **deferred**. Level 0 diagnostic may proceed.
 - Research OS does not claim exactly-once side effects.
 
-**Verify:** unit + architecture. PostgreSQL integration when `RESEARCH_OS_TEST_DATABASE_URL` is set; otherwise PENDING. FIRST VERTICAL RESEARCH LOOP is not complete until real PostgreSQL tests pass.
+**Verify:** unit + architecture. PostgreSQL integration when `RESEARCH_OS_TEST_DATABASE_URL` is set; otherwise PENDING.
+
+### FIRST VERTICAL RESEARCH LOOP — INFRASTRUCTURE/CONTROL LOOP GATE
+
+**Status: PASS** (GATE 01, 2026-08-16) against explicit `RESEARCH_OS_TEST_DATABASE_URL` on real PostgreSQL 18.
+
+This gate proves durable:
+
+```
+research state → authority → execution → observation feedback
+```
+
+It does **not** mean Research Brain complete, vulnerability discovery complete, or an autonomous bug bounty system complete.
+
+Skipped PostgreSQL-required tests are not used to claim this PASS.
 
 ### Next planned slices (not implemented here)
-
-### FIRST VERTICAL RESEARCH LOOP GATE
-
-Requires A3 PostgreSQL integration tests **actually passing**, plus A4 runtime + A6-lite + A7-lite. Proves the control loop, not vulnerability discovery.
 
 ### Slice A5 — Research (proposals)
 
@@ -283,9 +295,9 @@ Program
 → Research feedback
 ```
 
-This gate does **not** claim vulnerability discovery. It proves the research control loop. It is **not** implemented in A3 or A4.
+This gate does **not** claim vulnerability discovery. It proves the research control loop.
 
-**Hard prerequisite:** A3 PostgreSQL integration tests must PASS against `RESEARCH_OS_TEST_DATABASE_URL`. Skipped tests are PENDING.
+**GATE 01 status: PASS** on real PostgreSQL via explicit `RESEARCH_OS_TEST_DATABASE_URL`. Skipped tests are not PASS.
 
 ---
 

@@ -49,6 +49,12 @@ from research_os.research.planning import plan_diagnostic_echo
 from support.recording_worker import RecordingWorkerPort
 
 TEST_URL = os.environ.get(TEST_DATABASE_URL_ENV)
+if TEST_URL:
+    from research_os.data.postgres.engine import validate_test_database_url
+
+    TEST_URL = validate_test_database_url(
+        TEST_URL, application_url=os.environ.get("RESEARCH_OS_DATABASE_URL")
+    )
 NOW = datetime(2026, 8, 16, 21, 0, tzinfo=timezone.utc)
 
 

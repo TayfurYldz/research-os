@@ -27,6 +27,11 @@ from research_os.data.postgres.engine import (
     TEST_DATABASE_URL_ENV,
     create_sync_engine,
 )
+from research_os.core.authorization import AuthorizationSourceView
+from research_os.core.budget import BudgetUsage, IssuedBudget
+from research_os.core.enums import AuthorizationSourceState, ReasonCode, ScopeRuleEffect
+from research_os.core.execution import ExecutionRequest, evaluate_execution
+from research_os.core.scope import ScopeEvaluationInput, ScopeRuleMatch
 from research_os.data.postgres.unit_of_work import PostgresUnitOfWork
 from research_os.data.records import (
     AuditEventRecord,
@@ -41,6 +46,12 @@ from research_os.data.records import (
 )
 
 TEST_URL = os.environ.get(TEST_DATABASE_URL_ENV)
+if TEST_URL:
+    from research_os.data.postgres.engine import validate_test_database_url
+
+    TEST_URL = validate_test_database_url(
+        TEST_URL, application_url=os.environ.get("RESEARCH_OS_DATABASE_URL")
+    )
 
 
 def _now() -> datetime:
@@ -64,6 +75,13 @@ class PostgresSpineTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
         assert TEST_URL is not None
+        from research_os.data.postgres.engine import redacted_database_url
+
+        print(
+            "DESTRUCTIVE PostgreSQL integration tests: TRUNCATE CASCADE against "
+            f"{redacted_database_url(TEST_URL)}",
+            flush=True,
+        )
         cls.engine = create_sync_engine(TEST_URL)
         _alembic_upgrade(TEST_URL)
 
@@ -415,6 +433,241 @@ class PostgresSpineTests(unittest.TestCase):
                     )
                 )
             trans.rollback()
+
+    def test_issued_budget_delete_is_rejected(self) -> None:
+        assert self.engine is not None
+        with PostgresUnitOfWork(self.engine) as uow:
+            self._seed_run(uow)
+            uow.issued_budgets.insert(
+                IssuedBudgetRecord(
+                    budget_id="budget-del",
+                    research_run_id="run-1",
+                    max_requests=1,
+                    max_tool_calls=1,
+                    max_runtime_ms=1,
+                    max_concurrency=1,
+                    issued_at=_now(),
+                )
+            )
+            uow.commit()
+        with self.engine.connect() as connection:
+            trans = connection.begin()
+            with self.assertRaises(DBAPIError):
+                connection.execute(
+                    text("DELETE FROM issued_budget WHERE budget_id = 'budget-del'")
+                )
+            trans.rollback()
+        with PostgresUnitOfWork(self.engine) as uow:
+            self.assertIsNotNone(uow.issued_budgets.get("budget-del"))
+
+    def test_audit_event_delete_is_rejected(self) -> None:
+        assert self.engine is not None
+        with PostgresUnitOfWork(self.engine) as uow:
+            uow.audit_events.insert(
+                AuditEventRecord(
+                    audit_event_id="ae-del",
+                    occurred_at=_now(),
+                    actor_id="operator-1",
+                    actor_type="HUMAN_OPERATOR",
+                    event_type="research_run_started",
+                    subject_type="research_run",
+                    subject_id="run-1",
+                    payload={"note": "start"},
+                )
+            )
+            uow.commit()
+        with self.engine.connect() as connection:
+            trans = connection.begin()
+            with self.assertRaises(DBAPIError):
+                connection.execute(
+                    text("DELETE FROM audit_event WHERE audit_event_id = 'ae-del'")
+                )
+            trans.rollback()
+        with PostgresUnitOfWork(self.engine) as uow:
+            self.assertIsNotNone(uow.audit_events.get("ae-del"))
+
+    def test_research_run_rejects_cross_program_authorization(self) -> None:
+        assert self.engine is not None
+        with PostgresUnitOfWork(self.engine) as uow:
+            self._seed_run(uow)
+            uow.programs.insert(ProgramRecord(program_id="prog-2", created_at=_now()))
+            uow.commit()
+        with self.engine.begin() as connection:
+            with self.assertRaises(IntegrityError):
+                connection.execute(
+                    text(
+                        "INSERT INTO research_run ("
+                        "research_run_id, program_id, authorization_source_id, "
+                        "initiated_by_actor_id, initiated_by_actor_type, started_at"
+                        ") VALUES ("
+                        "'run-cross', 'prog-2', 'as-1', 'operator-1', "
+                        "'HUMAN_OPERATOR', now()"
+                        ")"
+                    )
+                )
+
+    def test_exception_rolls_back_uncommitted_work(self) -> None:
+        assert self.engine is not None
+        with PostgresUnitOfWork(self.engine) as uow:
+            self._seed_run(uow)
+            uow.commit()
+        try:
+            with PostgresUnitOfWork(self.engine) as uow:
+                uow.hypotheses.insert(
+                    HypothesisRecord(
+                        hypothesis_id="hyp-exc",
+                        research_run_id="run-1",
+                        claim="should vanish",
+                        created_at=_now(),
+                    )
+                )
+                raise RuntimeError("injected failure")
+        except RuntimeError:
+            pass
+        with PostgresUnitOfWork(self.engine) as uow:
+            self.assertIsNone(uow.hypotheses.get("hyp-exc"))
+
+    def test_zero_budget_is_no_allowance_in_core(self) -> None:
+        assert self.engine is not None
+        with PostgresUnitOfWork(self.engine) as uow:
+            self._seed_run(uow)
+            uow.issued_budgets.insert(
+                IssuedBudgetRecord(
+                    budget_id="budget-zero-core",
+                    research_run_id="run-1",
+                    max_requests=0,
+                    max_tool_calls=0,
+                    max_runtime_ms=0,
+                    max_concurrency=0,
+                    issued_at=_now(),
+                )
+            )
+            uow.commit()
+        with PostgresUnitOfWork(self.engine) as uow:
+            record = uow.issued_budgets.get("budget-zero-core")
+            source = uow.authorization_sources.get("as-1")
+        assert record is not None and source is not None
+        decision = evaluate_execution(
+            ExecutionRequest(
+                authorization_source=AuthorizationSourceView(
+                    source.authorization_source_id,
+                    source.program_id,
+                    AuthorizationSourceState(source.state),
+                ),
+                scope=ScopeEvaluationInput(
+                    matches=(
+                        ScopeRuleMatch(
+                            "rule-allow", ScopeRuleEffect.ALLOW, True, "scope-src"
+                        ),
+                    ),
+                    ambiguous=False,
+                ),
+                issued_budget=IssuedBudget(
+                    record.budget_id,
+                    record.max_requests,
+                    record.max_tool_calls,
+                    record.max_runtime_ms,
+                    record.max_concurrency,
+                ),
+                budget_usage=BudgetUsage(0, 0, 0, 0),
+                requested_budget_id=record.budget_id,
+                side_effect_level=0,
+                requested_subject="target-1",
+            )
+        )
+        self.assertEqual(decision.reason_code, ReasonCode.BUDGET_EXHAUSTED)
+
+    def test_jsonb_observation_round_trip(self) -> None:
+        assert self.engine is not None
+        with PostgresUnitOfWork(self.engine) as uow:
+            self._seed_run(uow)
+            uow.issued_budgets.insert(
+                IssuedBudgetRecord(
+                    budget_id="budget-json",
+                    research_run_id="run-1",
+                    max_requests=1,
+                    max_tool_calls=1,
+                    max_runtime_ms=1,
+                    max_concurrency=1,
+                    issued_at=_now(),
+                )
+            )
+            uow.hypotheses.insert(
+                HypothesisRecord(
+                    hypothesis_id="hyp-json",
+                    research_run_id="run-1",
+                    claim="json",
+                    created_at=_now(),
+                )
+            )
+            uow.experiments.insert(
+                ExperimentRecord(
+                    experiment_id="exp-json",
+                    research_run_id="run-1",
+                    hypothesis_id="hyp-json",
+                    budget_id="budget-json",
+                    execution_state="PLANNED",
+                    created_at=_now(),
+                )
+            )
+            uow.worker_results.insert(
+                WorkerResultRecord(
+                    worker_result_id="wr-json",
+                    experiment_id="exp-json",
+                    research_run_id="run-1",
+                    request_id="req-json",
+                    correlation_id="corr-json",
+                    worker_capability="diagnostic.echo",
+                    action="echo",
+                    authorization_decision_reference="authz-json",
+                    budget_id="budget-json",
+                    side_effect_level=0,
+                    contract_version="v1",
+                    worker_id="worker-1",
+                    status="SUCCEEDED",
+                    received_at=_now(),
+                    raw_result={"echoed": "ping", "nested": {"n": 1}},
+                )
+            )
+            uow.observations.insert(
+                ObservationRecord(
+                    observation_id="obs-json",
+                    worker_result_id="wr-json",
+                    observation_kind="diagnostic.echo",
+                    payload={"echoed": "ping", "nested": {"n": 1}},
+                    normalization_version="diagnostic.echo.v1",
+                    observed_at=_now(),
+                    created_at=_now(),
+                )
+            )
+            uow.commit()
+        with PostgresUnitOfWork(self.engine) as uow:
+            observation = uow.observations.get("obs-json")
+            result = uow.worker_results.get("wr-json")
+        assert observation is not None and result is not None
+        self.assertEqual(observation.payload["echoed"], "ping")
+        self.assertEqual(observation.payload["nested"]["n"], 1)
+        assert result.raw_result is not None
+        self.assertEqual(result.raw_result["nested"]["n"], 1)
+
+    def test_migration_chain_reaches_a7_head(self) -> None:
+        assert self.engine is not None
+        with self.engine.connect() as connection:
+            version = connection.execute(
+                text("SELECT version_num FROM alembic_version")
+            ).scalar_one()
+            tables = {
+                row[0]
+                for row in connection.execute(
+                    text(
+                        "SELECT tablename FROM pg_tables WHERE schemaname = 'public'"
+                    )
+                )
+            }
+        self.assertEqual(version, "a7_001_execution_attempt")
+        self.assertIn("execution_attempt", tables)
+        self.assertIn("worker_result", tables)
+        self.assertIn("audit_event", tables)
 
 
 if __name__ == "__main__":

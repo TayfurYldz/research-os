@@ -14,6 +14,40 @@ class EngineUrlTests(unittest.TestCase):
         self.assertNotIn("super-secret", redacted)
         self.assertIn("localhost", redacted)
 
+    def test_sqlite_is_rejected_as_test_database(self) -> None:
+        from research_os.data.errors import PersistenceInputError
+        from research_os.data.postgres.engine import validate_test_database_url
+
+        with self.assertRaises(PersistenceInputError):
+            validate_test_database_url("sqlite:///tmp/research.db")
+
+    def test_system_and_production_database_names_are_rejected(self) -> None:
+        from research_os.data.errors import PersistenceInputError
+        from research_os.data.postgres.engine import validate_test_database_url
+
+        with self.assertRaises(PersistenceInputError):
+            validate_test_database_url(
+                "postgresql+psycopg://u@localhost:5432/postgres"
+            )
+        with self.assertRaises(PersistenceInputError):
+            validate_test_database_url(
+                "postgresql+psycopg://u@localhost:5432/research_os"
+            )
+
+    def test_application_url_cannot_be_reused_as_test_url(self) -> None:
+        from research_os.data.errors import PersistenceInputError
+        from research_os.data.postgres.engine import validate_test_database_url
+
+        url = "postgresql+psycopg://u@localhost:5432/research_os_test"
+        with self.assertRaises(PersistenceInputError):
+            validate_test_database_url(url, application_url=url)
+
+    def test_isolated_test_name_is_accepted(self) -> None:
+        from research_os.data.postgres.engine import validate_test_database_url
+
+        url = "postgresql+psycopg://u@127.0.0.1:55432/research_os_test"
+        self.assertEqual(validate_test_database_url(url), url)
+
 
 if __name__ == "__main__":
     unittest.main()
