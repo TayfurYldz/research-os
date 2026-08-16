@@ -4558,3 +4558,484 @@ The anti-hype stance, N1–N3 targeting, and “Brain lives in Research” split
 
 **FINAL STATUS: PASS**
 
+---
+
+# Decision 019 — Python Packaging / Dependency Management Strategy
+
+**Status:** ACCEPT WITH CONSTRAINTS  
+**Date:** 2026-08-16  
+**Depends on:** Decision 001 (Python control plane; packaging was explicitly deferred); Decision 010 (Windows host + Kali/WSL Worker; containers not required); Decision 014 (Workers less trusted / out of process)
+
+This decision selects **how the control-plane Python project declares, resolves, and locks dependencies**.
+
+It does **not** select:
+
+- a web framework, ORM, model provider, or linter-as-architecture
+- a PyPI publishing product
+- conda / pyenv / Docker as the environment model
+- Worker-tool dependency stacks (Kali/WSL remains a separate runtime)
+- Python patch version beyond a `requires-python` floor
+
+**Python project metadata ≠ dependency resolver ≠ virtual environment ≠ runtime architecture.**
+
+Replacing the installer later must not change Domain, Core, contracts, or PostgreSQL product (Decision 003).
+
+This turn does **not** create `pyproject.toml`, a lockfile, or install anything.
+
+---
+
+## Decision
+
+**STRATEGY: ACCEPT WITH CONSTRAINTS**
+
+| Piece | v1 |
+|---|---|
+| **Project metadata** | PEP 621 **`pyproject.toml`** — names, `requires-python`, runtime dependencies, optional/dependency groups |
+| **Build backend** | **Hatchling** (PEP 517). Needed for editable installs. Not an application framework |
+| **Virtual environment** | stdlib **`venv`** (the chosen installer may create it). No global site-packages architecture. No conda |
+| **Resolver / installer / lock tool** | **uv** as the **first** control-plane tool |
+| **Lock artifact** | committed **`uv.lock`** (resolution record, not Domain truth) |
+| **Worker packaging** | **Not this pyproject.** `workers/python/` and Kali/WSL tool deps stay separate |
+
+**PRODUCT: uv is a replaceable installer**, not Research OS architecture.
+
+Declared dependencies live in `pyproject.toml`. The lockfile records a resolution. The venv holds installs. Core/Research import neither uv nor Hatchling.
+
+---
+
+## Why this decision exists
+
+Decision 001 listed packaging as a real Python risk: interpreter drift, unpinned deps, **host vs WSL drift**, native wheels, irreproducible environments. A3 cannot add PostgreSQL libraries without a declaration-and-lock story.
+
+`requirements.txt` alone is not PEP 621 metadata. Poetry-as-the-project is a workflow product pretending to be packaging standards. pip without a lock fails reproducibility. The control plane must be recreatable on Windows (Cursor host) and inspectable from WSL without becoming two architectures.
+
+---
+
+## Distinctions (non-negotiable)
+
+| Concept | Role | Not |
+|---|---|---|
+| **`pyproject.toml`** | Declared project metadata and dependency *intent* | Not the resolver, not the venv, not Core |
+| **Lockfile** | Frozen resolution (hashes) for CI/`--frozen` installs | Not Domain; tool-specific format allowed |
+| **venv** | Isolated install target | Not a deployment topology (Decision 010) |
+| **uv** | First tool that creates venv, resolves, installs, locks | Not importable from `src/research_os` |
+
+Runtime architecture remains: Core authorizes, Workers execute, Data persists. Packaging does not change that.
+
+---
+
+## Stage 1 — Mandatory gates
+
+A packaging approach is eliminated if it cannot support:
+
+| Gate | Meaning |
+|---|---|
+| Standards metadata | PEP 621 (or equivalent) project table; not a proprietary project file as the only metadata |
+| Reproducible resolution | Lock or equivalent hashed freeze; “whatever pip got today” fails |
+| Windows + WSL | Same declared deps usable on the developer host and in WSL without a second metadata language |
+| CI | Non-interactive install from lock; no assumed global `pip install` of the app |
+| Editable / local | `pip`/`uv` editable install of `src/research_os` |
+| Grouped deps | Runtime vs test/dev separable |
+| Isolation | No global interpreter as the architecture |
+| Non-leakage | Packaging tool is not a Domain/Core import |
+| Replaceability | Metadata survives swapping the installer |
+
+### Candidate results
+
+| Candidate | Stage 1 | Note |
+|---|---|---|
+| **1. venv + pip + requirements.txt only** | **Fail metadata / weak lock** | Common, not PEP 621. Pin files often hand-maintained. Rejected as the *strategy* |
+| **2. pyproject.toml + pip (no lock tool)** | **Fail reproducibility** | Metadata passes. pip is not a complete lock strategy for this project yet |
+| **3. pyproject.toml + pip-tools** | **Pass** | Strongest *portable lock artifact* (hashed requirements). Heavier bootstrap; split files per extra |
+| **4. Poetry** | **Pass weakly as a product** | Can lock and venv. Higher **tool-as-project** gravity (`poetry.lock` + Poetry workflow). Weakest replaceability among lock tools |
+| **5. PDM** | **Pass** | PEP 621 native, lockfile. Viable. Smaller operational familiarity for this repo’s CI story |
+| **6. uv** | **Pass** | PEP 621 + lock + venv + CI binary. Selected as **first tool**, not as architecture |
+| **7. conda / pixi as architecture** | **Fail** | Second packaging universe; hides “Python project” behind a solver that is not PEP 621-primary |
+
+No candidate was chosen because it is popular or fast. Speed is a Stage 2 convenience among tools that already pass.
+
+---
+
+## Candidate evaluations
+
+**requirements.txt-only** — Fine for a script folder. Fails “standards-based Python packaging” and makes extras/dev groups informal. Not selected.
+
+**pyproject.toml + pip without lock** — Correct metadata, insufficient reproducibility. Decision 001’s host-vs-WSL risk would remain. Not selected as the full strategy.
+
+**pip-tools** — Compiles PEP 621 optional dependencies to hashed requirement files. Maximum lock *portability* if uv is abandoned (`uv export` can also emit requirements). Bootstrap is longer (`python -m venv`, install pip-tools, compile, sync). Multiple compiled files for groups. **Strongest alternative**, not selected because this repo has two OS environments (Windows host Control Plane, WSL Worker) and needs a **single project lock** plus low-friction venv creation without a global helper package. pip-tools remains the default replacement path.
+
+**Poetry** — Capable locker. Treats Poetry as the project interface. Replacing Poetry later is a workflow migration, not a one-file metadata keep. Unnecessary lock-in. Not selected.
+
+**PDM** — Technically aligned with PEP 621. Not selected only because uv covers the same gates with a simpler CI bootstrap (standalone installer) for a single-developer Phase A. PDM remains a valid replacement.
+
+**uv** — Selected as the **first resolver/installer**. Uses `pyproject.toml` as declared truth; `uv.lock` as resolution truth; venv as install truth. Windows and WSL are first-class install targets for the *same* lockfile, which is the Decision 001 packaging risk this decision actually has to hit. Universal lock reduces “compiled on Windows, broken marker on WSL” compared with environment-specific requirement compiles.
+
+uv’s speed is **not** the justification. If uv vanished, keep `pyproject.toml`, generate a pip-tools or PDM lock, keep Hatchling, keep venv. Domain and Core do not change.
+
+---
+
+## Stage 2 — Differentiators (among tools that pass)
+
+| Concern | pip-tools | PDM | uv | Poetry |
+|---|---|---|---|---|
+| Metadata is PEP 621 | Yes (input) | Yes | Yes | Yes (now); workflow still Poetry-shaped |
+| Lock semantics | Hashed req files | `pdm.lock` | `uv.lock` | `poetry.lock` |
+| Windows / WSL one lock | Workable; extras split | Workable | Designed as one lock | Workable |
+| CI bootstrap | Needs pip-tools in the image | Needs PDM | Standalone binary | Needs Poetry |
+| Tool gravity into repo docs | Low | Medium | Medium | High |
+| Replacement cost | Low | Medium | Medium | High |
+
+uv wins Stage 2 on **one lock + one metadata file + CI bootstrap**, not on brand.
+
+---
+
+## How replacement stays off Domain/Core
+
+Core and Research depend on **Python stdlib + later in-tree packages**, never on the installer.
+
+SQLAlchemy/psycopg/Alembic (Decision 020) are **Data-adapter libraries**. They may be *installed* into the control-plane venv because Phase A runs local PostgreSQL next to the Control Plane. **Import rules**, not extras, enforce boundaries:
+
+- `research_os.core` / `research_os.research` must not import uv, hatchling, sqlalchemy, psycopg, alembic
+- Architecture tests (already used for Core) remain the regression guard
+
+Optional dependency groups (`dev`, `test`, later `integrations` providers) keep runtime vs development intent explicit. They are not a second architecture.
+
+Provider SDKs, browser stacks, and Kali tool wheels **do not** enter Core extras “because uv can add them.” Integrations and Workers keep their own dependency surfaces.
+
+---
+
+## Constraints
+
+1. **`pyproject.toml` is the declared-dependency source of truth.** Do not maintain a parallel handwritten runtime `requirements.txt` as competing truth. Export files, if any, are generated.
+2. **Lockfile is committed** and CI installs frozen from it. Unlocked “pip install sqlalchemy” in docs is not the workflow.
+3. **venv isolation.** No global Python as the project environment. Document `uv sync` (or equivalent) into `.venv`.
+4. **`requires-python` floor: `>=3.11`.** A2 uses modern typing; 3.11 is the first control-plane floor. Not a claim that 3.10 is incapable.
+5. **Hatchling is the first build backend**, replaceable without Domain change.
+6. **uv is replaceable.** Do not import it. Do not put uv-specific types in Domain.
+7. **Control-plane pyproject ≠ Worker environment.** Kali/WSL tool deps are not this lock.
+8. **Data-layer libraries may be installed in the control-plane venv** and still must not be imported by Core/Research (Decision 020).
+9. **No conda/poetry-as-architecture.** No Docker selected to “fix packaging” (Decision 010).
+10. **No linter/test-runner product** is selected here. stdlib `unittest` remains until a later decision. Adding ruff/mypy later is a dev-group choice, not this strategy.
+11. **Secrets stay out of pyproject** (Decision 013).
+
+---
+
+## Revisit triggers
+
+- Frozen lock installs differ across Windows vs WSL in a way that breaks A3
+- uv lock format or resolver bugs block CI reproducibility
+- PEP 751 / pip-native lock becomes the better committed artifact (`uv.lock` exported or replaced; metadata stays)
+- Publishing a wheel to a private index needs a different backend
+- Control-plane vs Worker dependency split needs a second pyproject (still not Core)
+
+Revisit does **not** mean: put packaging types in Core, or make Poetry/conda the architecture.
+
+---
+
+## Open questions
+
+- Exact optional-group names (`dev` / `test` / `postgres`) at first `pyproject.toml` creation
+- Whether Workers get a separate `workers/python/pyproject.toml` when A7 starts
+- Python 3.12 vs 3.13 in CI images (floor is 3.11)
+
+---
+
+## Confidence
+
+**MEDIUM**
+
+PEP 621 metadata and venv isolation are high-confidence. uv as *first tool* is medium: the lockfile is tool-specific, and pip-tools remains a fully viable replacement. Confidence is not HIGH because the files do not exist yet and host/WSL native-wheel behavior will only be proven when A3 dependencies are actually locked.
+
+---
+
+## Self-audit (Decision 019)
+
+| Forbidden reading | Status |
+|---|---|
+| Dependency manager became architecture | **No**; uv is a replaceable installer |
+| pyproject confused with resolver | **No**; table of distinctions |
+| Windows/WSL ignored | **No**; primary Stage 2 reason for one lock |
+| Reproducibility ignored | **No**; committed lock + frozen CI |
+| Tool replacement would break Domain/Core | **No** |
+| Popularity/speed as the reason | **No**; speed noted as non-justification |
+| Global Python assumed | **No** |
+| Worker/Kali deps mixed into Core metadata | **Forbidden** |
+| Files created this turn | **No** |
+
+**FINAL STATUS: PASS**
+
+---
+
+# Decision 020 — PostgreSQL Data Access / Transaction / Migration Strategy
+
+**Status:** ACCEPT WITH CONSTRAINTS  
+**Date:** 2026-08-16  
+**Depends on:** Decision 001 (Python control plane); Decision 002 (relational SoR; JSON not authority); Decision 003 (PostgreSQL product; ORM/migrations were deferred); Decision 010 (local PostgreSQL; Docker not required); Decision 016 (Python classes ≠ contracts); Decision 019 (control-plane deps; Data libs may be installed, not imported by Core)
+
+This decision selects **how** the control plane talks to the locked PostgreSQL SoR, **who owns transactions**, and **how schema history is versioned**.
+
+It does **not** select:
+
+- the A3 table catalog or SQL DDL
+- target wildcard / CIDR / graph / vector / model-routing / remote-Worker schemas
+- Docker / docker-compose / a testcontainer product
+- SQLite as a second SoR
+- an async API framework
+- connection-pooler product (PgBouncer, etc.)
+
+No ORM models, migrations, repositories, or connection code are created in this turn.
+
+---
+
+## Decision
+
+**STRATEGY: ACCEPT WITH CONSTRAINTS**
+
+| Piece | v1 |
+|---|---|
+| **Data access** | **SQLAlchemy 2.x Core** (Table / MetaData / SQL expressions / Engine) **inside the Data adapter only** |
+| **DBAPI driver** | **psycopg 3** (`psycopg`) under SQLAlchemy, Data adapter only |
+| **ORM** | **Not selected** as the mapping architecture. No declarative Domain. No SQLModel |
+| **Transaction / UoW** | **Synchronous** SQLAlchemy `Engine` + explicit transaction/connection context **owned by the Data adapter**. Persistence-port methods define atomic use-cases |
+| **Migrations** | **Alembic** with **reviewed, versioned migration scripts**. Autogenerate may assist; it is not production schema authority |
+| **Tests against SoR** | **Real PostgreSQL**. SQLite is not a semantic stand-in. Docker is not selected to host it |
+
+**Dependency direction (required):**
+
+```
+Core / Research domain types
+        ↓
+Persistence ports / repository interfaces  (no SQL)
+        ↓
+Data adapter
+        ↓
+SQLAlchemy Core + psycopg + Alembic
+        ↓
+PostgreSQL
+```
+
+Never: Core → SQLAlchemy; Research → psycopg; Worker → PostgreSQL.
+
+---
+
+## Why this decision exists
+
+Decision 003 locked PostgreSQL and explicitly left ORM, migrations, pooling, and drivers open. A3 cannot start without those implementation boundaries, or SQLAlchemy types will leak into Core the way Decision 001 warned vendor SDKs would.
+
+The SoR must later commit **Approval + Finding + AuditEvent** together, and **budget reservation/decrement + execution-start state** together (Decision 003). That is a **transaction-ownership** problem, not an ORM-relationship problem.
+
+Workers do not write the SoR (PROJECT_STRUCTURE / Decision 005). Async DB access is not implied by out-of-process Workers.
+
+---
+
+## Stage 1 — Mandatory gates
+
+| Gate | Meaning |
+|---|---|
+| Boundary | Core/Research import no SQLAlchemy, psycopg, Alembic, PostgreSQL types, or table names |
+| ORM ≠ Domain | Persistence objects are not Candidate/Finding/Evidence |
+| Transactions | Multi-record authoritative writes can commit or roll back together |
+| Migrations | Reviewable, versioned history; not `create_all` as production |
+| Integrity | FKs, uniqueness, checks, append-only history *can* be expressed (A3 designs the DDL) |
+| Sync justified | Async not required by v1 topology |
+| PostgreSQL tests | Integration tests hit PostgreSQL, not SQLite-as-Postgres |
+| No schema dump | This decision does not invent the domain catalog |
+
+### Data-access candidates
+
+| Candidate | Stage 1 | Note |
+|---|---|---|
+| **1. Direct psycopg SQL only** | **Pass** | Explicit. Strongest simple alternative. Reimplements pool/composition Alembic still has to sit on something |
+| **2. SQLAlchemy Core** | **Pass** | Selected. Mapping stays explicit; Engine/transaction/Alembic fit |
+| **3. SQLAlchemy ORM (declarative as Domain)** | **Fail** | ORM entity becomes Domain; lifecycle/relationship confusion |
+| **4. SQLAlchemy hybrid Core/ORM** | **Pass weakly** | Allowed later *inside Data* if measured. v1 hybrid invites ORM creep |
+| **5. SQLModel / similar** | **Fail** | Table + validation model as one object; Domain gravity is worse |
+| **6. Custom repository over direct SQL** | **Pass as a pattern** | Selected **with** Core-level SQLAlchemy, not instead of a driver. Repositories remain the port shape |
+| **7. Django ORM / Tortoise / Piccolo** | **Fail** | Framework-shaped Domain; API/framework not chosen (Decision 011) |
+
+### Migration candidates
+
+| Candidate | Stage 1 | Note |
+|---|---|---|
+| **1. Hand-written SQL only** | **Pass** | Viable. Weaker engine/metadata coupling unless a runner is invented |
+| **2. Alembic** | **Pass** | Selected. Version table + reviewed scripts; can emit raw SQL |
+| **3. ORM `create_all` as architecture** | **Fail** | Not reviewable history; not production-safe |
+| **4. Atlas / Flyway / sqitch as v1 product** | **Pass as later ops** | Extra product before a Python control plane exists. Not chosen now |
+
+---
+
+## Data access — why SQLAlchemy Core (not “industry standard”)
+
+Concrete fit to *this* SoR:
+
+- **Explicit mappings.** `Table` objects live in the Data adapter. Domain dataclasses (and A2 Core types) stay ignorant of columns. Mapping is functions at the adapter edge, not inheritance from `DeclarativeBase`.
+- **PostgreSQL support.** SQLAlchemy PostgreSQL dialect can use JSONB **only** for Decision 002 secondary attributes, in Data, not as Core types.
+- **Transaction control.** `conn.begin()` / `trans.commit()` / `rollback()` is the UoW primitive we need for Approval+Finding+AuditEvent without an identity map.
+- **Constraints.** DDL for FK/unique/check is expressed in migrations (and optionally mirrored on `Table` for autogenerate-as-diff). Integrity lives in PostgreSQL, not in ORM validators.
+- **Migration integration.** Alembic is built to run against a SQLAlchemy `MetaData`/`Engine` while still allowing hand-written `op.execute(...)`.
+- **Testability.** Ports can be faked in Core/Research unit tests; integration tests use a real Engine against PostgreSQL.
+- **Separation from Domain.** Core stays as A2: stdlib, no IO. Research stays proposals. Neither receives a `Session`.
+- **Python ecosystem.** Driver is psycopg 3, a PostgreSQL client, not a second SoR.
+- **Operational complexity.** One library family (SQLAlchemy + Alembic + psycopg) in the Data extra/venv, not a Django stack and not a silent SQLite dialect switch.
+
+**Why not ORM:** SQLAlchemy instance state, lazy loads, relationship cascades, and `session.merge` are the fastest way to confuse Candidate lifecycle with ORM lifecycle. Decision 016 already forbids Python classes as contract truth; declarative models as Domain would repeat that failure inside Data.
+
+**Why not SQLModel:** it *intends* one class to be both schema and API/domain. That is the anti-goal.
+
+**Why not direct psycopg only:** it can do transactions and constraints. It does not lose. It loses Stage 2 on composable queries, pooling, and Alembic’s native `Engine` story. Direct SQL remains allowed **inside** the adapter (Alembic `op.execute`, psycopg-specific features) when Core SQLAlchemy expressions are a poor fit. That is an adapter detail, not a second architecture.
+
+---
+
+## Transaction model
+
+**Core does not manage transactions.** Core remains a pure evaluator (`ExecutionDecision`, Approval eligibility). It does not begin, commit, or roll back PostgreSQL work.
+
+**Research does not open SoR transactions** as domain logic. It may call persistence **ports**.
+
+**Workers never write PostgreSQL.**
+
+**Ownership:** the Data adapter (invoked from Interface/application use-cases, not from Workers) owns `Engine` connections and transaction scope.
+
+**Unit of Work (conceptual, not a required class name):**
+
+- One persistence use-case ⇒ one transaction unless a documented exception exists.
+- Failure ⇒ rollback. Partial Approval without Finding is a defect, not a retry-shaped success.
+- Future atomic examples (not implemented now):
+  - Approval + Finding + AuditEvent
+  - Budget reservation/decrement + execution-start authorization state
+- Transition A and Transition B remain **separate** transactions/workflows (Decision 003), not separate databases.
+
+Commit ownership is **the adapter method that started the transaction**, not Core, not the ORM session identity map, not the Worker.
+
+A later `UnitOfWork` port is allowed if it stays in Data contracts and is implemented only in the PostgreSQL adapter.
+
+---
+
+## Sync vs async
+
+**v1 Data layer is synchronous.**
+
+Workers being concurrent processes does not require async DB drivers. They do not touch the SoR. Phase A is a local Control Plane with modest concurrency. The API framework is **deferred** (Decision 011) and must not drive this choice.
+
+Async SQLAlchemy + asyncpg/psycopg-async adds a second programming model before any measured control-plane wait-time problem. Revisit if a later Interface is async **and** blocking Engine use is measured as a bottleneck. Do not invent that bottleneck now.
+
+---
+
+## Migrations
+
+- Alembic versioned scripts are **infrastructure history**, not Domain truth (DOMAIN_MODEL.md).
+- Production and SoR integration tests apply migrations. **`MetaData.create_all()` is not the migration architecture** and is not the PostgreSQL test setup for semantics we claim to test.
+- Autogenerate is an optional assistant. Every migration is reviewed. Destructive changes are explicit.
+- Forward evolution is required. Down-migrations are not mandated as architecture; if present, they are operational convenience.
+- CI can run Alembic against a real PostgreSQL service (local, WSL, or CI service). **Docker is not chosen** to make that true (Decision 010).
+
+A3 still designs the first schema. This decision only locks the *mechanism*.
+
+---
+
+## PostgreSQL testing
+
+SQLite may exist later for **non-SoR** unit tests (pure functions). It **must not** validate:
+
+- PostgreSQL constraints
+- transaction / isolation semantics
+- locking
+- JSONB
+- concurrent budget operations
+- Alembic behavior on PostgreSQL
+
+Decision 003 already rejected SQLite as the shared SoR. This decision rejects it as a **silent dialect substitute**.
+
+How PostgreSQL is installed for tests (native Windows, WSL, CI service, later container) remains a deployment/dev-ops choice, not this strategy.
+
+---
+
+## Integrity (A3 still designs enforcement)
+
+The stack must be *able* to enforce, later:
+
+- foreign keys, uniqueness, check constraints
+- append-only / no silent rewrite of Evidence, AuditEvent, recorded Approval (correction = new row / superseding history)
+- lifecycle columns as first-class fields, not JSON bags (Decision 002)
+- provenance columns
+- transaction boundaries above
+
+Exact triggers, `REVOKE UPDATE`, or application guards are A3 design, not this decision.
+
+---
+
+## What this decision does not design
+
+No tables for: wildcard grammar, CIDR matching, causal graphs, vectors, chain engine, model routing, remote Worker topology. Those would reopen Decisions 009, 018, 005, 008.
+
+---
+
+## Constraints
+
+1. **Core must not import** SQLAlchemy, psycopg, Alembic, or know table names / PostgreSQL types / transactions.
+2. **Research must not import** PostgreSQL drivers or treat mapped objects as domain truth.
+3. **Workers must not write the SoR.**
+4. **ORM entity ≠ Domain entity.** ORM lifecycle ≠ Candidate lifecycle. ORM relationship ≠ domain semantics. v1 does not use ORM as the mapping architecture.
+5. **SQLAlchemy `Table`/`MetaData` live in the Data adapter**, not in `research_os.core`.
+6. **Transactions owned by Data adapter use-cases**, not Core.
+7. **Sync Engine in v1.** Async is a revisit, not a default.
+8. **Alembic scripts are required** for SoR evolution. `create_all` is not production.
+9. **Integration tests for SoR semantics use PostgreSQL**, not SQLite-as-Postgres.
+10. **Docker is not selected** by this decision.
+11. **JSONB stays secondary** (Decision 002), Data-only.
+12. **Python SQLAlchemy types are not contracts** (Decision 016).
+13. **No A3 schema in this decision.**
+14. **Decision 019:** these libraries are control-plane/Data dependencies, not Core package architecture.
+
+---
+
+## Revisit triggers
+
+- SQLAlchemy Core mapping overhead is measured as worse than explicit psycopg (switch adapter internals; keep ports)
+- Proven throughput/bulk ingest problem (COPY, partitioning) — still Data-only
+- Control-plane async Interface exists **and** blocking DB is measured
+- Alembic operational pain (then consider sqitch/Flyway **for SQL history**, not a Domain change)
+- A need for ORM **inside Data only**, with imperative mapping, after Core leakage tests still pass
+- PostgreSQL features that the Core SQLAlchemy dialect handles poorly (use `op.execute` / psycopg in the adapter)
+
+Do not invent performance problems. Revisit does **not** mean: Core imports SQLAlchemy, SQLite becomes the SoR test, or `create_all` becomes production.
+
+---
+
+## Open questions
+
+- Persistence port names and whether a generic `UnitOfWork` type is worth it in A3
+- Alembic script location (`src/research_os/data/...` vs repo-level `migrations/`)
+- Isolation level for budget decrement (A3)
+- How append-only is enforced (REVOKE vs trigger vs application + tests)
+
+---
+
+## Confidence
+
+**MEDIUM**
+
+SQLAlchemy Core + Alembic + psycopg + sync Engine matches the SoR, the A2 purity of Core, and Phase A topology. Confidence is not HIGH because boundary leakage is a people/process risk, Alembic autogenerate will tempt schema-as-ORM, and the first schema does not exist yet. Constraints and import tests are the mitigation.
+
+---
+
+## Self-audit (Decision 020)
+
+| Forbidden reading | Status |
+|---|---|
+| ORM model became Domain model | **No**; ORM not selected as mapping architecture |
+| Core imports persistence framework | **Forbidden** |
+| Research imports PostgreSQL | **Forbidden** |
+| Worker can write SoR | **No** |
+| Async selected without need | **No**; sync first |
+| SQLite silently substituted | **Forbidden** for SoR semantics |
+| Migrations = auto-create | **No**; Alembic reviewed scripts |
+| Transaction ownership unclear | **No**; Data adapter / persistence use-case |
+| PostgreSQL leaked across boundary | **Forbidden**; dialect stays in adapter |
+| Whole domain schema designed | **No** |
+| Artifact/vector/graph mixed in | **No** |
+| Docker selected for tests | **No** |
+| Files/models created this turn | **No** |
+
+**FINAL STATUS: PASS**
+
