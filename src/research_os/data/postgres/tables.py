@@ -1,0 +1,205 @@
+"""SQLAlchemy Core metadata for the A3 persistence spine. Adapter-only."""
+
+from sqlalchemy import (
+    CheckConstraint,
+    Column,
+    DateTime,
+    ForeignKey,
+    ForeignKeyConstraint,
+    Integer,
+    MetaData,
+    Table,
+    Text,
+    UniqueConstraint,
+)
+from sqlalchemy.dialects.postgresql import JSONB
+
+metadata = MetaData()
+
+program = Table(
+    "program",
+    metadata,
+    Column("program_id", Text, primary_key=True),
+    Column("name", Text, nullable=True),
+    Column("created_at", DateTime(timezone=True), nullable=False),
+)
+
+authorization_source = Table(
+    "authorization_source",
+    metadata,
+    Column("authorization_source_id", Text, primary_key=True),
+    Column("program_id", Text, ForeignKey("program.program_id"), nullable=False),
+    Column("state", Text, nullable=False),
+    Column("provenance_reference", Text, nullable=False),
+    Column("effective_from", DateTime(timezone=True), nullable=True),
+    Column("effective_until", DateTime(timezone=True), nullable=True),
+    Column("created_at", DateTime(timezone=True), nullable=False),
+    UniqueConstraint(
+        "authorization_source_id",
+        "program_id",
+        name="uq_authorization_source_id_program",
+    ),
+    CheckConstraint(
+        "state IN ('ACTIVE', 'EXPIRED', 'REVOKED')",
+        name="ck_authorization_source_state",
+    ),
+    CheckConstraint(
+        "effective_until IS NULL OR effective_from IS NULL "
+        "OR effective_until >= effective_from",
+        name="ck_authorization_source_effective_window",
+    ),
+)
+
+research_run = Table(
+    "research_run",
+    metadata,
+    Column("research_run_id", Text, primary_key=True),
+    Column("program_id", Text, ForeignKey("program.program_id"), nullable=False),
+    Column("authorization_source_id", Text, nullable=False),
+    Column("initiated_by_actor_id", Text, nullable=False),
+    Column("initiated_by_actor_type", Text, nullable=False),
+    Column("started_at", DateTime(timezone=True), nullable=False),
+    ForeignKeyConstraint(
+        ["authorization_source_id", "program_id"],
+        [
+            "authorization_source.authorization_source_id",
+            "authorization_source.program_id",
+        ],
+        name="fk_research_run_authorization_same_program",
+    ),
+    CheckConstraint(
+        "initiated_by_actor_type IN "
+        "('HUMAN_OPERATOR', 'CONTROL_PLANE', 'WORKER', 'INTEGRATION')",
+        name="ck_research_run_actor_type",
+    ),
+)
+
+issued_budget = Table(
+    "issued_budget",
+    metadata,
+    Column("budget_id", Text, primary_key=True),
+    Column("research_run_id", Text, ForeignKey("research_run.research_run_id"), nullable=False),
+    Column("max_requests", Integer, nullable=False),
+    Column("max_tool_calls", Integer, nullable=False),
+    Column("max_runtime_ms", Integer, nullable=False),
+    Column("max_concurrency", Integer, nullable=False),
+    Column("issued_at", DateTime(timezone=True), nullable=False),
+    UniqueConstraint("budget_id", "research_run_id", name="uq_issued_budget_id_run"),
+    CheckConstraint("max_requests >= 0", name="ck_issued_budget_max_requests"),
+    CheckConstraint("max_tool_calls >= 0", name="ck_issued_budget_max_tool_calls"),
+    CheckConstraint("max_runtime_ms >= 0", name="ck_issued_budget_max_runtime_ms"),
+    CheckConstraint("max_concurrency >= 0", name="ck_issued_budget_max_concurrency"),
+)
+
+hypothesis = Table(
+    "hypothesis",
+    metadata,
+    Column("hypothesis_id", Text, primary_key=True),
+    Column("research_run_id", Text, ForeignKey("research_run.research_run_id"), nullable=False),
+    Column("claim", Text, nullable=False),
+    Column("origin_reference", Text, nullable=True),
+    Column("created_at", DateTime(timezone=True), nullable=False),
+    UniqueConstraint("hypothesis_id", "research_run_id", name="uq_hypothesis_id_run"),
+)
+
+experiment = Table(
+    "experiment",
+    metadata,
+    Column("experiment_id", Text, primary_key=True),
+    Column("research_run_id", Text, nullable=False),
+    Column("hypothesis_id", Text, nullable=False),
+    Column("budget_id", Text, nullable=False),
+    Column("execution_state", Text, nullable=False),
+    Column("created_at", DateTime(timezone=True), nullable=False),
+    ForeignKeyConstraint(
+        ["hypothesis_id", "research_run_id"],
+        ["hypothesis.hypothesis_id", "hypothesis.research_run_id"],
+        name="fk_experiment_hypothesis_same_run",
+    ),
+    ForeignKeyConstraint(
+        ["budget_id", "research_run_id"],
+        ["issued_budget.budget_id", "issued_budget.research_run_id"],
+        name="fk_experiment_budget_same_run",
+    ),
+    CheckConstraint(
+        "execution_state IN ("
+        "'PLANNED', 'AUTHORIZATION_CHECK', 'READY', 'RUNNING', "
+        "'EXECUTION_SUCCEEDED', 'EXECUTION_FAILED', 'BLOCKED', "
+        "'CANCELLED', 'BUDGET_EXHAUSTED')",
+        name="ck_experiment_execution_state",
+    ),
+)
+
+worker_result = Table(
+    "worker_result",
+    metadata,
+    Column("worker_result_id", Text, primary_key=True),
+    Column("experiment_id", Text, ForeignKey("experiment.experiment_id"), nullable=False),
+    Column("contract_version", Text, nullable=False),
+    Column("worker_id", Text, nullable=False),
+    Column("status", Text, nullable=False),
+    Column("correlation_id", Text, nullable=True),
+    Column("started_at", DateTime(timezone=True), nullable=True),
+    Column("completed_at", DateTime(timezone=True), nullable=True),
+    Column("received_at", DateTime(timezone=True), nullable=False),
+    Column("raw_result", JSONB, nullable=True),
+    Column("raw_artifact_descriptors", JSONB, nullable=True),
+    Column("diagnostics", JSONB, nullable=True),
+    Column("control_signal", JSONB, nullable=True),
+    CheckConstraint(
+        "status IN ("
+        "'SUCCEEDED', 'EXECUTION_FAILED', 'BLOCKED', 'CANCELLED', "
+        "'TIMED_OUT', 'BUDGET_EXHAUSTED', 'REAUTHORIZATION_REQUIRED')",
+        name="ck_worker_result_status",
+    ),
+)
+
+observation = Table(
+    "observation",
+    metadata,
+    Column("observation_id", Text, primary_key=True),
+    Column(
+        "worker_result_id",
+        Text,
+        ForeignKey("worker_result.worker_result_id"),
+        nullable=False,
+    ),
+    Column("observation_kind", Text, nullable=False),
+    Column("payload", JSONB, nullable=False),
+    Column("normalization_version", Text, nullable=False),
+    Column("observed_at", DateTime(timezone=True), nullable=False),
+    Column("created_at", DateTime(timezone=True), nullable=False),
+)
+
+audit_event = Table(
+    "audit_event",
+    metadata,
+    Column("audit_event_id", Text, primary_key=True),
+    Column("occurred_at", DateTime(timezone=True), nullable=False),
+    Column("actor_id", Text, nullable=False),
+    Column("actor_type", Text, nullable=False),
+    Column("event_type", Text, nullable=False),
+    Column("subject_type", Text, nullable=False),
+    Column("subject_id", Text, nullable=False),
+    Column("correlation_id", Text, nullable=True),
+    Column("payload", JSONB, nullable=False),
+    CheckConstraint(
+        "actor_type IN "
+        "('HUMAN_OPERATOR', 'CONTROL_PLANE', 'WORKER', 'INTEGRATION')",
+        name="ck_audit_event_actor_type",
+    ),
+)
+
+SPINE_TABLES = (
+    program,
+    authorization_source,
+    research_run,
+    issued_budget,
+    hypothesis,
+    experiment,
+    worker_result,
+    observation,
+    audit_event,
+)
+
+APPEND_ONLY_TABLES = ("issued_budget", "audit_event")

@@ -1,0 +1,36 @@
+"""Unit-of-Work protocol. Core does not manage database transactions."""
+
+from __future__ import annotations
+
+from typing import Protocol
+
+from research_os.data.ports import (
+    AuditEventRepository,
+    AuthorizationSourceRepository,
+    ExperimentRepository,
+    HypothesisRepository,
+    IssuedBudgetRepository,
+    ObservationRepository,
+    ProgramRepository,
+    ResearchRunRepository,
+    WorkerResultRepository,
+)
+
+
+class UnitOfWork(Protocol):
+    """One explicit transaction. Commit is required; otherwise rollback."""
+
+    programs: ProgramRepository
+    authorization_sources: AuthorizationSourceRepository
+    research_runs: ResearchRunRepository
+    issued_budgets: IssuedBudgetRepository
+    hypotheses: HypothesisRepository
+    experiments: ExperimentRepository
+    worker_results: WorkerResultRepository
+    observations: ObservationRepository
+    audit_events: AuditEventRepository
+
+    def commit(self) -> None: ...
+    def rollback(self) -> None: ...
+    def __enter__(self) -> UnitOfWork: ...
+    def __exit__(self, exc_type, exc, tb) -> bool: ...

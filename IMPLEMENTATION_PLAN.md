@@ -30,6 +30,8 @@ Decision-driver order remains: correctness → authorization/security → durabi
 | 016 | JSON Schema Draft 2020-12 canonical contracts; Python classes are not contract truth |
 | 017 | False-positive suppression; signal ≠ Evidence ≠ Finding; INCONCLUSIVE valid; confidence deferred |
 | 018 | Realistic novelty N1/N2/growing N3; N4 not promised; Research Brain in Research, not Core |
+| 019 | PEP 621 pyproject.toml; Hatchling; uv installer/lock (replaceable); Python >=3.11 |
+| 020 | SQLAlchemy 2 Core + psycopg 3 + Alembic; sync Data adapter; no ORM; no SQLite-as-Postgres |
 
 ---
 
@@ -80,13 +82,24 @@ Authorization request/decision remain Core domain/authority model in this slice.
 
 **Verify:** missing AuthorizationSource or ambiguous scope → DENY or REQUIRE_HUMAN_REVIEW. LLM-shaped input cannot authorize. No subprocess, no SDKs.
 
-### Slice A3 — Data ports + PostgreSQL SoR
+### Slice A3 — Persistence spine (PostgreSQL)
 
-Persist Program, AuthorizationSource, ScopeRule, ResearchRun, Budget, and AuditEvent first. Then Observation/Artifact **metadata**, WorkerResult **record**, Evidence, Candidate, FindingProposal, Finding, Approval.
+**Data access (Decision 020):** SQLAlchemy 2 Core + psycopg 3 + Alembic, synchronous Data adapter, explicit Unit of Work. **No ORM. No SQLModel.** SQLite is not a PostgreSQL substitute.
+
+A3 implements a **minimum authoritative persistence spine**, not the complete domain schema:
+
+Program → AuthorizationSource → ResearchRun → IssuedBudget → Hypothesis → Experiment → WorkerResult → Observation, plus AuditEvent.
+
+**Deliberately deferred** until their domain semantics are ready (do not invent them as JSON authority):
+
+- ScopeRule matcher definitions (grammar/normalization not locked)
+- Evidence (Evidence admission authority is still an open domain question)
+- Candidate, Verification, FindingProposal, Finding, Approval
+- Snapshot, ChangeEvent, graphs, vectors, model routing
 
 Artifact identity/reference/hash as a **wire** contract is not part of A1. Decide that boundary here and/or in A4 (byte port) when the cross-process need is real.
 
-**Verify:** Approval + Finding in one transaction; Evidence/AuditEvent/Approval not updated in place; JSON/flexible fields not used for authority. **ORM and migration tool still unchosen** — pick them in a later recorded decision before this slice’s implementation, not silently.
+**Verify:** Alembic upgrade is the schema path (`create_all` is not startup). Core/Research import no SQLAlchemy/psycopg/Alembic. WorkerResult insert does not create Observation or Evidence. IssuedBudget is immutable after insert; 0 is no allowance. AuditEvent is append-only. Integration tests run only when `RESEARCH_OS_TEST_DATABASE_URL` is set.
 
 ### Slice A4 — Tools + Platform ports
 
@@ -143,14 +156,13 @@ Distributed Control Plane/Workers, object-store artifact adapter, external secre
 
 ## Explicitly later / not this roadmap’s job
 
-- ORM, migration tool, API framework, web framework
+- API framework, web framework
 - Temporal/Celery/Prefect, brokers, Redis
 - Vector/graph/search products
 - Embedding pipeline
 - Full observability platform
 - Docker/Kubernetes as architecture
 - Multi-model live routing
-- Packaging (`pyproject.toml`) — add when A2/A3 start, as a packaging decision, not as hidden stack lock-in
 
 ---
 
@@ -179,6 +191,29 @@ A single operator can:
 All of that uses this repository layout, PostgreSQL as SoR, and no extra product mandated by this plan.
 
 Research Brain (target/state model, invariant mining, differential engine, exploration policy) is **not** required for this first working implementation. It is later Research work (Decisions 017–018), not Core.
+
+---
+
+## Vertical-slice gate (after A3 spine exists)
+
+After the minimum persistence, Worker, orchestration, and Research pieces exist, prove an **end-to-end control loop** before broad horizontal schema expansion:
+
+```
+Program
+→ AuthorizationSource
+→ ResearchRun
+→ Hypothesis
+→ Experiment
+→ Core ExecutionDecision
+→ WorkerRequest
+→ Worker
+→ WorkerResult
+→ Transition A
+→ Observation
+→ Research feedback
+```
+
+This gate does **not** claim vulnerability discovery. It proves the research control loop. It is **not** implemented in A3.
 
 ---
 

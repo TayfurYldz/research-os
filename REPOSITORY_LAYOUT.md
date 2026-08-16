@@ -168,12 +168,13 @@ Decision 006 first adapter: local filesystem bytes. Opaque locators only in SoR.
 
 ## Explicitly not in this layout
 
-- ORM, migration tool, API framework, web framework
+- API framework, web framework
 - workflow/queue/broker product
 - cache/vector/graph/search product
 - secrets or observability vendor
 - container/Kubernetes manifests as architecture
-- `pyproject.toml` / lockfiles (packaging slice later)
+
+Packaging (`pyproject.toml`, `uv.lock`) and the PostgreSQL adapter (SQLAlchemy 2 Core, Alembic) now exist. They are not Domain/Core architecture. ORM is not used.
 
 ---
 
