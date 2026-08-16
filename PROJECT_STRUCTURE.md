@@ -1,0 +1,488 @@
+# Research OS — Project Structure
+
+This document defines the high-level architectural boundaries of Research OS.
+
+It is a design-phase artifact. It does not choose a technology stack, create folders, or prescribe implementations.
+
+Research OS is not an AI vulnerability scanner. The LLM is a reasoning component, not the system.
+
+Core loop:
+
+- AI reasons.
+- System decides.
+- Tools execute.
+- Evidence proves.
+- Human validates.
+
+In this architecture, "Tools execute" means execution proceeds through the Tools contract, Worker runtime, and Integration adapter path. Workers are the only layer that may perform side effects.
+
+```
+Research OS
+├── Core
+├── Research
+├── Data
+├── Tools
+├── Workers
+├── Integrations
+├── Platform
+└── Interface
+```
+
+Trust hierarchy and dependency direction are separate concepts. They are defined after the layer boundaries.
+
+---
+
+## Core
+
+**Purpose:** Own the system's invariant control logic. Core is the highest-trust layer and the final authority for control decisions.
+
+**Responsibility:** Decide whether a requested operation is allowed. Core evaluates `request → policy → scope → budget → execution`. Default posture is DEFAULT DENY. Core authorizes execution; it does not perform the side effect itself.
+
+Core is the final authority for:
+
+- authorization
+- scope
+- policy
+- budget ownership
+- approval semantics
+- execution authorization
+
+**Contains:**
+
+- authorization boundary evaluation
+- written authorization source and written program/scope as required system inputs
+- program rules
+- explicit allow/deny rules
+- out-of-scope asset enforcement
+- policy and permission contracts
+- budget policy ownership: max requests, max runtime, max tool calls, max concurrency, and related limits
+- approval requirement, approval state, and approval decision semantics
+- Candidate → Finding promotion contract
+- execution control contracts
+- audit semantics for control decisions
+
+Authorization, program rules, explicit allow/deny rules, out-of-scope assets, and written authorization source are enforced in Core's policy/scope layer.
+
+Ambiguous scope must resolve to **DENY** or **REQUIRE_HUMAN_REVIEW**.
+
+If authorization is missing, active execution does not start.
+
+**Must not:**
+
+- host security tool implementations
+- host model-specific logic
+- host vendor-specific integrations
+- depend on Research
+- import concrete Integrations or concrete Platform implementations
+- treat LLM output as authorization, scope, policy, or budget
+- declare a target authorized from model reasoning
+- accept "probably in-scope", "same company", or "same domain family" as authorization
+- start active testing when scope or authorization information is missing
+- treat derived targets (redirects, discovered assets, new subdomains) as automatically authorized
+- perform side effects
+- let budget limits be raised, changed, or bypassed after they are issued
+
+---
+
+## Research
+
+**Purpose:** Own research intelligence and reasoning-domain logic.
+
+**Responsibility:** Plan, hypothesize, prioritize, and propose controlled work. Produce untrusted structured proposals. Research may depend on Core contracts. Research cannot change Core decisions.
+
+**Contains:**
+
+- planning
+- context building
+- hypothesis generation
+- experiment planning
+- verification logic
+- Candidate proposals
+- verification-result proposals
+- Finding proposals
+- adaptive reasoning
+- chain reasoning
+- prioritization
+
+**Must not:**
+
+- execute
+- perform network, browser, shell, or other side effects
+- change scope, policy, budget, or its own authority
+- obtain direct shell, network, or browser authority
+- treat its own claim as evidence or its own hypothesis as fact
+- accept a Candidate or Finding on its own
+- bypass Core
+- import concrete Integrations or concrete Platform implementations
+- use LLM conversation history as durable system memory or authoritative persistent state
+
+Research produces proposals only. Agent decision and actual tool execution remain separate layers.
+
+---
+
+## Data
+
+**Purpose:** Act as the system's truth and persistence layer.
+
+**Responsibility:** Store durable research state in explicit data models, preserve provenance, and keep Observation, Hypothesis, Experiment, Evidence, Candidate, and Finding strictly separate.
+
+LLM conversation history is not durable system memory or authoritative persistent state.
+
+Persistent state is held only in explicit data models.
+
+**Contains:**
+
+- assets
+- observations
+- hypotheses
+- experiments
+- evidence
+- candidates
+- findings
+- snapshots
+- research memory (factual, episodic, procedural)
+- provenance
+- relationships
+- authorization/scope source references for research runs
+
+**Must not:**
+
+- use LLM conversation history as durable system memory or authoritative persistent state
+- collapse Observation into Hypothesis, Hypothesis into Evidence, or Evidence into Finding
+- mutate evidence in place when immutability is possible
+- drop provenance for important records (source, timestamp, target, discovery method, related run, artifact reference)
+- encode policy or execution authority
+- decide Candidate → Finding promotion
+- leak persistence-implementation details into domain logic
+
+Data stores Candidate and Finding records. Data does not decide promotion.
+
+---
+
+## Tools
+
+**Purpose:** Define capability contracts / abstractions.
+
+**Responsibility:** Describe what kinds of actions the system can request, without binding business logic to a specific tool and without performing the action.
+
+Tools, Workers, and Integrations are distinct:
+
+- **Tools:** capability contract / abstraction
+- **Workers:** controlled execution runtime
+- **Integrations:** concrete adapter / connector
+
+**Contains:**
+
+- HTTP capability contract
+- browser capability contract
+- shell capability contract
+- file capability contract
+- recon capability contract
+- traffic capability contract
+- typed capability contracts
+
+**Must not:**
+
+- perform side effects
+- own or set policy, scope, budget, or authorization
+- bind business logic to a specific tool product
+- treat model output as a direct execution command
+- host concrete vendor implementations
+
+---
+
+## Workers
+
+**Purpose:** Perform controlled execution in isolated work units.
+
+**Responsibility:** Run authorized execution requests after Core has allowed them. Workers are the only execution layer that may perform side effects.
+
+**Contains:**
+
+- recon worker
+- browser worker
+- traffic worker
+- code-analysis worker
+- artifact-processing worker
+
+**Must not:**
+
+- determine, evaluate, or produce authorization
+- determine scope
+- bypass policy
+- raise, change, or bypass budget limits
+- write directly to the persistent Data truth layer
+- declare Observation, Evidence, or Finding records as truth
+- treat derived or discovered targets as automatically authorized
+- continue after a redirect, new hostname, discovered asset, new subdomain, or any other scope-changing event without a new Core decision
+
+Worker results re-enter the system as:
+
+```
+Worker
+→ controlled result boundary
+→ Research/Core-approved processing
+→ Data persistence
+```
+
+On redirect, new hostname, discovered asset, new subdomain, or any event that requires a scope change:
+
+1. Worker execution stops.
+2. The Worker requests Core re-evaluation.
+3. The Worker does not continue until a new authorization/policy decision arrives.
+
+Worker/Platform runtime applies immutable budget limits issued by Core. It cannot raise, change, or bypass those limits.
+
+---
+
+## Integrations
+
+**Purpose:** Isolate external systems and vendor/tool connections so they remain replaceable.
+
+**Responsibility:** Provide concrete adapters used by Workers. Integrations are adapters, not the system, and cannot make authorization decisions.
+
+Names such as Strix, Burp, n8n, and model providers are **examples of possible integrations**. They are not a v1 commitment and are not a decided dependency.
+
+**Contains examples of possible integrations:**
+
+- Strix, as a replaceable agent/tool runtime adapter
+- Burp
+- n8n
+- external model providers
+- notification systems
+- bug bounty platform connectors
+
+**Must not:**
+
+- own Core or Research business logic
+- become the memory, policy, authorization, evidence, or judgment truth layer
+- make authorization, scope, policy, or budget decisions
+- create vendor lock-in
+- be imported by Core or Research as concrete implementations
+- be treated as a committed product choice
+
+---
+
+## Platform
+
+**Purpose:** Provide infrastructural capabilities the system needs to run, without becoming the research or control domain.
+
+Platform has two logical roles:
+
+**Platform contracts/capabilities:**
+
+- configuration
+- secrets access
+- orchestration
+- scheduling
+- runtime isolation
+- storage capability
+- observability
+
+**Concrete platform implementations:**
+
+- the actual infrastructure technologies that will be chosen later
+
+Core, Data, and Research must not depend on concrete Platform implementations. They may depend only on Platform contracts/capabilities.
+
+Platform may provide enforcement primitives for issued budget limits. Platform is not the budget-policy owner.
+
+Orchestration callers sit below Research in the trust hierarchy. They dispatch work already authorized by Core; they do not create authorization.
+
+**Must not:**
+
+- select or assume a specific product, framework, or vendor in this document
+- own domain or business logic
+- own authorization, research reasoning, evidence semantics, or budget policy
+- put secrets into LLM context unless there is no alternative
+- bypass Core security boundaries
+- leak persistence-implementation details into domain logic
+
+---
+
+## Interface
+
+**Purpose:** Let humans and external systems interact with Research OS.
+
+**Responsibility:** Expose requests, review, approval screens, and reporting. Human review is a permanent part of the system. AI recommendation and final judgment stay separate.
+
+Interface presents approval screens/flows. Core owns approval requirement, approval state, and approval decision semantics. Interface cannot define approval logic on its own.
+
+Human Review gives final acceptance/judgment for Finding promotion.
+
+**Contains:**
+
+- API
+- dashboard
+- CLI
+- human review
+- approval screens/flows
+- reporting interfaces
+
+**Must not:**
+
+- own business logic
+- own approval requirement, approval state, or approval decision semantics
+- bypass Core
+- treat an operator shortcut as a policy exception unless Core records an explicit approval
+- collapse AI recommendation into final judgment
+
+---
+
+## Execution Ownership
+
+One rule, applied across layers:
+
+- **Research** produces proposals. It does not execute.
+- **Core** decides authorization, policy, scope, and budget. It does not perform the side effect.
+- **Tools** define capability contracts. They do not perform side effects. They do not set policy.
+- **Workers** perform authorized execution. They are the only execution layer that may perform side effects.
+- **Integrations** are concrete adapters used by Workers, for example a Strix, Burp, or provider adapter. They cannot make authorization decisions on their own.
+- **Data** persists truth after Research/Core-approved processing. It is not an execution layer.
+- **Platform** provides contracts and later concrete infrastructure. It is not an execution-authorization layer.
+- **Interface** presents interaction and approval UI. It is not an execution layer.
+
+---
+
+## Trust Hierarchy
+
+Trust hierarchy is not the same as dependency direction.
+
+Core is the highest-trust layer.
+
+Logical trust order:
+
+```
+Core
+↑
+Research
+↑
+Interface / orchestration callers
+```
+
+Core is the final authority for authorization, scope, policy, budget ownership, approval semantics, and execution authorization.
+
+Research cannot change Core decisions.
+
+No layer may bypass Core security boundaries.
+
+---
+
+## Dependency Direction
+
+Concrete implementation dependencies must be built through abstractions/contracts.
+
+Logical dependency direction:
+
+```
+Interface
+→ Research
+→ Core
+→ Tool / Data / Platform contracts
+```
+
+Concrete implementations:
+
+- Workers
+- Integrations
+- Platform adapters
+
+These implementations implement the contracts defined above them.
+
+Rules:
+
+- Core must not depend on Research.
+- Research may depend on Core contracts.
+- Core and Research must not depend on concrete Integrations.
+- Core, Research, and Data must not depend on concrete Platform implementations.
+- Workers and Integrations implement contracts defined above them.
+- Data persistence implementation must not leak into domain logic.
+- No circular dependency.
+
+---
+
+## Cross-Layer Rules
+
+1. Core is the highest-trust layer.
+2. Research proposes; it does not execute and cannot change Core decisions.
+3. Tools provide capability contracts; they do not set policy and do not perform side effects.
+4. Workers execute authorized work; they do not determine authorization, scope, or budget policy.
+5. Integrations are replaceable adapters, not committed vendors.
+6. Data behaves as the truth layer and does not decide promotion.
+7. Interface does not own business logic or approval semantics.
+8. No layer may bypass Core security boundaries.
+9. Changing a model, provider, or tool must not break the domain architecture.
+10. Core must not depend on Research. No circular dependency.
+
+Every active operation still follows `request → policy → scope → budget → execution`.
+
+External content (web, API responses, email, documentation, and other outside sources) is untrusted input. Prompt injection must never change system policy.
+
+Every research run must carry a traceable reference to the authorization/scope source it relies on.
+
+Important decisions and tool executions must remain auditable: workflow, agent/model, tool, target, policy decision, budget, evidence, and result.
+
+Candidate → Finding promotion:
+
+- Research may propose a Candidate, a verification result, and a Finding.
+- Data stores the records and does not promote them.
+- Core applies approval semantics and the final promotion contract.
+- Human Review gives final acceptance/judgment.
+
+This keeps the core loop: AI reasons. System decides. Tools execute. Evidence proves. Human validates.
+
+---
+
+## Strix Placement
+
+Strix is not Research OS.
+
+Strix is an example of a possible integration. It is not a v1 commitment and is not a decided dependency.
+
+```
+Research OS
+↓
+controlled execution boundary
+↓
+tool contract / worker runtime
+↓
+Strix integration adapter
+```
+
+If Strix is used as a reasoning runtime, its output re-enters as:
+
+```
+Strix output
+→ UNTRUSTED STRUCTURED PROPOSAL
+→ Research validation
+→ Core-controlled execution path
+```
+
+If Strix is used as a tool runtime, it is reached only as a Worker-used Integration adapter after Core has authorized the operation.
+
+Strix is replaceable.
+
+Strix is not:
+
+- policy
+- an authorization source
+- a memory truth layer
+- an evidence truth layer
+- final judgment
+
+Core and Research must not depend on Strix and must not import it as a concrete implementation.
+
+---
+
+## Unresolved Architecture Decisions
+
+The following are not decided. No solution is chosen here.
+
+- programming language
+- primary database
+- workflow/orchestration technology
+- message broker
+- artifact storage
+- model providers
+- frontend framework
+- deployment model
