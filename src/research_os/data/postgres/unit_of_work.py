@@ -8,6 +8,7 @@ from research_os.data.errors import PersistenceError
 from research_os.data.postgres.repositories import (
     PostgresAuditEventRepository,
     PostgresAuthorizationSourceRepository,
+    PostgresExecutionAttemptRepository,
     PostgresExperimentRepository,
     PostgresHypothesisRepository,
     PostgresIssuedBudgetRepository,
@@ -30,6 +31,7 @@ class PostgresUnitOfWork:
         self.issued_budgets: PostgresIssuedBudgetRepository
         self.hypotheses: PostgresHypothesisRepository
         self.experiments: PostgresExperimentRepository
+        self.execution_attempts: PostgresExecutionAttemptRepository
         self.worker_results: PostgresWorkerResultRepository
         self.observations: PostgresObservationRepository
         self.audit_events: PostgresAuditEventRepository
@@ -46,6 +48,7 @@ class PostgresUnitOfWork:
         self.issued_budgets = PostgresIssuedBudgetRepository(self._connection)
         self.hypotheses = PostgresHypothesisRepository(self._connection)
         self.experiments = PostgresExperimentRepository(self._connection)
+        self.execution_attempts = PostgresExecutionAttemptRepository(self._connection)
         self.worker_results = PostgresWorkerResultRepository(self._connection)
         self.observations = PostgresObservationRepository(self._connection)
         self.audit_events = PostgresAuditEventRepository(self._connection)

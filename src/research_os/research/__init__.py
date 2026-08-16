@@ -1,4 +1,9 @@
-"""Research: proposals only (Hypothesis, Experiment plan, Evidence proposal, Candidate, FindingProposal).
+"""Research: proposals only.
 
-Must not execute, change Core decisions, or import Integrations/Workers.
+A7-lite adds human-seeded HypothesisDraft and ExperimentPlan. This is not a
+Research Brain. Research must not execute, authorize, or persist.
 """
+
+from research_os.research.types import ExperimentPlan, HypothesisDraft
+
+__all__ = ["ExperimentPlan", "HypothesisDraft"]

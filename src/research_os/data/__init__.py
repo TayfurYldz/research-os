@@ -12,6 +12,8 @@ from research_os.data.errors import (
 from research_os.data.records import (
     AuditEventRecord,
     AuthorizationSourceRecord,
+    ExecutionAttemptRecord,
+    ExecutionAttemptState,
     ExperimentExecutionState,
     ExperimentRecord,
     HypothesisRecord,
@@ -27,6 +29,8 @@ from research_os.data.unit_of_work import UnitOfWork
 __all__ = [
     "AuditEventRecord",
     "AuthorizationSourceRecord",
+    "ExecutionAttemptRecord",
+    "ExecutionAttemptState",
     "ExperimentExecutionState",
     "ExperimentRecord",
     "HypothesisRecord",

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from datetime import datetime
 from typing import Any, TypeVar
 
 from sqlalchemy import select, update
@@ -17,9 +18,11 @@ from research_os.data.errors import (
 from research_os.data.postgres import mapping as map_row
 from research_os.data.postgres import tables
 from research_os.data.records import (
+    ALLOWED_EXECUTION_ATTEMPT_STATES,
     ALLOWED_EXPERIMENT_STATES,
     AuditEventRecord,
     AuthorizationSourceRecord,
+    ExecutionAttemptRecord,
     ExperimentRecord,
     HypothesisRecord,
     IssuedBudgetRecord,
@@ -246,6 +249,93 @@ class PostgresExperimentRepository:
         )
         if result.rowcount != 1:
             raise PersistenceError("experiment not found for execution_state update")
+
+
+class PostgresExecutionAttemptRepository:
+    def __init__(self, connection: Connection) -> None:
+        self._connection = connection
+
+    def insert(self, record: ExecutionAttemptRecord) -> None:
+        _execute_write(
+            self._connection,
+            tables.execution_attempt.insert().values(
+                attempt_id=record.attempt_id,
+                request_id=record.request_id,
+                experiment_id=record.experiment_id,
+                research_run_id=record.research_run_id,
+                correlation_id=record.correlation_id,
+                worker_capability=record.worker_capability,
+                action=record.action,
+                target_reference=record.target_reference,
+                budget_id=record.budget_id,
+                side_effect_level=record.side_effect_level,
+                authorization_decision_reference=record.authorization_decision_reference,
+                state=record.state,
+                created_at=record.created_at,
+                authorized_at=record.authorized_at,
+                dispatch_started_at=record.dispatch_started_at,
+                completed_at=record.completed_at,
+            ),
+        )
+
+    def get(self, attempt_id: str) -> ExecutionAttemptRecord | None:
+        require_opaque_id(attempt_id, "attempt_id")
+        return _fetch_one(
+            self._connection,
+            tables.execution_attempt,
+            tables.execution_attempt.c.attempt_id,
+            attempt_id,
+            map_row.execution_attempt_from_row,
+        )
+
+    def get_by_request_id(self, request_id: str) -> ExecutionAttemptRecord | None:
+        require_opaque_id(request_id, "request_id")
+        return _fetch_one(
+            self._connection,
+            tables.execution_attempt,
+            tables.execution_attempt.c.request_id,
+            request_id,
+            map_row.execution_attempt_from_row,
+        )
+
+    def list_for_experiment(self, experiment_id: str) -> list[ExecutionAttemptRecord]:
+        require_opaque_id(experiment_id, "experiment_id")
+        try:
+            rows = self._connection.execute(
+                select(tables.execution_attempt).where(
+                    tables.execution_attempt.c.experiment_id == experiment_id
+                )
+            ).mappings().all()
+        except SQLAlchemyError as exc:
+            raise PersistenceError("persistence read failed") from exc
+        return [map_row.execution_attempt_from_row(row) for row in rows]
+
+    def set_state(
+        self,
+        attempt_id: str,
+        state: str,
+        *,
+        dispatch_started_at: datetime | None = None,
+        completed_at: datetime | None = None,
+    ) -> None:
+        require_opaque_id(attempt_id, "attempt_id")
+        if state not in ALLOWED_EXECUTION_ATTEMPT_STATES:
+            raise PersistenceInputError("state is not an ExecutionAttempt state")
+        values: dict[str, object] = {"state": state}
+        if dispatch_started_at is not None:
+            values["dispatch_started_at"] = dispatch_started_at
+        if completed_at is not None:
+            values["completed_at"] = completed_at
+        try:
+            result = self._connection.execute(
+                update(tables.execution_attempt)
+                .where(tables.execution_attempt.c.attempt_id == attempt_id)
+                .values(**values)
+            )
+        except SQLAlchemyError as exc:
+            raise PersistenceError("persistence write failed") from exc
+        if result.rowcount != 1:
+            raise PersistenceError("execution_attempt not found for state update")
 
 
 class PostgresWorkerResultRepository:

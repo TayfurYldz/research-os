@@ -7,6 +7,7 @@ from typing import Any, Mapping
 from research_os.data.records import (
     AuditEventRecord,
     AuthorizationSourceRecord,
+    ExecutionAttemptRecord,
     ExperimentRecord,
     HypothesisRecord,
     IssuedBudgetRecord,
@@ -88,6 +89,28 @@ def experiment_from_row(row: Mapping[str, Any]) -> ExperimentRecord:
         budget_id=data["budget_id"],
         execution_state=data["execution_state"],
         created_at=data["created_at"],
+    )
+
+
+def execution_attempt_from_row(row: Mapping[str, Any]) -> ExecutionAttemptRecord:
+    data = _mapping(row)
+    return ExecutionAttemptRecord(
+        attempt_id=data["attempt_id"],
+        request_id=data["request_id"],
+        experiment_id=data["experiment_id"],
+        research_run_id=data["research_run_id"],
+        correlation_id=data["correlation_id"],
+        worker_capability=data["worker_capability"],
+        action=data["action"],
+        target_reference=data["target_reference"],
+        budget_id=data["budget_id"],
+        side_effect_level=data["side_effect_level"],
+        authorization_decision_reference=data["authorization_decision_reference"],
+        state=data["state"],
+        created_at=data["created_at"],
+        authorized_at=data.get("authorized_at"),
+        dispatch_started_at=data.get("dispatch_started_at"),
+        completed_at=data.get("completed_at"),
     )
 
 

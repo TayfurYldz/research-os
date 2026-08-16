@@ -131,6 +131,53 @@ experiment = Table(
     ),
 )
 
+execution_attempt = Table(
+    "execution_attempt",
+    metadata,
+    Column("attempt_id", Text, primary_key=True),
+    Column("request_id", Text, nullable=False),
+    Column("experiment_id", Text, nullable=False),
+    Column("research_run_id", Text, nullable=False),
+    Column("correlation_id", Text, nullable=False),
+    Column("worker_capability", Text, nullable=False),
+    Column("action", Text, nullable=False),
+    Column("target_reference", Text, nullable=False),
+    Column("budget_id", Text, nullable=False),
+    Column("side_effect_level", Integer, nullable=False),
+    Column("authorization_decision_reference", Text, nullable=False),
+    Column("state", Text, nullable=False),
+    Column("created_at", DateTime(timezone=True), nullable=False),
+    Column("authorized_at", DateTime(timezone=True), nullable=True),
+    Column("dispatch_started_at", DateTime(timezone=True), nullable=True),
+    Column("completed_at", DateTime(timezone=True), nullable=True),
+    ForeignKeyConstraint(
+        ["experiment_id", "research_run_id"],
+        ["experiment.experiment_id", "experiment.research_run_id"],
+        name="fk_execution_attempt_experiment_same_run",
+    ),
+    ForeignKeyConstraint(
+        ["budget_id", "research_run_id"],
+        ["issued_budget.budget_id", "issued_budget.research_run_id"],
+        name="fk_execution_attempt_budget_same_run",
+    ),
+    ForeignKeyConstraint(
+        ["authorization_decision_reference"],
+        ["audit_event.audit_event_id"],
+        name="fk_execution_attempt_authorization_decision",
+    ),
+    UniqueConstraint("request_id", name="uq_execution_attempt_request_id"),
+    CheckConstraint(
+        "state IN ("
+        "'AUTHORIZED', 'DISPATCHING', 'COMPLETED', 'FAILED', "
+        "'TIMED_OUT', 'CANCELLED', 'UNKNOWN_OUTCOME')",
+        name="ck_execution_attempt_state",
+    ),
+    CheckConstraint(
+        "side_effect_level IN (0, 1, 2, 3)",
+        name="ck_execution_attempt_side_effect_level",
+    ),
+)
+
 worker_result = Table(
     "worker_result",
     metadata,
@@ -227,6 +274,7 @@ SPINE_TABLES = (
     issued_budget,
     hypothesis,
     experiment,
+    execution_attempt,
     worker_result,
     observation,
     audit_event,

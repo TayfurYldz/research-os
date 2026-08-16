@@ -10,6 +10,7 @@ Program
 → ResearchRun
 → IssuedBudget
 Hypothesis / Experiment
+→ ExecutionAttempt (durable intended Worker invocation)
 → WorkerResult
 → Observation
 + AuditEvent
@@ -44,7 +45,8 @@ This is **not** a database copy of DOMAIN_MODEL.md.
 - Observation is not a vulnerability.
 - WorkerResult stores first-class request-envelope provenance (`request_id`, correlation, capability/action, authorization decision reference, budget reference). `request_id` is unique (idempotency). Correlation is not JSON-only.
 - IssuedBudget is immutable after insert (0 = no allowance).
-- AuditEvent is append-only reconstructive history, not Evidence and not a log substitute.
+- AuditEvent is append-only reconstructive history, not Evidence, not a log substitute, and not a dispatch queue.
+- ExecutionAttempt is durable dispatch coordination for one intended Worker invocation. It is not Evidence and not a WorkerResult. `request_id` is unique.
 - JSONB is only for untrusted/extensible WorkerResult bags and typed Observation/Audit payloads. It is not scope, authorization, Approval, Evidence, Finding, or budget authority.
 - Connection URLs come from the environment (`RESEARCH_OS_DATABASE_URL` / `RESEARCH_OS_TEST_DATABASE_URL`). Use `postgresql+psycopg://…`. Passwords are not logged.
 

@@ -63,6 +63,23 @@ ALLOWED_EXPERIMENT_STATES = frozenset(
 ALLOWED_WORKER_RESULT_STATUSES = frozenset(item.value for item in WorkerResultStatus)
 
 
+class ExecutionAttemptState(Enum):
+    """One intended Worker invocation. Not Evidence. Not Hypothesis outcome."""
+
+    AUTHORIZED = "AUTHORIZED"
+    DISPATCHING = "DISPATCHING"
+    COMPLETED = "COMPLETED"
+    FAILED = "FAILED"
+    TIMED_OUT = "TIMED_OUT"
+    CANCELLED = "CANCELLED"
+    UNKNOWN_OUTCOME = "UNKNOWN_OUTCOME"
+
+
+ALLOWED_EXECUTION_ATTEMPT_STATES = frozenset(
+    item.value for item in ExecutionAttemptState
+)
+
+
 def require_opaque_id(value: str, field_name: str) -> str:
     if not isinstance(value, str) or not value.strip():
         raise PersistenceInputError(f"{field_name} must be a non-empty opaque id")
@@ -232,6 +249,53 @@ class ExperimentRecord:
         require_aware_datetime(self.created_at, "created_at")
         if self.execution_state not in ALLOWED_EXPERIMENT_STATES:
             raise PersistenceInputError("execution_state is not a domain execution state")
+
+
+@dataclass(frozen=True)
+class ExecutionAttemptRecord:
+    """Durable intended Worker invocation. Not a WorkerResult and not Evidence."""
+
+    attempt_id: str
+    request_id: str
+    experiment_id: str
+    research_run_id: str
+    correlation_id: str
+    worker_capability: str
+    action: str
+    target_reference: str
+    budget_id: str
+    side_effect_level: int
+    authorization_decision_reference: str
+    state: str
+    created_at: datetime
+    authorized_at: datetime | None = None
+    dispatch_started_at: datetime | None = None
+    completed_at: datetime | None = None
+
+    def __post_init__(self) -> None:
+        require_opaque_id(self.attempt_id, "attempt_id")
+        require_opaque_id(self.request_id, "request_id")
+        require_opaque_id(self.experiment_id, "experiment_id")
+        require_opaque_id(self.research_run_id, "research_run_id")
+        require_opaque_id(self.correlation_id, "correlation_id")
+        require_opaque_id(self.worker_capability, "worker_capability")
+        require_opaque_id(self.action, "action")
+        require_opaque_id(self.target_reference, "target_reference")
+        require_opaque_id(self.budget_id, "budget_id")
+        require_opaque_id(
+            self.authorization_decision_reference, "authorization_decision_reference"
+        )
+        require_aware_datetime(self.created_at, "created_at")
+        if self.side_effect_level not in (0, 1, 2, 3):
+            raise PersistenceInputError("side_effect_level must be 0, 1, 2, or 3")
+        if self.state not in ALLOWED_EXECUTION_ATTEMPT_STATES:
+            raise PersistenceInputError("state is not an ExecutionAttempt state")
+        if self.authorized_at is not None:
+            require_aware_datetime(self.authorized_at, "authorized_at")
+        if self.dispatch_started_at is not None:
+            require_aware_datetime(self.dispatch_started_at, "dispatch_started_at")
+        if self.completed_at is not None:
+            require_aware_datetime(self.completed_at, "completed_at")
 
 
 @dataclass(frozen=True)

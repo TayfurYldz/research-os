@@ -7,6 +7,7 @@ from typing import Protocol
 from research_os.data.ports import (
     AuditEventRepository,
     AuthorizationSourceRepository,
+    ExecutionAttemptRepository,
     ExperimentRepository,
     HypothesisRepository,
     IssuedBudgetRepository,
@@ -26,6 +27,7 @@ class UnitOfWork(Protocol):
     issued_budgets: IssuedBudgetRepository
     hypotheses: HypothesisRepository
     experiments: ExperimentRepository
+    execution_attempts: ExecutionAttemptRepository
     worker_results: WorkerResultRepository
     observations: ObservationRepository
     audit_events: AuditEventRepository

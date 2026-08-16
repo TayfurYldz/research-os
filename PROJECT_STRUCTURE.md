@@ -142,7 +142,7 @@ Research produces proposals only. Agent decision and actual tool execution remai
 
 **Responsibility:** Coordinate Core public APIs, Research public APIs, Data ports/Unit of Work, and Platform ports. Map a successful infrastructure outcome into the next domain step. Fail closed.
 
-The first use case is Transition A ingestion of a completed Worker invocation (Decision 023). Application does not execute the Worker.
+The first use cases are Transition A ingestion of a completed Worker invocation (Decision 023) and `ExecutePlannedExperiment` (Decision 024 / A7-lite). Application invokes Worker only through an injected `WorkerPort`, after durable ExecutionAttempt intent is committed.
 
 **Contains:**
 
@@ -151,6 +151,8 @@ The first use case is Transition A ingestion of a completed Worker invocation (D
 - transaction intent (explicit commit / rollback)
 - Transition A normalizer registry and ObservationDraft production
 - mapping WorkerInvocationOutcome into persistence
+- durable ExecutionAttempt dispatch coordination
+- WorkerRequest construction after Core ALLOW
 
 **Must not:**
 

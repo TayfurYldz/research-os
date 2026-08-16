@@ -2,7 +2,7 @@
 
 Use-case coordination for the Control Plane.
 
-Application **sequences** Core decisions, Platform ports, Data Unit of Work, and Transition A.
+Application **sequences** Core decisions, Research plans, Platform ports, Data Unit of Work, Transition A, and durable ExecutionAttempt dispatch.
 
 It does **not** own:
 
@@ -10,6 +10,13 @@ It does **not** own:
 - hypothesis semantics (Research)
 - PostgreSQL or subprocess implementations
 - Evidence / Candidate / Finding
+
+Use cases:
+
+- `IngestCompletedWorkerInvocation` (Transition A)
+- `ExecutePlannedExperiment` (A7-lite control-loop skeleton; not a Research Brain)
+
+`request_id` is generated here. Worker and model do not choose it. Worker invocation happens only after durable AUTHORIZED/DISPATCHING intent is committed, and never inside an open database transaction.
 
 Dependency direction:
 

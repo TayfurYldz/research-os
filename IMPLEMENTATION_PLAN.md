@@ -35,6 +35,7 @@ Decision-driver order remains: correctness → authorization/security → durabi
 | 021 | Canonical schemas stay `contracts/`; first local transport = one-shot JSON stdin/stdout; jsonschema runtime validation (local URN, no network); `WorkerInvocationOutcome` ≠ `WorkerResult` |
 | 022 | Explicit Application layer owns use-case coordination; not authority; no concrete adapters |
 | 023 | Transition A: COMPLETED+valid WorkerResult only; trusted-request normalizer registry; request_id idempotency; WorkerResult+Observation+AuditEvent one UoW |
+| 024 | First-class ExecutionAttempt for dispatch coordination; Control Plane owns request_id; AuditEvent is decision provenance not a queue; UNKNOWN_OUTCOME fail-closed; no exactly-once side effects |
 
 ---
 
@@ -144,11 +145,33 @@ valid COMPLETED Worker invocation → Application `IngestCompletedWorkerInvocati
 
 **Verify:** unit + contract + architecture. PostgreSQL integration when `RESEARCH_OS_TEST_DATABASE_URL` is set; otherwise PENDING.
 
+### Slice A7-lite — Minimal research control-loop skeleton (Decision 024)
+
+Prove plumbing, not a Research Brain:
+
+```
+Human-seeded Hypothesis
+  → ExperimentPlan (Research)
+  → ExecutePlannedExperiment (Application)
+  → Core evaluate_execution
+  → durable AuditEvent + ExecutionAttempt
+  → WorkerPort
+  → WorkerInvocationOutcome
+  → Transition A
+  → Observation feedback (no Hypothesis truth update)
+```
+
+- No model, no autonomous hypothesis generation, no Evidence/Candidate/Finding, no Strix.
+- Research produces `HypothesisDraft` / `ExperimentPlan` only. It does not execute, authorize, or persist.
+- Application constructs `WorkerRequest` only after Core ALLOW. `request_id` is Control Plane–generated.
+- Staged transactions: TX1 AUTHORIZED intent, TX1b DISPATCHING, Worker outside the database transaction, TX2 outcome, then Transition A.
+- Alembic revision `a7_001_execution_attempt`. Do not rewrite `a3_001` or `a6_001`.
+- Persistent budget consumption ledger is **deferred**. Level 0 diagnostic may proceed.
+- Research OS does not claim exactly-once side effects.
+
+**Verify:** unit + architecture. PostgreSQL integration when `RESEARCH_OS_TEST_DATABASE_URL` is set; otherwise PENDING. FIRST VERTICAL RESEARCH LOOP is not complete until real PostgreSQL tests pass.
+
 ### Next planned slices (not implemented here)
-
-### Slice A7-lite — Hypothesis / Experiment feedback
-
-One minimal Hypothesis → Experiment → authorized Worker → ingested Observation feedback cycle.
 
 ### FIRST VERTICAL RESEARCH LOOP GATE
 

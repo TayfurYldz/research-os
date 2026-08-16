@@ -73,9 +73,9 @@ May depend on Core **contracts**, not on Interface or Application.
 
 ### `application`
 
-Use-case coordination (Decision 022). First use case: Transition A ingestion (Decision 023).
+Use-case coordination (Decision 022). Use cases: Transition A ingestion (Decision 023); `ExecutePlannedExperiment` control-loop skeleton (Decision 024).
 
-Must not: own Core policy, import `data.postgres` or `local_process_worker`, create Evidence/Finding.
+Must not: own Core policy, import `data.postgres` or `local_process_worker`, create Evidence/Finding. Must not hold a database transaction open while a Worker runs.
 
 ### `data`
 

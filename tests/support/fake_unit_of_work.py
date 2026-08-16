@@ -3,12 +3,20 @@
 from __future__ import annotations
 
 from copy import deepcopy
+from datetime import datetime
 from typing import Any
 
-from research_os.data.errors import PersistenceConflictError, PersistenceError
+from research_os.data.errors import (
+    PersistenceConflictError,
+    PersistenceError,
+    PersistenceInputError,
+)
 from research_os.data.records import (
+    ALLOWED_EXECUTION_ATTEMPT_STATES,
+    ALLOWED_EXPERIMENT_STATES,
     AuditEventRecord,
     AuthorizationSourceRecord,
+    ExecutionAttemptRecord,
     ExperimentRecord,
     HypothesisRecord,
     IssuedBudgetRecord,
@@ -27,10 +35,14 @@ class _Store:
         self.issued_budgets: dict[str, IssuedBudgetRecord] = {}
         self.hypotheses: dict[str, HypothesisRecord] = {}
         self.experiments: dict[str, ExperimentRecord] = {}
+        self.execution_attempts: dict[str, ExecutionAttemptRecord] = {}
+        self.execution_attempts_by_request: dict[str, str] = {}
         self.worker_results: dict[str, WorkerResultRecord] = {}
         self.worker_results_by_request: dict[str, str] = {}
         self.observations: dict[str, ObservationRecord] = {}
         self.audit_events: dict[str, AuditEventRecord] = {}
+        self.open_transactions = 0
+        self.set_state_calls = 0
 
 
 class _Repo:
@@ -63,6 +75,8 @@ def _id_of(record: Any) -> str:
         return record.hypothesis_id
     if isinstance(record, ExperimentRecord):
         return record.experiment_id
+    if isinstance(record, ExecutionAttemptRecord):
+        return record.attempt_id
     if isinstance(record, WorkerResultRecord):
         return record.worker_result_id
     if isinstance(record, ObservationRecord):
@@ -70,6 +84,96 @@ def _id_of(record: Any) -> str:
     if isinstance(record, AuditEventRecord):
         return record.audit_event_id
     raise PersistenceError("unknown record identity")
+
+
+class _ExperimentRepo(_Repo):
+    def set_execution_state(self, experiment_id: str, execution_state: str) -> None:
+        if execution_state not in ALLOWED_EXPERIMENT_STATES:
+            raise PersistenceInputError("execution_state is not a domain execution state")
+        current = self.get(experiment_id)
+        if current is None:
+            raise PersistenceError("experiment not found for execution_state update")
+        self._store[experiment_id] = ExperimentRecord(
+            experiment_id=current.experiment_id,
+            research_run_id=current.research_run_id,
+            hypothesis_id=current.hypothesis_id,
+            budget_id=current.budget_id,
+            execution_state=execution_state,
+            created_at=current.created_at,
+        )
+
+
+class _ExecutionAttemptRepo(_Repo):
+    def __init__(
+        self,
+        store: _Store,
+        fail_on_insert: bool = False,
+        fail_on_set_state: bool = False,
+    ) -> None:
+        super().__init__(store.execution_attempts, fail_on_insert=fail_on_insert)
+        self._root = store
+        self._fail_on_set_state = fail_on_set_state
+
+    def insert(self, record: ExecutionAttemptRecord) -> None:
+        if self._fail_on_insert:
+            raise PersistenceError("injected persistence failure")
+        if record.request_id in self._root.execution_attempts_by_request:
+            raise PersistenceConflictError("duplicate request_id")
+        super().insert(record)
+        self._root.execution_attempts_by_request[record.request_id] = record.attempt_id
+
+    def get_by_request_id(self, request_id: str) -> ExecutionAttemptRecord | None:
+        attempt_id = self._root.execution_attempts_by_request.get(request_id)
+        if attempt_id is None:
+            return None
+        return self._root.execution_attempts.get(attempt_id)
+
+    def list_for_experiment(self, experiment_id: str) -> list[ExecutionAttemptRecord]:
+        return [
+            record
+            for record in self._root.execution_attempts.values()
+            if record.experiment_id == experiment_id
+        ]
+
+    def set_state(
+        self,
+        attempt_id: str,
+        state: str,
+        *,
+        dispatch_started_at: datetime | None = None,
+        completed_at: datetime | None = None,
+    ) -> None:
+        if self._fail_on_set_state:
+            self._root.set_state_calls += 1
+            if self._root.set_state_calls >= 2:
+                raise PersistenceError("injected persistence failure")
+        if state not in ALLOWED_EXECUTION_ATTEMPT_STATES:
+            raise PersistenceInputError("state is not an ExecutionAttempt state")
+        current = self.get(attempt_id)
+        if current is None:
+            raise PersistenceError("execution_attempt not found for state update")
+        self._store[attempt_id] = ExecutionAttemptRecord(
+            attempt_id=current.attempt_id,
+            request_id=current.request_id,
+            experiment_id=current.experiment_id,
+            research_run_id=current.research_run_id,
+            correlation_id=current.correlation_id,
+            worker_capability=current.worker_capability,
+            action=current.action,
+            target_reference=current.target_reference,
+            budget_id=current.budget_id,
+            side_effect_level=current.side_effect_level,
+            authorization_decision_reference=current.authorization_decision_reference,
+            state=state,
+            created_at=current.created_at,
+            authorized_at=current.authorized_at,
+            dispatch_started_at=(
+                dispatch_started_at
+                if dispatch_started_at is not None
+                else current.dispatch_started_at
+            ),
+            completed_at=completed_at if completed_at is not None else current.completed_at,
+        )
 
 
 class _WorkerResultRepo(_Repo):
@@ -116,7 +220,12 @@ class FakeUnitOfWork:
         self.research_runs = _Repo(self._store.research_runs)
         self.issued_budgets = _Repo(self._store.issued_budgets)
         self.hypotheses = _Repo(self._store.hypotheses)
-        self.experiments = _Repo(self._store.experiments)
+        self.experiments = _ExperimentRepo(self._store.experiments)
+        self.execution_attempts = _ExecutionAttemptRepo(
+            self._store,
+            fail_on_insert=fail_on == "execution_attempts",
+            fail_on_set_state=fail_on == "attempt_outcome",
+        )
         self.worker_results = _WorkerResultRepo(
             self._store, fail_on_insert=fail_on == "worker_results"
         )
@@ -128,6 +237,7 @@ class FakeUnitOfWork:
         )
 
     def __enter__(self) -> FakeUnitOfWork:
+        self._store.open_transactions += 1
         self._snapshot = deepcopy(self._store)
         self._committed = False
         return self
@@ -142,8 +252,11 @@ class FakeUnitOfWork:
         self._committed = False
 
     def __exit__(self, exc_type, exc, tb) -> bool:
-        if exc_type is not None or not self._committed:
-            self.rollback()
+        try:
+            if exc_type is not None or not self._committed:
+                self.rollback()
+        finally:
+            self._store.open_transactions = max(0, self._store.open_transactions - 1)
         return False
 
     def _restore(self, snapshot: _Store) -> None:
@@ -159,6 +272,12 @@ class FakeUnitOfWork:
         self._store.hypotheses.update(snapshot.hypotheses)
         self._store.experiments.clear()
         self._store.experiments.update(snapshot.experiments)
+        self._store.execution_attempts.clear()
+        self._store.execution_attempts.update(snapshot.execution_attempts)
+        self._store.execution_attempts_by_request.clear()
+        self._store.execution_attempts_by_request.update(
+            snapshot.execution_attempts_by_request
+        )
         self._store.worker_results.clear()
         self._store.worker_results.update(snapshot.worker_results)
         self._store.worker_results_by_request.clear()

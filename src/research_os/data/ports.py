@@ -4,9 +4,12 @@ from __future__ import annotations
 
 from typing import Protocol
 
+from datetime import datetime
+
 from research_os.data.records import (
     AuditEventRecord,
     AuthorizationSourceRecord,
+    ExecutionAttemptRecord,
     ExperimentRecord,
     HypothesisRecord,
     IssuedBudgetRecord,
@@ -47,6 +50,21 @@ class ExperimentRepository(Protocol):
     def get(self, experiment_id: str) -> ExperimentRecord | None: ...
     def set_execution_state(
         self, experiment_id: str, execution_state: str
+    ) -> None: ...
+
+
+class ExecutionAttemptRepository(Protocol):
+    def insert(self, record: ExecutionAttemptRecord) -> None: ...
+    def get(self, attempt_id: str) -> ExecutionAttemptRecord | None: ...
+    def get_by_request_id(self, request_id: str) -> ExecutionAttemptRecord | None: ...
+    def list_for_experiment(self, experiment_id: str) -> list[ExecutionAttemptRecord]: ...
+    def set_state(
+        self,
+        attempt_id: str,
+        state: str,
+        *,
+        dispatch_started_at: datetime | None = None,
+        completed_at: datetime | None = None,
     ) -> None: ...
 
 

@@ -153,6 +153,43 @@ class RecordValidationTests(unittest.TestCase):
         self.assertEqual(record.worker_result_id, "wr1")
         self.assertFalse(hasattr(record, "severity"))
 
+    def test_execution_attempt_rejects_unknown_state_and_is_not_evidence(self) -> None:
+        from research_os.data.records import ExecutionAttemptRecord
+
+        record = ExecutionAttemptRecord(
+            attempt_id="ea:req-1",
+            request_id="req-1",
+            experiment_id="exp1",
+            research_run_id="run1",
+            correlation_id="corr1",
+            worker_capability="diagnostic.echo",
+            action="echo",
+            target_reference="target-1",
+            budget_id="budget-1",
+            side_effect_level=0,
+            authorization_decision_reference="ae:exec:req-1",
+            state="AUTHORIZED",
+            created_at=_now(),
+        )
+        self.assertEqual(record.state, "AUTHORIZED")
+        self.assertFalse(hasattr(record, "evidence_id"))
+        with self.assertRaises(PersistenceInputError):
+            ExecutionAttemptRecord(
+                attempt_id="ea:req-1",
+                request_id="req-1",
+                experiment_id="exp1",
+                research_run_id="run1",
+                correlation_id="corr1",
+                worker_capability="diagnostic.echo",
+                action="echo",
+                target_reference="target-1",
+                budget_id="budget-1",
+                side_effect_level=0,
+                authorization_decision_reference="ae:exec:req-1",
+                state="RETRYING",
+                created_at=_now(),
+            )
+
     def test_audit_event_rejects_secret_keys(self) -> None:
         with self.assertRaises(PersistenceInputError):
             AuditEventRecord(

@@ -88,9 +88,9 @@ class ArchitectureBoundaryTests(unittest.TestCase):
                 RESEARCH_DIR,
                 forbidden_roots=EXECUTION_ROOTS + PERSISTENCE_LIBS + SCHEMA_LIBS,
                 forbidden_prefixes=(
-                    "research_os.data.postgres",
+                    "research_os.data",
                     "research_os.workers",
-                    "research_os.platform.local_process_worker",
+                    "research_os.platform",
                     "research_os.application",
                 ),
             ),
@@ -112,12 +112,12 @@ class ArchitectureBoundaryTests(unittest.TestCase):
             [],
         )
 
-    def test_platform_does_not_import_application(self) -> None:
+    def test_platform_does_not_import_application_or_research(self) -> None:
         self.assertEqual(
             _violations(
                 PLATFORM_DIR,
                 forbidden_roots=(),
-                forbidden_prefixes=("research_os.application",),
+                forbidden_prefixes=("research_os.application", "research_os.research"),
             ),
             [],
         )
