@@ -18,6 +18,11 @@ A7_MIGRATION = ALEMBIC_VERSIONS / "a7_001_execution_attempt.py"
 A8_MIGRATION = ALEMBIC_VERSIONS / "a8_001_research_reasoning.py"
 A9_MIGRATION = ALEMBIC_VERSIONS / "a9_001_learning_cycle.py"
 A10_MIGRATION = ALEMBIC_VERSIONS / "a10_001_evidence_admission.py"
+A11_MIGRATION = ALEMBIC_VERSIONS / "a11_001_candidate_verification.py"
+A12_MIGRATION = ALEMBIC_VERSIONS / "a12_001_finding_acceptance.py"
+A13_MIGRATION = ALEMBIC_VERSIONS / "a13_001_target_differential.py"
+A14_MIGRATION = ALEMBIC_VERSIONS / "a14_001_invariant_chain.py"
+A15_MIGRATION = ALEMBIC_VERSIONS / "a15_001_exploration_temporal.py"
 
 
 def _imported_modules(tree: ast.AST) -> set[str]:
@@ -54,20 +59,32 @@ class AlembicSmokeTests(unittest.TestCase):
                 "evidence",
                 "evidence_observation",
                 "evidence_admission",
+                "candidate",
+                "candidate_evidence",
+                "candidate_admission",
+                "verification",
+                "finding_proposal",
+                "human_review",
+                "approval",
+                "finding",
+                "target_inference",
+                "differential_observation",
+                "invariant_hypothesis",
+                "invariant_source_ref",
+                "invariant_counterexample_ref",
+                "chain_hypothesis",
+                "research_opportunity",
+                "research_selection",
+                "snapshot",
+                "snapshot_member",
+                "change_event",
             },
         )
         self.assertEqual(set(metadata.tables), names)
 
     def test_deferred_domain_tables_are_absent(self) -> None:
         forbidden = {
-            "candidate",
-            "verification",
-            "finding",
-            "finding_proposal",
-            "approval",
             "scope_rule",
-            "snapshot",
-            "change_event",
             "vector",
             "embedding",
         }
@@ -152,6 +169,74 @@ class AlembicSmokeTests(unittest.TestCase):
         self.assertNotIn("evidence_admission", a9)
         a3 = MIGRATION.read_text(encoding="utf-8")
         self.assertNotIn("CREATE TABLE evidence", a3)
+
+    def test_a11_migration_is_append_only_revision(self) -> None:
+        source = A11_MIGRATION.read_text(encoding="utf-8")
+        self.assertIn("a11_001_candidate_verification", source)
+        self.assertIn("a10_001_evidence_admission", source)
+        self.assertIn("candidate_admission", source)
+        self.assertIn("verification", source)
+        self.assertNotIn("create_all", source)
+        a10 = A10_MIGRATION.read_text(encoding="utf-8")
+        self.assertNotIn("CREATE TABLE candidate", a10)
+        a3 = MIGRATION.read_text(encoding="utf-8")
+        self.assertNotIn("CREATE TABLE candidate", a3)
+
+    def test_a12_migration_is_append_only_revision(self) -> None:
+        source = A12_MIGRATION.read_text(encoding="utf-8")
+        self.assertIn("a12_001_finding_acceptance", source)
+        self.assertIn("a11_001_candidate_verification", source)
+        self.assertIn("finding_proposal", source)
+        self.assertIn("human_review", source)
+        self.assertIn("approval", source)
+        self.assertIn("finding", source)
+        self.assertNotIn("create_all", source)
+        a11 = A11_MIGRATION.read_text(encoding="utf-8")
+        self.assertNotIn("CREATE TABLE finding", a11)
+        a3 = MIGRATION.read_text(encoding="utf-8")
+        self.assertNotIn("CREATE TABLE finding", a3)
+
+    def test_a13_migration_is_append_only_revision(self) -> None:
+        source = A13_MIGRATION.read_text(encoding="utf-8")
+        self.assertIn("a13_001_target_differential", source)
+        self.assertIn("a12_001_finding_acceptance", source)
+        self.assertIn("target_inference", source)
+        self.assertIn("differential_observation", source)
+        self.assertNotIn("create_all", source)
+        a12 = A12_MIGRATION.read_text(encoding="utf-8")
+        self.assertNotIn("CREATE TABLE target_inference", a12)
+        a3 = MIGRATION.read_text(encoding="utf-8")
+        self.assertNotIn("CREATE TABLE target_inference", a3)
+
+    def test_a14_migration_is_append_only_revision(self) -> None:
+        source = A14_MIGRATION.read_text(encoding="utf-8")
+        self.assertIn("a14_001_invariant_chain", source)
+        self.assertIn("a13_001_target_differential", source)
+        self.assertIn("invariant_hypothesis", source)
+        self.assertIn("chain_hypothesis", source)
+        self.assertNotIn("create_all", source)
+        a13 = A13_MIGRATION.read_text(encoding="utf-8")
+        self.assertNotIn("CREATE TABLE invariant_hypothesis", a13)
+        self.assertNotIn("CREATE TABLE chain_hypothesis", a13)
+        a3 = MIGRATION.read_text(encoding="utf-8")
+        self.assertNotIn("CREATE TABLE invariant_hypothesis", a3)
+
+    def test_a15_migration_is_append_only_revision(self) -> None:
+        source = A15_MIGRATION.read_text(encoding="utf-8")
+        self.assertIn("a15_001_exploration_temporal", source)
+        self.assertIn("a14_001_invariant_chain", source)
+        self.assertIn("research_opportunity", source)
+        self.assertIn("research_selection", source)
+        self.assertIn("snapshot", source)
+        self.assertIn("change_event", source)
+        self.assertNotIn("create_all", source)
+        a14 = A14_MIGRATION.read_text(encoding="utf-8")
+        self.assertNotIn("CREATE TABLE research_opportunity", a14)
+        self.assertNotIn("CREATE TABLE snapshot", a14)
+        self.assertNotIn("CREATE TABLE change_event", a14)
+        a3 = MIGRATION.read_text(encoding="utf-8")
+        self.assertNotIn("CREATE TABLE research_opportunity", a3)
+        self.assertNotIn("CREATE TABLE snapshot", a3)
 
 
 if __name__ == "__main__":

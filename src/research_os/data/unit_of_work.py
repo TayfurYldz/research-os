@@ -5,22 +5,37 @@ from __future__ import annotations
 from typing import Protocol
 
 from research_os.data.ports import (
+    ApprovalRepository,
     AuditEventRepository,
     AuthorizationSourceRepository,
+    CandidateAdmissionRepository,
+    CandidateRepository,
+    ChainHypothesisRepository,
+    DifferentialObservationRepository,
     EvidenceAdmissionRepository,
     EvidenceRepository,
     ExecutionAttemptRepository,
     ExperimentPlanRepository,
     ExperimentRepository,
+    FindingProposalRepository,
+    FindingRepository,
     HypothesisAssessmentRepository,
     HypothesisRepository,
+    HumanReviewRepository,
+    InvariantHypothesisRepository,
     IssuedBudgetRepository,
     ObservationRepository,
     ProgramRepository,
     ResearchAdmissionRepository,
     ResearchReasoningRepository,
     ResearchRunRepository,
+    TargetInferenceRepository,
+    VerificationRepository,
     WorkerResultRepository,
+    ResearchOpportunityRepository,
+    ResearchSelectionRepository,
+    SnapshotRepository,
+    ChangeEventRepository,
 )
 
 
@@ -42,6 +57,21 @@ class UnitOfWork(Protocol):
     hypothesis_assessments: HypothesisAssessmentRepository
     evidence: EvidenceRepository
     evidence_admissions: EvidenceAdmissionRepository
+    candidates: CandidateRepository
+    candidate_admissions: CandidateAdmissionRepository
+    verifications: VerificationRepository
+    finding_proposals: FindingProposalRepository
+    human_reviews: HumanReviewRepository
+    approvals: ApprovalRepository
+    findings: FindingRepository
+    target_inferences: TargetInferenceRepository
+    differential_observations: DifferentialObservationRepository
+    invariant_hypotheses: InvariantHypothesisRepository
+    chain_hypotheses: ChainHypothesisRepository
+    research_opportunities: ResearchOpportunityRepository
+    research_selections: ResearchSelectionRepository
+    snapshots: SnapshotRepository
+    change_events: ChangeEventRepository
     audit_events: AuditEventRepository
 
     def commit(self) -> None: ...

@@ -89,6 +89,12 @@ class LiveAdapterBoundaryTests(unittest.TestCase):
         self.assertIsInstance(auth, ProviderAuthError)
         self.assertIsInstance(rate, ProviderRateLimitError)
 
+    def test_content_filter_is_policy_blocked(self) -> None:
+        from research_os.research.model_port import ContentPolicyBlockedError
+
+        blocked = classify_provider_exception(RuntimeError("content_filter"))
+        self.assertIsInstance(blocked, ContentPolicyBlockedError)
+
     def test_secret_reference_does_not_echo_value(self) -> None:
         ref = SecretReference("OPENAI_API_KEY")
         self.assertEqual(ref.env_name, "OPENAI_API_KEY")

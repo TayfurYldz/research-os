@@ -125,6 +125,148 @@ EVIDENCE_FORBIDDEN_KEYS = frozenset(
         "verification",
     }
 )
+ALLOWED_CANDIDATE_STATES = frozenset(
+    {
+        "OPEN",
+        "VERIFYING",
+        "VALIDATED",
+        "REJECTED",
+        "INCONCLUSIVE",
+        "DUPLICATE",
+        "OUT_OF_SCOPE",
+    }
+)
+ALLOWED_CANDIDATE_CLASSIFICATIONS = frozenset({"DIAGNOSTIC_PLUMBING"})
+ALLOWED_CANDIDATE_ADMISSION_OUTCOMES = frozenset(
+    {
+        "ADMITTED",
+        "REJECTED_INSUFFICIENT_SUPPORT",
+        "REJECTED_BROKEN_PROVENANCE",
+        "REJECTED_CLAIM_EXCEEDS_EVIDENCE",
+        "REJECTED_NOT_TESTABLE",
+        "REJECTED_POLICY_CONFLICT",
+    }
+)
+ALLOWED_VERIFICATION_OUTCOMES = frozenset(
+    {
+        "VALIDATED",
+        "REJECTED",
+        "INCONCLUSIVE",
+        "DUPLICATE",
+        "OUT_OF_SCOPE",
+    }
+)
+ALLOWED_VERIFIER_KINDS = frozenset({"DETERMINISTIC"})
+ALLOWED_FINDING_PROPOSAL_STATES = frozenset(
+    {"PROPOSED", "HUMAN_REVIEW", "APPROVED", "REJECTED"}
+)
+ALLOWED_HUMAN_REVIEW_DECISIONS = frozenset({"APPROVE", "REJECT"})
+ALLOWED_RECORDED_APPROVAL_DECISIONS = frozenset({"APPROVE", "REJECT"})
+ALLOWED_FINDING_CLASSIFICATIONS = frozenset({"DIAGNOSTIC_PLUMBING"})
+ALLOWED_TARGET_INFERENCE_STATUSES = frozenset({"INFERRED", "HYPOTHESIZED"})
+ALLOWED_TARGET_ELEMENT_KINDS = frozenset(
+    {
+        "ACTOR",
+        "ROLE",
+        "SESSION",
+        "RESOURCE",
+        "ACTION",
+        "STATE",
+        "RELATIONSHIP",
+        "STATE_TRANSITION",
+    }
+)
+ALLOWED_DIFFERENTIAL_INTERPRETATIONS = frozenset(
+    {"CONTROLLED_DIFFERENCE", "EQUIVALENT", "INCOMPARABLE"}
+)
+ALLOWED_INVARIANT_KINDS = frozenset(
+    {
+        "ACCESS_RELATION",
+        "STATE_TRANSITION",
+        "OWNERSHIP_RELATION",
+        "ROLE_BOUNDARY",
+        "SESSION_BINDING",
+        "RESOURCE_ISOLATION",
+        "IMMUTABILITY_AFTER_STATE",
+        "SEQUENCE_PRECONDITION",
+        "INPUT_OUTPUT_RELATION",
+        "OTHER",
+    }
+)
+ALLOWED_INVARIANT_STATUSES = frozenset({"TESTABLE", "CHALLENGED", "RETIRED"})
+ALLOWED_OPPORTUNITY_KINDS = frozenset(
+    {
+        "HYPOTHESIS_FOLLOWUP",
+        "DIFFERENTIAL_FOLLOWUP",
+        "INVARIANT_CHALLENGE",
+        "CHAIN_EXTENSION",
+        "NEGATIVE_KNOWLEDGE_REVISIT",
+        "UNRESOLVED_TARGET_RELATION",
+        "CONTROL_EXPERIMENT",
+        "OTHER",
+    }
+)
+ALLOWED_OPPORTUNITY_MODES = frozenset({"EXPLORATION", "EXPLOITATION"})
+ALLOWED_SELECTION_OUTCOMES = frozenset(
+    {
+        "SELECT",
+        "DEFER",
+        "SKIP_DUPLICATE",
+        "SKIP_LOW_INFORMATION",
+        "BLOCKED_BUDGET",
+        "BLOCKED_POLICY",
+        "NEEDS_MORE_CONTEXT",
+    }
+)
+ALLOWED_CHANGE_CATEGORIES = frozenset(
+    {
+        "ADDED",
+        "REMOVED",
+        "MODIFIED",
+        "RELATION_CHANGED",
+        "STATE_CHANGED",
+        "BEHAVIOR_CHANGED",
+        "UNKNOWN_CHANGE",
+    }
+)
+ALLOWED_CHAIN_NODE_KINDS = frozenset(
+    {
+        "OBSERVATION",
+        "CAPABILITY",
+        "STATE",
+        "STATE_TRANSITION",
+        "INVARIANT",
+        "EXPERIMENT",
+        "HYPOTHESIS",
+    }
+)
+TARGET_MODEL_SECRET_KEYS = SECRET_VALUE_KEYS | {
+    "session_token",
+    "cookie",
+    "authorization",
+}
+FINDING_FORBIDDEN_KEYS = frozenset(
+    {
+        "severity",
+        "cvss",
+        "cve",
+        "bounty",
+        "exploitability",
+        "confidence",
+        "vulnerability",
+    }
+)
+CANDIDATE_FORBIDDEN_KEYS = frozenset(
+    {
+        "severity",
+        "cvss",
+        "finding",
+        "finding_proposal",
+        "exploitability",
+        "authorization",
+        "confidence",
+    }
+)
 
 
 def require_opaque_id(value: str, field_name: str) -> str:
@@ -543,6 +685,783 @@ class EvidenceAdmissionRecord:
             not isinstance(self.claim_scope, str) or not self.claim_scope.strip()
         ):
             raise PersistenceInputError("claim_scope must be a non-empty string when set")
+
+
+@dataclass(frozen=True)
+class CandidateRecord:
+    """Potential security-testable claim. OPEN is not a vulnerability. VALIDATED is not a Finding."""
+
+    candidate_id: str
+    research_run_id: str
+    hypothesis_id: str
+    claim: str
+    classification: str
+    state: str
+    evidence_ids: tuple[str, ...]
+    created_at: datetime
+    admission_record_id: str
+
+    def __post_init__(self) -> None:
+        require_opaque_id(self.candidate_id, "candidate_id")
+        require_opaque_id(self.research_run_id, "research_run_id")
+        require_opaque_id(self.hypothesis_id, "hypothesis_id")
+        require_opaque_id(self.admission_record_id, "admission_record_id")
+        require_aware_datetime(self.created_at, "created_at")
+        if not isinstance(self.claim, str) or not self.claim.strip():
+            raise PersistenceInputError("claim must be a non-empty string")
+        if self.classification not in ALLOWED_CANDIDATE_CLASSIFICATIONS:
+            raise PersistenceInputError("classification is not an allowed Candidate class")
+        if self.state not in ALLOWED_CANDIDATE_STATES:
+            raise PersistenceInputError("state is not a Candidate lifecycle state")
+        if not isinstance(self.evidence_ids, tuple) or not self.evidence_ids:
+            raise PersistenceInputError("evidence_ids must be a non-empty tuple")
+        cleaned: list[str] = []
+        for index, item in enumerate(self.evidence_ids):
+            cleaned.append(require_opaque_id(item, f"evidence_ids[{index}]"))
+        object.__setattr__(self, "evidence_ids", tuple(cleaned))
+
+
+@dataclass(frozen=True)
+class CandidateAdmissionRecord:
+    """Append-only Candidate admission history. Rejected proposals create no Candidate."""
+
+    admission_record_id: str
+    proposal_id: str
+    research_run_id: str
+    outcome: str
+    reason_codes: tuple[str, ...]
+    evidence_ids: tuple[str, ...]
+    admission_policy_version: str
+    created_at: datetime
+    admitted_candidate_id: str | None = None
+    claim: str | None = None
+    classification: str | None = None
+
+    def __post_init__(self) -> None:
+        require_opaque_id(self.admission_record_id, "admission_record_id")
+        require_opaque_id(self.proposal_id, "proposal_id")
+        require_opaque_id(self.research_run_id, "research_run_id")
+        require_aware_datetime(self.created_at, "created_at")
+        if self.outcome not in ALLOWED_CANDIDATE_ADMISSION_OUTCOMES:
+            raise PersistenceInputError("outcome is not a Candidate admission outcome")
+        if not isinstance(self.reason_codes, tuple) or not self.reason_codes:
+            raise PersistenceInputError("reason_codes must be a non-empty tuple")
+        if not isinstance(self.evidence_ids, tuple):
+            raise PersistenceInputError("evidence_ids must be a tuple")
+        cleaned: list[str] = []
+        for index, item in enumerate(self.evidence_ids):
+            cleaned.append(require_opaque_id(item, f"evidence_ids[{index}]"))
+        object.__setattr__(self, "evidence_ids", tuple(cleaned))
+        if not isinstance(self.admission_policy_version, str) or not self.admission_policy_version.strip():
+            raise PersistenceInputError("admission_policy_version must be a non-empty string")
+        if self.outcome == "ADMITTED":
+            require_opaque_id(self.admitted_candidate_id, "admitted_candidate_id")
+        elif self.admitted_candidate_id is not None:
+            raise PersistenceInputError(
+                "admitted_candidate_id must be null when Candidate is not admitted"
+            )
+        if self.classification is not None and self.classification not in ALLOWED_CANDIDATE_CLASSIFICATIONS:
+            raise PersistenceInputError("classification is not an allowed Candidate class")
+        if self.claim is not None and (not isinstance(self.claim, str) or not self.claim.strip()):
+            raise PersistenceInputError("claim must be a non-empty string when set")
+
+
+@dataclass(frozen=True)
+class VerificationRecord:
+    """Append-only Verification process record. Does not commit Candidate state by itself."""
+
+    verification_id: str
+    candidate_id: str
+    research_run_id: str
+    strategy: str
+    outcome: str
+    proposed_candidate_state: str
+    original_evidence_ids: tuple[str, ...]
+    reproduction_evidence_ids: tuple[str, ...]
+    negative_control_evidence_ids: tuple[str, ...]
+    alternative_explanation_checks: Mapping[str, Any]
+    verifier_kind: str
+    verifier_identity: str
+    created_at: datetime
+
+    def __post_init__(self) -> None:
+        require_opaque_id(self.verification_id, "verification_id")
+        require_opaque_id(self.candidate_id, "candidate_id")
+        require_opaque_id(self.research_run_id, "research_run_id")
+        require_aware_datetime(self.created_at, "created_at")
+        if not isinstance(self.strategy, str) or not self.strategy.strip():
+            raise PersistenceInputError("strategy must be a non-empty string")
+        if self.outcome not in ALLOWED_VERIFICATION_OUTCOMES:
+            raise PersistenceInputError("outcome is not a Verification outcome")
+        if self.proposed_candidate_state not in ALLOWED_CANDIDATE_STATES:
+            raise PersistenceInputError("proposed_candidate_state is not a Candidate state")
+        if self.proposed_candidate_state != self.outcome:
+            raise PersistenceInputError("proposed_candidate_state must match outcome")
+        if self.verifier_kind not in ALLOWED_VERIFIER_KINDS:
+            raise PersistenceInputError("verifier_kind is not an allowed verifier kind")
+        if not isinstance(self.verifier_identity, str) or not self.verifier_identity.strip():
+            raise PersistenceInputError("verifier_identity must be a non-empty string")
+        if not isinstance(self.original_evidence_ids, tuple) or not self.original_evidence_ids:
+            raise PersistenceInputError("original_evidence_ids must be a non-empty tuple")
+        object.__setattr__(
+            self,
+            "original_evidence_ids",
+            tuple(
+                require_opaque_id(item, f"original_evidence_ids[{index}]")
+                for index, item in enumerate(self.original_evidence_ids)
+            ),
+        )
+        if not isinstance(self.reproduction_evidence_ids, tuple):
+            raise PersistenceInputError("reproduction_evidence_ids must be a tuple")
+        object.__setattr__(
+            self,
+            "reproduction_evidence_ids",
+            tuple(
+                require_opaque_id(item, f"reproduction_evidence_ids[{index}]")
+                for index, item in enumerate(self.reproduction_evidence_ids)
+            ),
+        )
+        if not isinstance(self.negative_control_evidence_ids, tuple):
+            raise PersistenceInputError("negative_control_evidence_ids must be a tuple")
+        object.__setattr__(
+            self,
+            "negative_control_evidence_ids",
+            tuple(
+                require_opaque_id(item, f"negative_control_evidence_ids[{index}]")
+                for index, item in enumerate(self.negative_control_evidence_ids)
+            ),
+        )
+        if not isinstance(self.alternative_explanation_checks, Mapping):
+            raise PersistenceInputError("alternative_explanation_checks must be a mapping")
+        found = CANDIDATE_FORBIDDEN_KEYS.intersection(self.alternative_explanation_checks.keys())
+        if found:
+            raise PersistenceInputError(
+                f"alternative_explanation_checks must not contain {sorted(found)}"
+            )
+        _reject_secret_keys(self.alternative_explanation_checks, "alternative_explanation_checks")
+        object.__setattr__(
+            self,
+            "alternative_explanation_checks",
+            dict(self.alternative_explanation_checks),
+        )
+
+
+@dataclass(frozen=True)
+class FindingProposalRecord:
+    """Reviewable proposal. APPROVED is not a Finding. Content is immutable after insert."""
+
+    proposal_id: str
+    candidate_id: str
+    research_run_id: str
+    title: str
+    claim: str
+    classification: str
+    state: str
+    evidence_ids: tuple[str, ...]
+    verification_ids: tuple[str, ...]
+    content_fingerprint: str
+    created_at: datetime
+
+    def __post_init__(self) -> None:
+        require_opaque_id(self.proposal_id, "proposal_id")
+        require_opaque_id(self.candidate_id, "candidate_id")
+        require_opaque_id(self.research_run_id, "research_run_id")
+        require_aware_datetime(self.created_at, "created_at")
+        if not isinstance(self.title, str) or not self.title.strip():
+            raise PersistenceInputError("title must be a non-empty string")
+        if not isinstance(self.claim, str) or not self.claim.strip():
+            raise PersistenceInputError("claim must be a non-empty string")
+        if self.classification not in ALLOWED_FINDING_CLASSIFICATIONS:
+            raise PersistenceInputError("classification is not an allowed Finding class")
+        if self.state not in ALLOWED_FINDING_PROPOSAL_STATES:
+            raise PersistenceInputError("state is not a FindingProposal lifecycle state")
+        if not isinstance(self.evidence_ids, tuple) or not self.evidence_ids:
+            raise PersistenceInputError("evidence_ids must be a non-empty tuple")
+        object.__setattr__(
+            self,
+            "evidence_ids",
+            tuple(
+                require_opaque_id(item, f"evidence_ids[{index}]")
+                for index, item in enumerate(self.evidence_ids)
+            ),
+        )
+        if not isinstance(self.verification_ids, tuple) or not self.verification_ids:
+            raise PersistenceInputError("verification_ids must be a non-empty tuple")
+        object.__setattr__(
+            self,
+            "verification_ids",
+            tuple(
+                require_opaque_id(item, f"verification_ids[{index}]")
+                for index, item in enumerate(self.verification_ids)
+            ),
+        )
+        if not isinstance(self.content_fingerprint, str) or not self.content_fingerprint.strip():
+            raise PersistenceInputError("content_fingerprint must be a non-empty string")
+
+
+@dataclass(frozen=True)
+class HumanReviewRecord:
+    """Append-only human review. Not Core Approval and not a Finding."""
+
+    review_id: str
+    proposal_id: str
+    content_fingerprint: str
+    decision: str
+    reviewer_id: str
+    actor_type: str
+    reason_codes: tuple[str, ...]
+    created_at: datetime
+    note: str | None = None
+
+    def __post_init__(self) -> None:
+        require_opaque_id(self.review_id, "review_id")
+        require_opaque_id(self.proposal_id, "proposal_id")
+        require_opaque_id(self.reviewer_id, "reviewer_id")
+        require_aware_datetime(self.created_at, "created_at")
+        if not isinstance(self.content_fingerprint, str) or not self.content_fingerprint.strip():
+            raise PersistenceInputError("content_fingerprint must be a non-empty string")
+        if self.decision not in ALLOWED_HUMAN_REVIEW_DECISIONS:
+            raise PersistenceInputError("decision is not a HumanReview decision")
+        if self.actor_type not in ALLOWED_ACTOR_TYPES:
+            raise PersistenceInputError("actor_type must be a locked identity class")
+        if not isinstance(self.reason_codes, tuple) or not self.reason_codes:
+            raise PersistenceInputError("reason_codes must be a non-empty tuple")
+        if self.note is not None and (not isinstance(self.note, str) or not self.note.strip()):
+            raise PersistenceInputError("note must be a non-empty string when set")
+
+
+@dataclass(frozen=True)
+class ApprovalRecord:
+    """Append-only Core Approval record. Not AuditEvent and not Finding truth."""
+
+    approval_id: str
+    subject_reference: str
+    decision: str
+    decided_by: str
+    actor_type: str
+    recorded: bool
+    created_at: datetime
+    research_run_id: str
+    proposal_id: str
+    human_review_id: str
+
+    def __post_init__(self) -> None:
+        require_opaque_id(self.approval_id, "approval_id")
+        require_opaque_id(self.subject_reference, "subject_reference")
+        require_opaque_id(self.decided_by, "decided_by")
+        require_opaque_id(self.research_run_id, "research_run_id")
+        require_opaque_id(self.proposal_id, "proposal_id")
+        require_opaque_id(self.human_review_id, "human_review_id")
+        require_aware_datetime(self.created_at, "created_at")
+        if self.decision not in ALLOWED_RECORDED_APPROVAL_DECISIONS:
+            raise PersistenceInputError("decision is not an Approval decision")
+        if self.actor_type not in ALLOWED_ACTOR_TYPES:
+            raise PersistenceInputError("actor_type must be a locked identity class")
+        if not isinstance(self.recorded, bool):
+            raise PersistenceInputError("recorded must be bool")
+        if not self.recorded:
+            raise PersistenceInputError("persisted Approval must be recorded")
+
+
+@dataclass(frozen=True)
+class FindingRecord:
+    """Append-only accepted research result. Diagnostic plumbing is not a vulnerability."""
+
+    finding_id: str
+    finding_proposal_id: str
+    candidate_id: str
+    research_run_id: str
+    approval_id: str
+    human_review_id: str
+    title: str
+    claim: str
+    classification: str
+    evidence_ids: tuple[str, ...]
+    verification_ids: tuple[str, ...]
+    created_at: datetime
+
+    def __post_init__(self) -> None:
+        require_opaque_id(self.finding_id, "finding_id")
+        require_opaque_id(self.finding_proposal_id, "finding_proposal_id")
+        require_opaque_id(self.candidate_id, "candidate_id")
+        require_opaque_id(self.research_run_id, "research_run_id")
+        require_opaque_id(self.approval_id, "approval_id")
+        require_opaque_id(self.human_review_id, "human_review_id")
+        require_aware_datetime(self.created_at, "created_at")
+        if not isinstance(self.title, str) or not self.title.strip():
+            raise PersistenceInputError("title must be a non-empty string")
+        if not isinstance(self.claim, str) or not self.claim.strip():
+            raise PersistenceInputError("claim must be a non-empty string")
+        if self.classification not in ALLOWED_FINDING_CLASSIFICATIONS:
+            raise PersistenceInputError("classification is not an allowed Finding class")
+        if not isinstance(self.evidence_ids, tuple) or not self.evidence_ids:
+            raise PersistenceInputError("evidence_ids must be a non-empty tuple")
+        object.__setattr__(
+            self,
+            "evidence_ids",
+            tuple(
+                require_opaque_id(item, f"evidence_ids[{index}]")
+                for index, item in enumerate(self.evidence_ids)
+            ),
+        )
+        if not isinstance(self.verification_ids, tuple) or not self.verification_ids:
+            raise PersistenceInputError("verification_ids must be a non-empty tuple")
+        object.__setattr__(
+            self,
+            "verification_ids",
+            tuple(
+                require_opaque_id(item, f"verification_ids[{index}]")
+                for index, item in enumerate(self.verification_ids)
+            ),
+        )
+
+
+@dataclass(frozen=True)
+class TargetInferenceRecord:
+    """Append-only inferred/hypothesized target-model element. Not Observation and not SoR fact."""
+
+    inference_id: str
+    research_run_id: str
+    kind: str
+    epistemic_status: str
+    opaque_ref: str
+    statement: str
+    source_refs: tuple[str, ...]
+    attributes: Mapping[str, Any]
+    strategy_version: str
+    created_at: datetime
+
+    def __post_init__(self) -> None:
+        require_opaque_id(self.inference_id, "inference_id")
+        require_opaque_id(self.research_run_id, "research_run_id")
+        require_opaque_id(self.opaque_ref, "opaque_ref")
+        require_aware_datetime(self.created_at, "created_at")
+        if self.kind not in ALLOWED_TARGET_ELEMENT_KINDS:
+            raise PersistenceInputError("kind is not a target-model element kind")
+        if self.epistemic_status not in ALLOWED_TARGET_INFERENCE_STATUSES:
+            raise PersistenceInputError("epistemic_status must remain INFERRED or HYPOTHESIZED")
+        if not isinstance(self.statement, str) or not self.statement.strip():
+            raise PersistenceInputError("statement must be a non-empty string")
+        if not isinstance(self.source_refs, tuple) or not self.source_refs:
+            raise PersistenceInputError("source_refs must be a non-empty tuple")
+        object.__setattr__(
+            self,
+            "source_refs",
+            tuple(
+                require_opaque_id(item, f"source_refs[{index}]")
+                for index, item in enumerate(self.source_refs)
+            ),
+        )
+        if not isinstance(self.strategy_version, str) or not self.strategy_version.strip():
+            raise PersistenceInputError("strategy_version must be a non-empty string")
+        if not isinstance(self.attributes, Mapping):
+            raise PersistenceInputError("attributes must be a mapping")
+        found = TARGET_MODEL_SECRET_KEYS.intersection(self.attributes.keys())
+        if found:
+            raise PersistenceInputError(
+                f"attributes must not contain secret-value keys: {sorted(found)}"
+            )
+        object.__setattr__(self, "attributes", dict(self.attributes))
+
+
+@dataclass(frozen=True)
+class DifferentialObservationRecord:
+    """Append-only differential comparison. Not Evidence, Candidate, or Finding."""
+
+    differential_id: str
+    research_run_id: str
+    case_id: str
+    baseline_observation_ids: tuple[str, ...]
+    variant_observation_ids: tuple[str, ...]
+    changed_dimensions: tuple[str, ...]
+    common_dimensions: tuple[str, ...]
+    observed_differences: Mapping[str, Any]
+    observed_similarities: Mapping[str, Any]
+    interpretation: str
+    source_refs: tuple[str, ...]
+    strategy_version: str
+    alternative_explanation_slots: tuple[str, ...]
+    created_at: datetime
+
+    def __post_init__(self) -> None:
+        require_opaque_id(self.differential_id, "differential_id")
+        require_opaque_id(self.research_run_id, "research_run_id")
+        require_opaque_id(self.case_id, "case_id")
+        require_aware_datetime(self.created_at, "created_at")
+        if self.interpretation not in ALLOWED_DIFFERENTIAL_INTERPRETATIONS:
+            raise PersistenceInputError("interpretation is not a differential interpretation")
+        if not isinstance(self.strategy_version, str) or not self.strategy_version.strip():
+            raise PersistenceInputError("strategy_version must be a non-empty string")
+        for field_name, value in (
+            ("baseline_observation_ids", self.baseline_observation_ids),
+            ("variant_observation_ids", self.variant_observation_ids),
+            ("changed_dimensions", self.changed_dimensions),
+            ("common_dimensions", self.common_dimensions),
+            ("source_refs", self.source_refs),
+        ):
+            if not isinstance(value, tuple) or not value:
+                raise PersistenceInputError(f"{field_name} must be a non-empty tuple")
+            object.__setattr__(
+                self,
+                field_name,
+                tuple(
+                    require_opaque_id(item, f"{field_name}[{index}]")
+                    for index, item in enumerate(value)
+                ),
+            )
+        if not isinstance(self.alternative_explanation_slots, tuple):
+            raise PersistenceInputError("alternative_explanation_slots must be a tuple")
+        object.__setattr__(
+            self,
+            "alternative_explanation_slots",
+            tuple(
+                require_opaque_id(item, f"alternative_explanation_slots[{index}]")
+                for index, item in enumerate(self.alternative_explanation_slots)
+            ),
+        )
+        if not isinstance(self.observed_differences, Mapping):
+            raise PersistenceInputError("observed_differences must be a mapping")
+        if not isinstance(self.observed_similarities, Mapping):
+            raise PersistenceInputError("observed_similarities must be a mapping")
+        for field_name, payload in (
+            ("observed_differences", self.observed_differences),
+            ("observed_similarities", self.observed_similarities),
+        ):
+            found = TARGET_MODEL_SECRET_KEYS.intersection(payload.keys())
+            if found:
+                raise PersistenceInputError(
+                    f"{field_name} must not contain secret-value keys: {sorted(found)}"
+                )
+        object.__setattr__(self, "observed_differences", dict(self.observed_differences))
+        object.__setattr__(self, "observed_similarities", dict(self.observed_similarities))
+
+
+@dataclass(frozen=True)
+class InvariantHypothesisRecord:
+    """Expected-behavior hypothesis. Not a fact, ScopeRule, Evidence, or Finding."""
+
+    invariant_id: str
+    research_run_id: str
+    invariant_kind: str
+    status: str
+    subject_refs: tuple[str, ...]
+    expected_behavior: str
+    source_refs: tuple[str, ...]
+    applicability_context: Mapping[str, Any]
+    assumptions: tuple[str, ...]
+    counterexample_refs: tuple[str, ...]
+    falsification_direction: str
+    proposer_provenance: str
+    strategy_version: str
+    created_at: datetime
+
+    def __post_init__(self) -> None:
+        require_opaque_id(self.invariant_id, "invariant_id")
+        require_opaque_id(self.research_run_id, "research_run_id")
+        require_aware_datetime(self.created_at, "created_at")
+        if self.invariant_kind not in ALLOWED_INVARIANT_KINDS:
+            raise PersistenceInputError("invariant_kind is not an expectation class")
+        if self.status not in ALLOWED_INVARIANT_STATUSES:
+            raise PersistenceInputError("status is not an invariant hypothesis status")
+        if not isinstance(self.expected_behavior, str) or not self.expected_behavior.strip():
+            raise PersistenceInputError("expected_behavior must be a non-empty string")
+        if not isinstance(self.falsification_direction, str) or not self.falsification_direction.strip():
+            raise PersistenceInputError("falsification_direction must be a non-empty string")
+        if not isinstance(self.proposer_provenance, str) or not self.proposer_provenance.strip():
+            raise PersistenceInputError("proposer_provenance must be a non-empty string")
+        if not isinstance(self.strategy_version, str) or not self.strategy_version.strip():
+            raise PersistenceInputError("strategy_version must be a non-empty string")
+        if not isinstance(self.source_refs, tuple) or not self.source_refs:
+            raise PersistenceInputError("source_refs must be a non-empty tuple")
+        object.__setattr__(
+            self,
+            "source_refs",
+            tuple(
+                require_opaque_id(item, f"source_refs[{index}]")
+                for index, item in enumerate(self.source_refs)
+            ),
+        )
+        object.__setattr__(
+            self,
+            "subject_refs",
+            tuple(
+                require_opaque_id(item, f"subject_refs[{index}]")
+                for index, item in enumerate(self.subject_refs)
+            ),
+        )
+        object.__setattr__(
+            self,
+            "counterexample_refs",
+            tuple(
+                require_opaque_id(item, f"counterexample_refs[{index}]")
+                for index, item in enumerate(self.counterexample_refs)
+            ),
+        )
+        object.__setattr__(
+            self,
+            "assumptions",
+            tuple(
+                require_opaque_id(item, f"assumptions[{index}]")
+                for index, item in enumerate(self.assumptions)
+            ),
+        )
+        if not isinstance(self.applicability_context, Mapping):
+            raise PersistenceInputError("applicability_context must be a mapping")
+        found = TARGET_MODEL_SECRET_KEYS.intersection(self.applicability_context.keys())
+        if found:
+            raise PersistenceInputError(
+                f"applicability_context must not contain secret-value keys: {sorted(found)}"
+            )
+        object.__setattr__(self, "applicability_context", dict(self.applicability_context))
+
+
+@dataclass(frozen=True)
+class InvariantSourceRefRecord:
+    """Append-only invariant source. Not Observation truth."""
+
+    invariant_id: str
+    source_ref: str
+    created_at: datetime
+
+    def __post_init__(self) -> None:
+        require_opaque_id(self.invariant_id, "invariant_id")
+        require_opaque_id(self.source_ref, "source_ref")
+        require_aware_datetime(self.created_at, "created_at")
+
+
+@dataclass(frozen=True)
+class InvariantCounterexampleRefRecord:
+    """Append-only context-bound contradiction. Not a global disproof."""
+
+    counterexample_id: str
+    invariant_id: str
+    source_ref: str
+    applicability_context: Mapping[str, Any]
+    created_at: datetime
+
+    def __post_init__(self) -> None:
+        require_opaque_id(self.counterexample_id, "counterexample_id")
+        require_opaque_id(self.invariant_id, "invariant_id")
+        require_opaque_id(self.source_ref, "source_ref")
+        require_aware_datetime(self.created_at, "created_at")
+        if not isinstance(self.applicability_context, Mapping):
+            raise PersistenceInputError("applicability_context must be a mapping")
+        object.__setattr__(self, "applicability_context", dict(self.applicability_context))
+
+
+@dataclass(frozen=True)
+class ChainHypothesisRecord:
+    """Append-only chain hypothesis. Not Evidence, Candidate, Finding, or an exploit."""
+
+    chain_id: str
+    research_run_id: str
+    structural_identity: str
+    steps: tuple[Mapping[str, Any], ...]
+    source_refs: tuple[str, ...]
+    preconditions: tuple[str, ...]
+    expected_resulting_capability: str
+    unresolved_assumptions: tuple[str, ...]
+    falsification_points: tuple[str, ...]
+    descriptive_features: Mapping[str, Any]
+    strategy_version: str
+    created_at: datetime
+
+    def __post_init__(self) -> None:
+        require_opaque_id(self.chain_id, "chain_id")
+        require_opaque_id(self.research_run_id, "research_run_id")
+        require_opaque_id(self.structural_identity, "structural_identity")
+        require_aware_datetime(self.created_at, "created_at")
+        if not isinstance(self.steps, tuple) or len(self.steps) < 2:
+            raise PersistenceInputError("steps must contain at least two mappings")
+        object.__setattr__(self, "source_refs", tuple(self.source_refs))
+        if not self.source_refs:
+            raise PersistenceInputError("source_refs must be a non-empty tuple")
+        object.__setattr__(
+            self,
+            "source_refs",
+            tuple(
+                require_opaque_id(item, f"source_refs[{index}]")
+                for index, item in enumerate(self.source_refs)
+            ),
+        )
+        if not isinstance(self.expected_resulting_capability, str) or not self.expected_resulting_capability.strip():
+            raise PersistenceInputError("expected_resulting_capability must be a non-empty string")
+        if not isinstance(self.strategy_version, str) or not self.strategy_version.strip():
+            raise PersistenceInputError("strategy_version must be a non-empty string")
+        if not isinstance(self.descriptive_features, Mapping):
+            raise PersistenceInputError("descriptive_features must be a mapping")
+        found = TARGET_MODEL_SECRET_KEYS.intersection(self.descriptive_features.keys())
+        if found:
+            raise PersistenceInputError(
+                f"descriptive_features must not contain secret-value keys: {sorted(found)}"
+            )
+        object.__setattr__(self, "descriptive_features", dict(self.descriptive_features))
+        object.__setattr__(self, "steps", tuple(dict(step) for step in self.steps))
+        object.__setattr__(self, "preconditions", tuple(self.preconditions))
+        object.__setattr__(self, "unresolved_assumptions", tuple(self.unresolved_assumptions))
+        object.__setattr__(self, "falsification_points", tuple(self.falsification_points))
+
+
+@dataclass(frozen=True)
+class ResearchOpportunityRecord:
+    """Selected or considered research direction. Not Hypothesis truth and not authorization."""
+
+    opportunity_id: str
+    research_run_id: str
+    opportunity_kind: str
+    mode: str
+    source_refs: tuple[str, ...]
+    proposed_direction: str
+    unresolved_question: str
+    expected_information_value_description: str
+    assumptions: tuple[str, ...]
+    dimensions: Mapping[str, Any]
+    context_signature: str
+    novelty_composition_marker: bool
+    prior_attempt_refs: tuple[str, ...]
+    structural_identity: str
+    strategy_version: str
+    created_at: datetime
+
+    def __post_init__(self) -> None:
+        require_opaque_id(self.opportunity_id, "opportunity_id")
+        require_opaque_id(self.research_run_id, "research_run_id")
+        require_opaque_id(self.structural_identity, "structural_identity")
+        require_aware_datetime(self.created_at, "created_at")
+        if self.opportunity_kind not in ALLOWED_OPPORTUNITY_KINDS:
+            raise PersistenceInputError("opportunity_kind is not a research workflow category")
+        if self.mode not in ALLOWED_OPPORTUNITY_MODES:
+            raise PersistenceInputError("mode is not exploration or exploitation")
+        if not isinstance(self.proposed_direction, str) or not self.proposed_direction.strip():
+            raise PersistenceInputError("proposed_direction must be a non-empty string")
+        if not isinstance(self.unresolved_question, str) or not self.unresolved_question.strip():
+            raise PersistenceInputError("unresolved_question must be a non-empty string")
+        if not isinstance(self.dimensions, Mapping):
+            raise PersistenceInputError("dimensions must be a mapping")
+        found = FINDING_FORBIDDEN_KEYS.intersection(self.dimensions.keys())
+        if found:
+            raise PersistenceInputError(f"dimensions must not contain {sorted(found)}")
+        if "priority_score" in self.dimensions or "weighted_score" in self.dimensions:
+            raise PersistenceInputError("dimensions must not contain a priority score")
+        object.__setattr__(self, "dimensions", dict(self.dimensions))
+        object.__setattr__(
+            self,
+            "source_refs",
+            tuple(
+                require_opaque_id(item, f"source_refs[{index}]")
+                for index, item in enumerate(self.source_refs)
+            ),
+        )
+        if not self.source_refs:
+            raise PersistenceInputError("source_refs must be a non-empty tuple")
+        object.__setattr__(self, "assumptions", tuple(self.assumptions))
+        object.__setattr__(self, "prior_attempt_refs", tuple(self.prior_attempt_refs))
+        object.__setattr__(
+            self, "context_signature", require_opaque_id(self.context_signature, "context_signature")
+        )
+        object.__setattr__(
+            self, "strategy_version", require_opaque_id(self.strategy_version, "strategy_version")
+        )
+
+
+@dataclass(frozen=True)
+class ResearchSelectionRecord:
+    """Append-only selection decision. Not Core authorization."""
+
+    selection_id: str
+    research_run_id: str
+    opportunity_id: str
+    outcome: str
+    reason_codes: tuple[str, ...]
+    structural_identity: str
+    created_at: datetime
+
+    def __post_init__(self) -> None:
+        require_opaque_id(self.selection_id, "selection_id")
+        require_opaque_id(self.research_run_id, "research_run_id")
+        require_opaque_id(self.opportunity_id, "opportunity_id")
+        require_opaque_id(self.structural_identity, "structural_identity")
+        require_aware_datetime(self.created_at, "created_at")
+        if self.outcome not in ALLOWED_SELECTION_OUTCOMES:
+            raise PersistenceInputError("outcome is not a selection outcome")
+        object.__setattr__(self, "reason_codes", tuple(self.reason_codes))
+
+
+@dataclass(frozen=True)
+class SnapshotRecord:
+    """Immutable point-in-time research view by reference. Not a full SoR copy."""
+
+    snapshot_id: str
+    research_run_id: str
+    program_id: str
+    target_identity: str
+    captured_at: datetime
+    strategy_version: str
+    created_at: datetime
+
+    def __post_init__(self) -> None:
+        require_opaque_id(self.snapshot_id, "snapshot_id")
+        require_opaque_id(self.research_run_id, "research_run_id")
+        require_opaque_id(self.program_id, "program_id")
+        require_opaque_id(self.target_identity, "target_identity")
+        require_aware_datetime(self.captured_at, "captured_at")
+        require_aware_datetime(self.created_at, "created_at")
+        object.__setattr__(
+            self, "strategy_version", require_opaque_id(self.strategy_version, "strategy_version")
+        )
+
+
+@dataclass(frozen=True)
+class SnapshotMemberRecord:
+    """Append-only snapshot observation reference. Not Observation truth."""
+
+    snapshot_id: str
+    observation_id: str
+    created_at: datetime
+
+    def __post_init__(self) -> None:
+        require_opaque_id(self.snapshot_id, "snapshot_id")
+        require_opaque_id(self.observation_id, "observation_id")
+        require_aware_datetime(self.created_at, "created_at")
+
+
+@dataclass(frozen=True)
+class ChangeEventRecord:
+    """Append-only deterministic snapshot delta. Not Evidence or a vulnerability."""
+
+    change_event_id: str
+    research_run_id: str
+    baseline_snapshot_id: str
+    variant_snapshot_id: str
+    category: str
+    statement: str
+    source_refs: tuple[str, ...]
+    strategy_version: str
+    created_at: datetime
+
+    def __post_init__(self) -> None:
+        require_opaque_id(self.change_event_id, "change_event_id")
+        require_opaque_id(self.research_run_id, "research_run_id")
+        require_opaque_id(self.baseline_snapshot_id, "baseline_snapshot_id")
+        require_opaque_id(self.variant_snapshot_id, "variant_snapshot_id")
+        require_aware_datetime(self.created_at, "created_at")
+        if self.category not in ALLOWED_CHANGE_CATEGORIES:
+            raise PersistenceInputError("category is not a ChangeEvent category")
+        if self.category == "VULNERABILITY_INTRODUCED":
+            raise PersistenceInputError("vulnerability introduction is not a ChangeEvent category")
+        if not isinstance(self.statement, str) or not self.statement.strip():
+            raise PersistenceInputError("statement must be a non-empty string")
+        object.__setattr__(
+            self,
+            "source_refs",
+            tuple(
+                require_opaque_id(item, f"source_refs[{index}]")
+                for index, item in enumerate(self.source_refs)
+            ),
+        )
+        object.__setattr__(
+            self, "strategy_version", require_opaque_id(self.strategy_version, "strategy_version")
+        )
 
 
 @dataclass(frozen=True)

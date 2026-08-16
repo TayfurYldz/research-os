@@ -23,6 +23,13 @@ def classify_provider_exception(exc: BaseException, *, secret: str | None = None
         return ProviderRateLimitError(message)
     if status == 408 or "timeout" in combined or "timed out" in combined:
         return ProviderTimeoutError(message)
+    if (
+        status == 400
+        and ("content" in combined or "safety" in combined or "policy" in combined)
+    ) or "content_filter" in combined or "content_policy" in combined:
+        from research_os.research.model_port import ContentPolicyBlockedError
+
+        return ContentPolicyBlockedError(message)
     return ProviderRuntimeError(message)
 
 

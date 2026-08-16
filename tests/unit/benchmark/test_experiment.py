@@ -154,6 +154,29 @@ class FingerprintAndReportTests(unittest.TestCase):
                 write_immutable_report(Path(tmp), report)
 
 
+class RuntimeIdentityTests(unittest.TestCase):
+    def test_api_and_cli_benchmark_identities_differ(self) -> None:
+        from research_os.benchmark.runner import identity_for_cli_session, identity_for_live
+
+        api = identity_for_live(
+            adapter_identity="openai.responses",
+            provider_adapter_identity="openai",
+            provider_model_id="gpt-test",
+        )
+        cli = identity_for_cli_session(
+            adapter_identity="codex.cli.session",
+            runtime_id="codex-cli",
+            runtime_version="unknown",
+        )
+        self.assertEqual(api.runtime_kind, "API")
+        self.assertEqual(cli.runtime_kind, "CLI_SESSION")
+        self.assertEqual(api.runtime_class, "INFERENCE_RUNTIME")
+        self.assertEqual(cli.runtime_class, "AGENT_RUNTIME")
+        self.assertNotEqual(api.to_mapping(), cli.to_mapping())
+        self.assertFalse(api.to_mapping()["contains_secrets"])
+        self.assertNotIn("sk-", json.dumps(api.to_mapping()))
+
+
 class InstructionIdentityTests(unittest.TestCase):
     def test_instruction_identity_is_stable_for_current_templates(self) -> None:
         first = current_instruction_identity()

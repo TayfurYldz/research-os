@@ -6,22 +6,37 @@ from sqlalchemy.engine import Connection, Engine
 
 from research_os.data.errors import PersistenceError
 from research_os.data.postgres.repositories import (
+    PostgresApprovalRepository,
     PostgresAuditEventRepository,
     PostgresAuthorizationSourceRepository,
+    PostgresCandidateAdmissionRepository,
+    PostgresCandidateRepository,
+    PostgresChainHypothesisRepository,
+    PostgresDifferentialObservationRepository,
     PostgresEvidenceAdmissionRepository,
     PostgresEvidenceRepository,
     PostgresExecutionAttemptRepository,
     PostgresExperimentPlanRepository,
     PostgresExperimentRepository,
+    PostgresFindingProposalRepository,
+    PostgresFindingRepository,
     PostgresHypothesisAssessmentRepository,
     PostgresHypothesisRepository,
+    PostgresHumanReviewRepository,
+    PostgresInvariantHypothesisRepository,
     PostgresIssuedBudgetRepository,
     PostgresObservationRepository,
     PostgresProgramRepository,
     PostgresResearchAdmissionRepository,
     PostgresResearchReasoningRepository,
     PostgresResearchRunRepository,
+    PostgresTargetInferenceRepository,
+    PostgresVerificationRepository,
     PostgresWorkerResultRepository,
+    PostgresResearchOpportunityRepository,
+    PostgresResearchSelectionRepository,
+    PostgresSnapshotRepository,
+    PostgresChangeEventRepository,
 )
 
 
@@ -46,6 +61,21 @@ class PostgresUnitOfWork:
         self.hypothesis_assessments: PostgresHypothesisAssessmentRepository
         self.evidence: PostgresEvidenceRepository
         self.evidence_admissions: PostgresEvidenceAdmissionRepository
+        self.candidates: PostgresCandidateRepository
+        self.candidate_admissions: PostgresCandidateAdmissionRepository
+        self.verifications: PostgresVerificationRepository
+        self.finding_proposals: PostgresFindingProposalRepository
+        self.human_reviews: PostgresHumanReviewRepository
+        self.approvals: PostgresApprovalRepository
+        self.findings: PostgresFindingRepository
+        self.target_inferences: PostgresTargetInferenceRepository
+        self.differential_observations: PostgresDifferentialObservationRepository
+        self.invariant_hypotheses: PostgresInvariantHypothesisRepository
+        self.chain_hypotheses: PostgresChainHypothesisRepository
+        self.research_opportunities: PostgresResearchOpportunityRepository
+        self.research_selections: PostgresResearchSelectionRepository
+        self.snapshots: PostgresSnapshotRepository
+        self.change_events: PostgresChangeEventRepository
         self.audit_events: PostgresAuditEventRepository
 
     def __enter__(self) -> PostgresUnitOfWork:
@@ -71,6 +101,23 @@ class PostgresUnitOfWork:
         )
         self.evidence = PostgresEvidenceRepository(self._connection)
         self.evidence_admissions = PostgresEvidenceAdmissionRepository(self._connection)
+        self.candidates = PostgresCandidateRepository(self._connection)
+        self.candidate_admissions = PostgresCandidateAdmissionRepository(self._connection)
+        self.verifications = PostgresVerificationRepository(self._connection)
+        self.finding_proposals = PostgresFindingProposalRepository(self._connection)
+        self.human_reviews = PostgresHumanReviewRepository(self._connection)
+        self.approvals = PostgresApprovalRepository(self._connection)
+        self.findings = PostgresFindingRepository(self._connection)
+        self.target_inferences = PostgresTargetInferenceRepository(self._connection)
+        self.differential_observations = PostgresDifferentialObservationRepository(
+            self._connection
+        )
+        self.invariant_hypotheses = PostgresInvariantHypothesisRepository(self._connection)
+        self.chain_hypotheses = PostgresChainHypothesisRepository(self._connection)
+        self.research_opportunities = PostgresResearchOpportunityRepository(self._connection)
+        self.research_selections = PostgresResearchSelectionRepository(self._connection)
+        self.snapshots = PostgresSnapshotRepository(self._connection)
+        self.change_events = PostgresChangeEventRepository(self._connection)
         self.audit_events = PostgresAuditEventRepository(self._connection)
         return self
 

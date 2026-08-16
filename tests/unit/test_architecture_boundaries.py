@@ -92,7 +92,19 @@ class ArchitectureBoundaryTests(unittest.TestCase):
                 forbidden_roots=EXECUTION_ROOTS
                 + PERSISTENCE_LIBS
                 + SCHEMA_LIBS
-                + ("openai", "anthropic", "google", "langchain", "llama_index", "litellm"),
+                + (
+                    "openai",
+                    "anthropic",
+                    "google",
+                    "langchain",
+                    "llama_index",
+                    "litellm",
+                    "neo4j",
+                    "networkx",
+                    "chromadb",
+                    "faiss",
+                    "pinecone",
+                ),
                 forbidden_prefixes=(
                     "research_os.data",
                     "research_os.workers",
@@ -185,6 +197,7 @@ class ArchitectureBoundaryTests(unittest.TestCase):
         port_files = [
             SRC_ROOT / "platform" / "worker.py",
             SRC_ROOT / "platform" / "contract_validation.py",
+            SRC_ROOT / "platform" / "strix.py",
             SRC_ROOT / "platform" / "__init__.py",
         ]
         found = []
@@ -192,6 +205,43 @@ class ArchitectureBoundaryTests(unittest.TestCase):
             tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
             for name in _imported_modules(tree):
                 if name.split(".", 1)[0] == "subprocess":
+                    found.append(f"{path.name} imports {name}")
+        self.assertEqual(found, [])
+
+    def test_argv_process_adapter_does_not_use_shell_or_domain(self) -> None:
+        path = SRC_ROOT / "platform" / "argv_process.py"
+        text = path.read_text(encoding="utf-8")
+        self.assertIn("shell=False", text)
+        self.assertNotRegex(text, r"shell\s*=\s*True")
+        self.assertNotIn("argv_process", (SRC_ROOT / "platform" / "__init__.py").read_text(encoding="utf-8"))
+        tree = ast.parse(text, filename=str(path))
+        found = []
+        for name in _imported_modules(tree):
+            if name.startswith("research_os.data") or name.startswith("research_os.core") or name.startswith(
+                "research_os.research"
+            ):
+                found.append(name)
+        self.assertEqual(found, [])
+
+    def test_strix_adapter_does_not_import_data_or_core(self) -> None:
+        path = REPO_ROOT / "integrations" / "strix" / "adapter.py"
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        found = []
+        for name in _imported_modules(tree):
+            if name.startswith("research_os.data") or name.startswith("research_os.core"):
+                found.append(name)
+        self.assertEqual(found, [])
+
+    def test_agent_runtime_adapters_do_not_import_core(self) -> None:
+        paths = [
+            REPO_ROOT / "integrations" / "models" / "cli_session.py",
+            REPO_ROOT / "integrations" / "models" / "external_agent.py",
+        ]
+        found = []
+        for path in paths:
+            tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+            for name in _imported_modules(tree):
+                if name.startswith("research_os.core") or name.startswith("research_os.data"):
                     found.append(f"{path.name} imports {name}")
         self.assertEqual(found, [])
 

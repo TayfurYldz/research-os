@@ -88,6 +88,7 @@ class AdmitDiagnosticEvidenceTests(unittest.TestCase):
         self.assertFalse(hasattr(evidence, "severity"))
         self.assertFalse(hasattr(evidence, "confidence"))
         self.assertEqual(len(store.hypotheses), 1)
+        self.assertEqual(len(store.candidates), 0)
 
     def test_assessment_alone_does_not_create_evidence(self) -> None:
         store = _Store()

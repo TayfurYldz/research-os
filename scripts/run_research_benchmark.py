@@ -14,7 +14,7 @@ if str(SRC) not in sys.path:
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from research_os.benchmark.runner import identity_for_live, run_cli
+from research_os.benchmark.runner import identity_for_cli_session, identity_for_live, run_cli
 
 
 def git_commit_hash() -> str:
@@ -35,6 +35,27 @@ def git_commit_hash() -> str:
 
 
 def resolve_live(adapter_id: str, model_id: str | None):
+    if adapter_id == "codex-cli":
+        from integrations.models.cli_session import CodexCliSessionAdapter, probe_codex_cli
+        from research_os.tools.capabilities import CODEX_DIAGNOSTIC_STRUCTURED_OUTPUT_CAPABILITY
+
+        availability = probe_codex_cli()
+        payload = json.dumps(availability.to_mapping(), ensure_ascii=True)
+        if not availability.available or availability.executable is None:
+            print(f"UNAVAILABLE {payload}", file=sys.stderr)
+            return None
+        port = CodexCliSessionAdapter(
+            allowed_capabilities=(CODEX_DIAGNOSTIC_STRUCTURED_OUTPUT_CAPABILITY,),
+            executable=availability.executable,
+            version=availability.version,
+        )
+        identity = identity_for_cli_session(
+            adapter_identity="codex.cli.session",
+            runtime_id="codex-cli",
+            runtime_version=availability.version,
+        )
+        return port, identity
+
     from integrations.models.factory import resolve_live_adapter
 
     handle = resolve_live_adapter(adapter_id, model_id=model_id)

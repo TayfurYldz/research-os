@@ -16,6 +16,7 @@ from research_os.research.model_port import (
     ModelCallTelemetry,
     StructuredOutputTransportError,
 )
+from research_os.research.model_runtime import ModelRuntimeIdentity, api_runtime_identity
 
 from integrations.models.json_schemas import schema_for_role
 from integrations.models.secrets import redact_secret
@@ -59,9 +60,19 @@ def parse_structured_object(text: str | None, *, secret: str | None = None) -> d
 
 
 class JsonSchemaModelAdapter:
-    def __init__(self, transport: ProviderTransport, *, secret: str | None = None) -> None:
+    def __init__(
+        self,
+        transport: ProviderTransport,
+        *,
+        secret: str | None = None,
+        runtime_identity: ModelRuntimeIdentity | None = None,
+    ) -> None:
         self._transport = transport
         self._secret = secret
+        self._runtime_identity = runtime_identity or api_runtime_identity(
+            adapter_id=transport.adapter_identity,
+            runtime_id=transport.provider_adapter_identity,
+        )
 
     @property
     def adapter_identity(self) -> str:
@@ -89,4 +100,5 @@ class JsonSchemaModelAdapter:
             model_id=invocation.model_id,
             model_version=invocation.model_version,
             telemetry=telemetry,
+            runtime_identity=self._runtime_identity,
         )

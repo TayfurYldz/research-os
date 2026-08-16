@@ -463,24 +463,117 @@ First path is deterministic diagnostic.echo plumbing only. It is not vulnerabili
 
 **Verify:** unit + contract + `scripts/check_contracts.py` + integration on real PostgreSQL (0 skipped).
 
+## GATE 05 — Verification / Candidate Integrity
+
+Evidence → Candidate OPEN → VERIFYING → independent reproduction/control → Verification → VALIDATED / REJECTED / INCONCLUSIVE.
+
+- Research owns Candidate admission and transition rules
+- Deterministic diagnostic verifier; no second provider required
+- Reproduction uses a new Experiment / request_id; original Evidence cannot self-validate
+- Timeout / unusable execution → INCONCLUSIVE, not REJECTED
+- VALIDATED Candidate is not a Finding
+- New Alembic `a11_001_candidate_verification` only
+
+**GATE 05 status: PASS** (2026-08-17) on real PostgreSQL. Deterministic diagnostic path only. VALIDATED Candidate is not a Finding. GATE 04B remains PENDING (missing credentials is not a GATE 05 regression). GATE 01–04A, GATE 04B-PREP, and Transition B remain PASS.
+
+**Verify:** unit + contract + `scripts/check_contracts.py` + integration (0 skipped).
+
+## GATE 06 — Human Finding Acceptance Integrity
+
+VALIDATED Candidate → FindingProposal → Human Review → Core Approval → Finding.
+
+- Research owns FindingProposal and Finding creation-gate semantics
+- Core owns Approval semantics only; it does not decide vulnerability truth
+- Application coordinates and cannot self-approve
+- Human REJECT leaves Candidate VALIDATED and creates no Finding
+- Diagnostic plumbing Finding is not a security vulnerability
+- New Alembic `a12_001_finding_acceptance` only; a3–a11 are not edited
+
+**GATE 06 status: PASS** (2026-08-17) on real PostgreSQL. Deterministic diagnostic path only. No automatic Finding path. GATE 04B remains PENDING (missing credentials is not a GATE 06 regression). GATE 01–05 remain PASS.
+
+**Verify:** unit + contract + `scripts/check_contracts.py` + integration (0 skipped).
+
+## GATE 07 — Target Model / Differential Integrity
+
+Observation set → Target Model projection → controlled DifferentialCase → DifferentialObservation → bounded Generator/Falsifier cycle → admitted/rejected Hypothesis.
+
+- Target Model is a Research projection, not a second SoR
+- OBSERVED / DERIVED / INFERRED / HYPOTHESIZED remain distinct
+- Difference is not a vulnerability and does not create Evidence/Candidate/Finding
+- New Alembic `a13_001_target_differential` only; a3–a12 are not edited
+
+**GATE 07 status: PASS** (2026-08-17) on real PostgreSQL. Deterministic diagnostic path only. GATE 04B remains PENDING (missing credentials is not a GATE 07 regression). GATE 01–06 remain PASS.
+
+**Verify:** unit + contract + `scripts/check_contracts.py` + integration (0 skipped).
+
+## GATE 08 — Invariant / Chain Integrity
+
+Target Model + DifferentialObservation → InvariantProposal → invariant admission → Hypothesis/Experiment direction; and Target/Research state → bounded ChainHypothesis construction → provenance reload → controlled multi-step experiment planning.
+
+- Invariant stays a hypothesis; it is not a fact, ScopeRule, Evidence, Candidate, Finding, or vulnerability
+- Counterexamples remain context-bound
+- Unsupported causal edges are rejected; inferred intermediate state stays inferred
+- Chain Engine does not dispatch Workers and cannot bypass Core
+- New Alembic `a14_001_invariant_chain` only; a3–a13 are not edited
+
+**GATE 08 status: PASS** (2026-08-17) on real PostgreSQL. Deterministic diagnostic path only. No security vulnerability required. GATE 04B remains PENDING (missing credentials is not a GATE 08 regression). GATE 01–07 remain PASS.
+
+**Verify:** unit + contract + `scripts/check_contracts.py` + integration (0 skipped).
+
+## GATE 09 — Exploration / Temporal Integrity
+
+Research state → ResearchOpportunity set → bounded exploration/exploitation selection; and Snapshot t1 → Snapshot t2 → deterministic ChangeEvent → TIME DifferentialCase → ResearchOpportunity → optional HypothesisProposal.
+
+- Selection is not Core authorization and does not dispatch a Worker
+- Opportunity is not Hypothesis truth, Evidence, Candidate, or Finding
+- No magic weighted priority score
+- Negative knowledge remains context-bound; historical assessments are not rewritten
+- Change is not a vulnerability; TIME requires snapshot provenance
+- Snapshot is immutable; ChangeEvent provenance survives reload
+- New Alembic `a15_001_exploration_temporal` only; a3–a14 are not edited
+- Snapshot retention/compaction is deferred and must never delete Evidence/Verification/Finding provenance
+
+**GATE 09 status: PASS** (2026-08-17) on real PostgreSQL. Deterministic diagnostic path only. No security vulnerability required. GATE 04B remains PENDING (missing credentials is not a GATE 09 regression). GATE 01–08 remain PASS.
+
+**Verify:** unit + contract + `scripts/check_contracts.py` + integration (0 skipped).
+
+## GATE 10 — Runtime / Strix Boundary Integrity
+
+Replaceable ModelRuntime below ModelPort; Strix as Integration only.
+
+- API is not the only runtime type; CLI/session is first-class
+- Runtime identity is separate from provider API identity; inference vs agent runtime is explicit
+- Secret/session material is not ResearchContext, SoR, Evidence, logs, or benchmark reports
+- Runtime failure taxonomy includes `CONTENT_POLICY_BLOCKED` as an operational outcome, not Hypothesis rejection
+- Research imports no subprocess/provider SDK; argv execution stays in Platform/Integrations
+- Strix remains Integration; Core ALLOW is required; denied requests never reach Strix
+- Strix outputs remain untrusted; runtime failure creates no Observation/Evidence
+- External-agent/MCP requires an explicit capability allowlist
+- No new Alembic; head remains `a15_001_exploration_temporal`
+- Runtime availability is reported separately and must not be fabricated
+
+**GATE 10 status: PASS** for architecture (2026-08-17) on real PostgreSQL. Deterministic diagnostic path only. No security scanning workflow. GATE 04B remains PENDING unless >=2 real comparable runtime configurations actually execute. GATE 01–09 remain PASS.
+
+**Verify:** unit + contract + `scripts/check_contracts.py` + integration (0 skipped).
+
 ---
 
 ## Research Brain (Research capability — not Core)
 
 A7 v1 delivers the bounded reasoning cycle (Decisions 025–026). It is not a graph/database product and not required to declare the first working implementation (Human Review loop) done.
 
-Later Research Brain work remains architecturally capable of:
+GATE 08 delivered diagnostic invariant mining and bounded diagnostic chain composition. GATE 09 delivered bounded exploration/exploitation selection and diagnostic Temporal Intelligence. Later Research Brain work remains architecturally capable of:
 
-- persistent target / state model (capability, not a schema in this plan)
-- invariant hypotheses (hypothesis ≠ fact)
-- differential reasoning (anomaly ≠ vulnerability)
+- non-diagnostic invariant kinds (hypothesis ≠ fact)
+- broader chain search (N2) beyond diagnostic plumbing
+- model-proposed opportunities (still untrusted; policy still selects)
 - independent verification (Decision 017; not a required second model vendor in v1)
 - counter-hypothesis / disconfirming evidence
 - negative evidence that stays **context-bound**
 
 It must not reduce to “ask the LLM for vulnerability ideas” or `LLM → tool → LLM`.
 
-Exploration remains Core-authorized: no scope, budget, or side-effect bypass.
+Exploration remains Core-authorized: no scope, budget, or side-effect bypass. There is no autonomous infinite loop.
 
 ---
 
@@ -489,8 +582,8 @@ Exploration remains Core-authorized: no scope, budget, or side-effect bypass.
 After the first Human Review loop exists and metrics can be read from the SoR:
 
 - chain search (N2)
-- temporal prioritization
-- exploration vs exploitation policy (no frozen weights)
+- temporal prioritization beyond diagnostic snapshots
+- persistent exploration budget ledger
 - novelty / information-gain factors (conceptual; no fake formula)
 - duplicate reduction (duplicate semantics still an open domain question)
 - empirical calibration of claims (Decision 018 anti-hype metrics)

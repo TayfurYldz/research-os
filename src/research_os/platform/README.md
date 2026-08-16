@@ -32,6 +32,21 @@ Cancellation: first implementation is local process termination (timeout/kill). 
 
 Child environment is constructed explicitly. Database URLs, model API keys, and application credentials are not forwarded. `RESEARCH_OS_WORKER_ID` is the configured opaque identity. PID is diagnostic only.
 
+## Argv / CLI session runner
+
+`research_os.platform.argv_process` is the first argv transport for authenticated CLI runtimes. It is **not** architecture and is **not** re-exported from `platform/__init__.py`.
+
+- `shell=False`
+- bounded stdout/stderr
+- timeout / kill
+- constructed environment (no DB URLs or provider secrets)
+
+Research and Application must not import this module. Integrations may.
+
+## StrixIntegration port
+
+`research_os.platform.strix` is the typed Strix envelope. Strix is not Research Brain, Core, Memory, or Finding authority. Concrete adapters live in Integrations. Application injects the port after Core ALLOW. Denied requests must not reach the adapter.
+
 ## Invocation vs WorkerResult
 
 `WorkerInvocationOutcome.invocation_status` is a Control Plane runtime outcome.

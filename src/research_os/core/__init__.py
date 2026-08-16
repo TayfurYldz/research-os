@@ -4,7 +4,12 @@ Python types here are not language-neutral architectural contracts.
 Cross-boundary Worker truth remains `contracts/` JSON Schema.
 """
 
-from research_os.core.approval import ApprovalView, check_approval
+from research_os.core.approval import (
+    ApprovalView,
+    RecordedApprovalEvaluation,
+    check_approval,
+    evaluate_recorded_approval,
+)
 from research_os.core.authorization import (
     AuthorizationSourceView,
     check_authorization,
@@ -39,6 +44,7 @@ __all__ = [
     "ActorType",
     "ApprovalDecision",
     "ApprovalView",
+    "RecordedApprovalEvaluation",
     "AuthorizationSourceState",
     "AuthorizationSourceView",
     "BudgetAllocationError",
@@ -57,6 +63,7 @@ __all__ = [
     "SideEffectLevel",
     "allocate_experiment_budget",
     "check_approval",
+    "evaluate_recorded_approval",
     "check_authorization",
     "check_budget",
     "check_scope",

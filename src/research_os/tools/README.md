@@ -6,6 +6,11 @@ A4 diagnostic capability:
 
 - `diagnostic.echo` / action `echo`
 
-This proves Worker runtime. It is **not** a scanner, crawler, or vulnerability check.
+GATE 10 diagnostic names (not scanners):
+
+- `strix.diagnostic.ping`
+- `codex.diagnostic.structured_output`
+
+This proves Worker/runtime plumbing. It is **not** a scanner, crawler, or vulnerability check.
 
 Workers execute capabilities. Integrations bind vendors. Tools do neither.

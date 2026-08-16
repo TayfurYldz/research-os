@@ -68,10 +68,35 @@ def identity_for_live(
         generator_configuration=GENERATOR_INSTRUCTION_VERSION,
         falsifier_configuration=FALSIFIER_INSTRUCTION_VERSION,
         reasoning_settings=STRUCTURED_OUTPUT_SPEC_VERSION,
+        runtime_kind="API",
+        runtime_class="INFERENCE_RUNTIME",
+        auth_mode="API_KEY",
+        runtime_id=provider_adapter_identity,
+    )
+
+
+def identity_for_cli_session(
+    *,
+    adapter_identity: str,
+    runtime_id: str,
+    runtime_version: str | None = None,
+) -> ModelConfigurationIdentity:
+    return ModelConfigurationIdentity(
+        adapter_identity=adapter_identity,
+        provider_adapter_identity=runtime_id,
+        generator_configuration=GENERATOR_INSTRUCTION_VERSION,
+        falsifier_configuration=FALSIFIER_INSTRUCTION_VERSION,
+        reasoning_settings=STRUCTURED_OUTPUT_SPEC_VERSION,
+        runtime_kind="CLI_SESSION",
+        runtime_class="AGENT_RUNTIME",
+        auth_mode="AUTHENTICATED_CLI_SESSION",
+        runtime_id=runtime_id,
+        runtime_version=runtime_version,
     )
 
 
 LIVE_ADAPTER_IDS = frozenset({"openai", "anthropic", "gemini"})
+CLI_RUNTIME_IDS = frozenset({"codex-cli"})
 
 
 def resolve_scripted_adapter(adapter_id: str, model_id: str | None = None):
@@ -304,7 +329,7 @@ def _load_configured_adapter(
     scripted = resolve_scripted_adapter(adapter_id, model_id)
     if scripted is not None:
         return scripted
-    if adapter_id in LIVE_ADAPTER_IDS:
+    if adapter_id in LIVE_ADAPTER_IDS or adapter_id in CLI_RUNTIME_IDS:
         if resolve_live is None:
             return (
                 f"adapter {adapter_id!r} UNAVAILABLE: live adapters are resolved by "

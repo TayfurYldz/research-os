@@ -16,10 +16,12 @@ Not part of the `research_os` Python package. Core and Research must not import 
 ## Rules
 
 - Produce `WorkerResult` only. Do not write PostgreSQL SoR.
+- Do not interpret invariant hypotheses or chain hypotheses. Workers are unaware of those Research types.
 - Do not authorize, widen scope, or change budget.
 - On redirect or newly discovered assets: stop and request Core re-evaluation.
 - In-process Workers are test doubles only.
 - First tool-execution environment may be Kali/WSL; that is not architecture.
+- Strix is not a Worker package and not Research Brain. If used, it is an Integration behind Core authorization.
 - Correlation id, timeout, cancellation, and duplicate/retry awareness belong on the Worker contract (`contracts/`).
 - PID is diagnostic metadata, not Worker identity.
 

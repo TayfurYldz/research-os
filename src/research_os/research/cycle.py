@@ -53,6 +53,9 @@ def _item_payload(item) -> dict[str, object]:
         data["payload"] = dict(item.payload)
     if item.epistemic_class is EpistemicClass.HYPOTHESIS:
         data["not_a_fact"] = True
+    if item.epistemic_class is EpistemicClass.INFERRED:
+        data["not_a_fact"] = True
+        data["not_an_observation"] = True
     if item.epistemic_class is EpistemicClass.UNTRUSTED_EXTERNAL:
         data["untrusted"] = True
         data["instruction_authority"] = False
@@ -82,7 +85,16 @@ def context_model_payload(context: ResearchContext) -> dict[str, object]:
         "deterministic_derivations": [
             _item_payload(item) for item in context.deterministic_derivations
         ],
+        "inferences": [_item_payload(item) for item in context.inferences],
         "prior_hypotheses": [_item_payload(item) for item in context.prior_hypotheses],
+        "invariant_hypotheses": [
+            _item_payload(item) for item in context.invariant_hypotheses
+        ],
+        "chain_hypotheses": [_item_payload(item) for item in context.chain_hypotheses],
+        "research_opportunities": [
+            _item_payload(item) for item in context.research_opportunities
+        ],
+        "change_events": [_item_payload(item) for item in context.change_events],
         "negative_evidence": [_item_payload(item) for item in context.negative_evidence],
         "procedural_context": [_item_payload(item) for item in context.procedural_context],
         "unresolved_questions": list(context.unresolved_questions),

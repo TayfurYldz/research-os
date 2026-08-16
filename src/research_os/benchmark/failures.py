@@ -8,6 +8,7 @@ from research_os.benchmark.cycle import BoundedCycleTrace
 from research_os.benchmark.metrics import HardFailCode
 from research_os.research.admission import AdmissionOutcome
 from research_os.research.model_port import (
+    ContentPolicyBlockedError,
     ProviderAuthError,
     ProviderRateLimitError,
     ProviderTimeoutError,
@@ -36,6 +37,7 @@ class FailureClass(Enum):
     PROVIDER_AUTH = "PROVIDER_AUTH"
     PROVIDER_RATE_LIMIT = "PROVIDER_RATE_LIMIT"
     PROVIDER_TIMEOUT = "PROVIDER_TIMEOUT"
+    CONTENT_POLICY_BLOCKED = "CONTENT_POLICY_BLOCKED"
     STRUCTURED_OUTPUT_FAILURE = "STRUCTURED_OUTPUT_FAILURE"
     GENERATOR_RESEARCH_QUALITY = "GENERATOR_RESEARCH_QUALITY"
     FALSIFIER_RESEARCH_QUALITY = "FALSIFIER_RESEARCH_QUALITY"
@@ -48,6 +50,7 @@ PROVIDER_FAILURE_CLASSES = frozenset(
         FailureClass.PROVIDER_AUTH,
         FailureClass.PROVIDER_RATE_LIMIT,
         FailureClass.PROVIDER_TIMEOUT,
+        FailureClass.CONTENT_POLICY_BLOCKED,
     }
 )
 
@@ -87,4 +90,6 @@ def classify_provider_error(exc: BaseException) -> FailureClass:
         return FailureClass.PROVIDER_RATE_LIMIT
     if isinstance(exc, ProviderTimeoutError):
         return FailureClass.PROVIDER_TIMEOUT
+    if isinstance(exc, ContentPolicyBlockedError):
+        return FailureClass.CONTENT_POLICY_BLOCKED
     return FailureClass.PROVIDER_RUNTIME

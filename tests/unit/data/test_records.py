@@ -204,5 +204,41 @@ class RecordValidationTests(unittest.TestCase):
             )
 
 
+class TargetModelRecordTests(unittest.TestCase):
+    def test_inference_cannot_be_observed(self) -> None:
+        from research_os.data.records import TargetInferenceRecord
+
+        with self.assertRaises(PersistenceInputError):
+            TargetInferenceRecord(
+                inference_id="inf-1",
+                research_run_id="run-1",
+                kind="RELATIONSHIP",
+                epistemic_status="OBSERVED",
+                opaque_ref="maybe-related",
+                statement="Actor handle may be related to the diagnostic resource.",
+                source_refs=("obs-1",),
+                attributes={},
+                strategy_version="target.model.diagnostic.echo.v1",
+                created_at=_now(),
+            )
+
+    def test_session_token_is_rejected(self) -> None:
+        from research_os.data.records import TargetInferenceRecord
+
+        with self.assertRaises(PersistenceInputError):
+            TargetInferenceRecord(
+                inference_id="inf-1",
+                research_run_id="run-1",
+                kind="RELATIONSHIP",
+                epistemic_status="INFERRED",
+                opaque_ref="maybe-related",
+                statement="Actor handle may be related to the diagnostic resource.",
+                source_refs=("obs-1",),
+                attributes={"session_token": "secret"},
+                strategy_version="target.model.diagnostic.echo.v1",
+                created_at=_now(),
+            )
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -73,6 +73,12 @@ class ModelConfigurationIdentity:
     reasoning_settings: str | None = None
     temperature: float | None = None
     max_output_budget: int | None = None
+    runtime_kind: str | None = None
+    runtime_class: str | None = None
+    auth_mode: str | None = None
+    runtime_id: str | None = None
+    runtime_version: str | None = None
+    configuration_fingerprint: str | None = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.adapter_identity, str) or not self.adapter_identity.strip():
@@ -89,7 +95,14 @@ class ModelConfigurationIdentity:
             "reasoning_settings": self.reasoning_settings,
             "temperature": self.temperature,
             "max_output_budget": self.max_output_budget,
+            "runtime_kind": self.runtime_kind,
+            "runtime_class": self.runtime_class,
+            "auth_mode": self.auth_mode,
+            "runtime_id": self.runtime_id,
+            "runtime_version": self.runtime_version,
+            "configuration_fingerprint": self.configuration_fingerprint,
             "unset_provider_fields_are_unknown_not_fabricated": True,
+            "contains_secrets": False,
         }
 
 

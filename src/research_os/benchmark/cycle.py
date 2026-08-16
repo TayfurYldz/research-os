@@ -9,6 +9,7 @@ from research_os.research.admission import AdmissionDecision, AdmissionOutcome, 
 from research_os.research.context import ResearchContext
 from research_os.research.cycle import generate_challenge, generate_proposal
 from research_os.research.model_port import (
+    ContentPolicyBlockedError,
     ModelCallRequest,
     ModelCallResult,
     ModelPort,
@@ -224,6 +225,8 @@ def run_bounded_cycle(
 def _provider_failure_value(exc: ModelPortError) -> str:
     if isinstance(exc, StructuredOutputTransportError):
         return "STRUCTURED_OUTPUT_FAILURE"
+    if isinstance(exc, ContentPolicyBlockedError):
+        return "CONTENT_POLICY_BLOCKED"
     if isinstance(exc, ProviderAuthError):
         return "PROVIDER_AUTH"
     if isinstance(exc, ProviderRateLimitError):

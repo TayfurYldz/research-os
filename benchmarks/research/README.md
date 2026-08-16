@@ -97,4 +97,4 @@ uv run python scripts/run_research_benchmark.py --write-results
 uv run python scripts/run_research_benchmark.py --adapter openai --model "$env:RESEARCH_OS_OPENAI_MODEL"
 ```
 
-Scripted baselines are test doubles, not real models. Live adapters live in `integrations/models/`. Missing SDK or API key is **UNAVAILABLE**, not a benchmark failure. GATE 04B comparative PASS requires at least two real model configurations executed on the same comparable suite. No `WINNER` line.
+Scripted baselines are test doubles, not real models. Live adapters live in `integrations/models/`. Missing SDK, API key, or CLI session is **UNAVAILABLE**, not a benchmark failure. GATE 04B comparative PASS requires at least two real comparable runtime configurations (for example OpenAI API vs Codex CLI vs local model) executed on the same comparable suite, prompt, and evaluator versions. Runtime identity is recorded separately from provider API identity. No `WINNER` line.

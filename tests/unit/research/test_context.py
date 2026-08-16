@@ -5,10 +5,12 @@ import unittest
 import pathsetup  # noqa: F401
 
 from research_os.research.context import (
+    ChainContextSource,
     ContextBudget,
     ExperimentSource,
     ExternalContentSource,
     HypothesisSource,
+    InvariantContextSource,
     ObservationSource,
     ResearchContextBuilder,
 )
@@ -179,6 +181,108 @@ class ResearchContextTests(unittest.TestCase):
         self.assertFalse(item.may_issue_instructions)
         assert item.payload is not None
         self.assertEqual(item.payload["text"], HOSTILE)
+
+    def test_inferences_are_not_observations(self) -> None:
+        from research_os.research.context import InferenceSource
+
+        context = self.builder.build(
+            research_run_id="run-1",
+            research_question="q",
+            observations=(
+                ObservationSource(
+                    observation_id="obs-1",
+                    observation_kind="diagnostic.echo.result",
+                    payload={"echoed": "alpha"},
+                ),
+            ),
+            inferences=(
+                InferenceSource(
+                    inference_id="inf-1",
+                    statement="Actor handle may be related to the diagnostic resource.",
+                    source_references=("obs-1",),
+                ),
+            ),
+        )
+        item = context.item_by_id("inf-1")
+        assert item is not None
+        self.assertEqual(item.epistemic_class, EpistemicClass.INFERRED)
+        self.assertNotIn(item, context.observations)
+        self.assertNotIn(item, context.authoritative_facts)
+
+    def test_invariant_and_chain_remain_hypotheses(self) -> None:
+        context = self.builder.build(
+            research_run_id="run-1",
+            research_question="q",
+            observations=(
+                ObservationSource(
+                    observation_id="obs-1",
+                    observation_kind="diagnostic.echo.result",
+                    payload={"echoed": "alpha"},
+                ),
+            ),
+            invariant_hypotheses=(
+                InvariantContextSource(
+                    invariant_id="inv-1",
+                    statement="for diagnostic.echo, output should correspond to the submitted input",
+                    source_references=("obs-1",),
+                    payload={"status": "TESTABLE"},
+                ),
+            ),
+            chain_hypotheses=(
+                ChainContextSource(
+                    chain_id="chain-1",
+                    statement="Diagnostic chain hypothesis. Sequence is not causality.",
+                    source_references=("obs-1",),
+                    payload={"depth": 1},
+                ),
+            ),
+        )
+        invariant = context.item_by_id("inv-1")
+        chain = context.item_by_id("chain-1")
+        assert invariant is not None and chain is not None
+        self.assertEqual(invariant.epistemic_class, EpistemicClass.HYPOTHESIS)
+        self.assertEqual(chain.epistemic_class, EpistemicClass.HYPOTHESIS)
+        self.assertNotIn(invariant, context.observations)
+        self.assertNotIn(invariant, context.authoritative_facts)
+        self.assertNotIn(chain, context.observations)
+        self.assertTrue(invariant.payload["not_a_fact"])
+        self.assertTrue(chain.payload["not_an_exploit"])
+
+    def test_opportunity_and_change_event_are_not_vulnerability_truth(self) -> None:
+        from research_os.research.context import (
+            ChangeEventContextSource,
+            OpportunityContextSource,
+        )
+
+        context = self.builder.build(
+            research_run_id="run-1",
+            research_question="q",
+            research_opportunities=(
+                OpportunityContextSource(
+                    opportunity_id="opp-1",
+                    statement="Selected diagnostic research opportunity.",
+                    source_references=("diff-1",),
+                    payload={"mode": "EXPLORATION"},
+                ),
+            ),
+            change_events=(
+                ChangeEventContextSource(
+                    change_event_id="chg-1",
+                    statement="Diagnostic echo behavior changed between snapshot t1 and t2.",
+                    source_references=("snap-1", "snap-2"),
+                    payload={"category": "BEHAVIOR_CHANGED"},
+                ),
+            ),
+        )
+        opportunity = context.item_by_id("opp-1")
+        change = context.item_by_id("chg-1")
+        assert opportunity is not None and change is not None
+        self.assertEqual(opportunity.epistemic_class, EpistemicClass.HYPOTHESIS)
+        self.assertTrue(opportunity.payload["not_hypothesis_truth"])
+        self.assertTrue(opportunity.payload["not_authorization"])
+        self.assertEqual(change.epistemic_class, EpistemicClass.DERIVED_FACT)
+        self.assertTrue(change.payload["not_a_vulnerability"])
+        self.assertNotIn(change, context.observations)
 
 
 if __name__ == "__main__":

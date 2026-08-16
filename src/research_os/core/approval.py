@@ -1,4 +1,4 @@
-"""Human Approval eligibility. Finding creation is not implemented in A2."""
+"""Human Approval eligibility. Core does not decide vulnerability truth."""
 
 from dataclasses import dataclass
 
@@ -60,3 +60,42 @@ def check_approval(
             False, False, ReasonCode.APPROVAL_REJECTED, approval.approval_id
         )
     return ApprovalCheck(True, False, ReasonCode.ALLOWED, approval.approval_id)
+
+
+@dataclass(frozen=True)
+class RecordedApprovalEvaluation:
+    """Whether a recorded Approval is a valid human decision for a subject.
+
+    authorizes is True only for APPROVE. A valid REJECT is a recorded decision
+    and does not authorize. This is not Finding truth and not a vulnerability verdict.
+    """
+
+    valid_record: bool
+    authorizes: bool
+    reason_code: ReasonCode
+    approval_id: str | None
+
+
+def evaluate_recorded_approval(
+    approval: ApprovalView | None,
+    requested_subject: str,
+) -> RecordedApprovalEvaluation:
+    """Validate a durable Approval record for an explicit subject.
+
+    Does not create Finding. Does not interpret Candidate or Evidence.
+    """
+
+    check = check_approval(approval, requested_subject)
+    if approval is None:
+        return RecordedApprovalEvaluation(False, False, check.reason_code, None)
+    if check.reason_code is ReasonCode.APPROVAL_REJECTED:
+        return RecordedApprovalEvaluation(
+            True, False, check.reason_code, approval.approval_id
+        )
+    if check.authorizes:
+        return RecordedApprovalEvaluation(
+            True, True, check.reason_code, approval.approval_id
+        )
+    return RecordedApprovalEvaluation(
+        False, False, check.reason_code, approval.approval_id
+    )

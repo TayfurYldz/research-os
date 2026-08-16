@@ -150,6 +150,130 @@ class ExternalContentSource:
 
 
 @dataclass(frozen=True)
+class InferenceSource:
+    """Target-model inference. Never an Observation."""
+
+    inference_id: str
+    statement: str
+    source_references: tuple[str, ...]
+
+    def __post_init__(self) -> None:
+        object.__setattr__(
+            self, "inference_id", _require_text(self.inference_id, "inference_id")
+        )
+        object.__setattr__(self, "statement", _require_text(self.statement, "statement"))
+        if not isinstance(self.source_references, tuple):
+            raise ResearchInputError("source_references must be a tuple")
+
+
+@dataclass(frozen=True)
+class ChainContextSource:
+    """Deterministic chain hypothesis. Not an exploit and not Evidence."""
+
+    chain_id: str
+    statement: str
+    source_references: tuple[str, ...]
+    payload: Mapping[str, Any]
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "chain_id", _require_text(self.chain_id, "chain_id"))
+        object.__setattr__(self, "statement", _require_text(self.statement, "statement"))
+        if not isinstance(self.source_references, tuple):
+            raise ResearchInputError("source_references must be a tuple")
+        if not isinstance(self.payload, Mapping):
+            raise ResearchInputError("payload must be a mapping")
+        object.__setattr__(self, "payload", dict(self.payload))
+
+
+@dataclass(frozen=True)
+class InvariantContextSource:
+    """Expected-behavior hypothesis. Never an Observation and never a ScopeRule."""
+
+    invariant_id: str
+    statement: str
+    source_references: tuple[str, ...]
+    payload: Mapping[str, Any]
+
+    def __post_init__(self) -> None:
+        object.__setattr__(
+            self, "invariant_id", _require_text(self.invariant_id, "invariant_id")
+        )
+        object.__setattr__(self, "statement", _require_text(self.statement, "statement"))
+        if not isinstance(self.source_references, tuple):
+            raise ResearchInputError("source_references must be a tuple")
+        if not isinstance(self.payload, Mapping):
+            raise ResearchInputError("payload must be a mapping")
+        object.__setattr__(self, "payload", dict(self.payload))
+
+
+@dataclass(frozen=True)
+class DifferentialContextSource:
+    """Deterministic comparison result. Not Evidence and not a vulnerability."""
+
+    differential_id: str
+    statement: str
+    source_references: tuple[str, ...]
+    interpretation: str
+    payload: Mapping[str, Any]
+
+    def __post_init__(self) -> None:
+        object.__setattr__(
+            self, "differential_id", _require_text(self.differential_id, "differential_id")
+        )
+        object.__setattr__(self, "statement", _require_text(self.statement, "statement"))
+        if not isinstance(self.source_references, tuple):
+            raise ResearchInputError("source_references must be a tuple")
+        object.__setattr__(
+            self, "interpretation", _require_text(self.interpretation, "interpretation")
+        )
+        if not isinstance(self.payload, Mapping):
+            raise ResearchInputError("payload must be a mapping")
+        object.__setattr__(self, "payload", dict(self.payload))
+
+
+@dataclass(frozen=True)
+class OpportunityContextSource:
+    """Selected research direction. Not Hypothesis truth and not authorization."""
+
+    opportunity_id: str
+    statement: str
+    source_references: tuple[str, ...]
+    payload: Mapping[str, Any]
+
+    def __post_init__(self) -> None:
+        object.__setattr__(
+            self, "opportunity_id", _require_text(self.opportunity_id, "opportunity_id")
+        )
+        object.__setattr__(self, "statement", _require_text(self.statement, "statement"))
+        if not isinstance(self.source_references, tuple):
+            raise ResearchInputError("source_references must be a tuple")
+        if not isinstance(self.payload, Mapping):
+            raise ResearchInputError("payload must be a mapping")
+        object.__setattr__(self, "payload", dict(self.payload))
+
+
+@dataclass(frozen=True)
+class ChangeEventContextSource:
+    """Deterministic temporal delta. Not Evidence and not a vulnerability."""
+
+    change_event_id: str
+    statement: str
+    source_references: tuple[str, ...]
+    payload: Mapping[str, Any]
+
+    def __post_init__(self) -> None:
+        object.__setattr__(
+            self, "change_event_id", _require_text(self.change_event_id, "change_event_id")
+        )
+        object.__setattr__(self, "statement", _require_text(self.statement, "statement"))
+        if not isinstance(self.source_references, tuple):
+            raise ResearchInputError("source_references must be a tuple")
+        if not isinstance(self.payload, Mapping):
+            raise ResearchInputError("payload must be a mapping")
+        object.__setattr__(self, "payload", dict(self.payload))
+
+
+@dataclass(frozen=True)
 class ContextItem:
     """One bounded, sourced context item. Not Evidence and not a Finding."""
 
@@ -212,12 +336,17 @@ class ResearchContext:
     authoritative_facts: tuple[ContextItem, ...]
     observations: tuple[ContextItem, ...]
     deterministic_derivations: tuple[ContextItem, ...]
+    inferences: tuple[ContextItem, ...]
     prior_hypotheses: tuple[ContextItem, ...]
     negative_evidence: tuple[ContextItem, ...]
     procedural_context: tuple[ContextItem, ...]
     unresolved_questions: tuple[str, ...]
     untrusted_external_content: tuple[ContextItem, ...]
     omission: ContextOmission
+    invariant_hypotheses: tuple[ContextItem, ...] = ()
+    chain_hypotheses: tuple[ContextItem, ...] = ()
+    research_opportunities: tuple[ContextItem, ...] = ()
+    change_events: tuple[ContextItem, ...] = ()
 
     def __post_init__(self) -> None:
         object.__setattr__(
@@ -243,7 +372,12 @@ class ResearchContext:
             self.authoritative_facts
             + self.observations
             + self.deterministic_derivations
+            + self.inferences
             + self.prior_hypotheses
+            + self.invariant_hypotheses
+            + self.chain_hypotheses
+            + self.research_opportunities
+            + self.change_events
             + self.negative_evidence
             + self.procedural_context
             + self.untrusted_external_content
@@ -301,6 +435,12 @@ class ResearchContextBuilder:
         prior_hypotheses: tuple[HypothesisSource, ...] = (),
         experiments: tuple[ExperimentSource, ...] = (),
         untrusted_external: tuple[ExternalContentSource, ...] = (),
+        inferences: tuple[InferenceSource, ...] = (),
+        differentials: tuple[DifferentialContextSource, ...] = (),
+        invariant_hypotheses: tuple[InvariantContextSource, ...] = (),
+        chain_hypotheses: tuple[ChainContextSource, ...] = (),
+        research_opportunities: tuple[OpportunityContextSource, ...] = (),
+        change_events: tuple[ChangeEventContextSource, ...] = (),
         unresolved_questions: tuple[str, ...] = (),
         budget: ContextBudget | None = None,
     ) -> ResearchContext:
@@ -368,6 +508,100 @@ class ResearchContextBuilder:
                 source_references=(source.experiment_id, source.hypothesis_id),
             )
             for source in sorted(experiments, key=lambda item: item.experiment_id)
+        ) + tuple(
+            ContextItem(
+                item_id=source.differential_id,
+                epistemic_class=EpistemicClass.DERIVED_FACT,
+                statement=source.statement,
+                source_references=source.source_references,
+                payload={
+                    **dict(source.payload),
+                    "interpretation": source.interpretation,
+                    "not_evidence": True,
+                    "not_candidate": True,
+                    "not_finding": True,
+                    "not_a_vulnerability": True,
+                    "not_authorization_proof": True,
+                },
+            )
+            for source in sorted(differentials, key=lambda item: item.differential_id)
+        )
+
+        inference_items = tuple(
+            ContextItem(
+                item_id=source.inference_id,
+                epistemic_class=EpistemicClass.INFERRED,
+                statement=source.statement,
+                source_references=source.source_references,
+                payload={"not_an_observation": True, "not_a_fact": True},
+            )
+            for source in sorted(inferences, key=lambda item: item.inference_id)
+        )
+
+        invariant_items = tuple(
+            ContextItem(
+                item_id=source.invariant_id,
+                epistemic_class=EpistemicClass.HYPOTHESIS,
+                statement=source.statement,
+                source_references=source.source_references,
+                payload={
+                    **dict(source.payload),
+                    "not_a_fact": True,
+                    "not_an_observation": True,
+                    "not_authorization": True,
+                    "not_a_vulnerability": True,
+                },
+            )
+            for source in sorted(invariant_hypotheses, key=lambda item: item.invariant_id)
+        )
+        chain_items = tuple(
+            ContextItem(
+                item_id=source.chain_id,
+                epistemic_class=EpistemicClass.HYPOTHESIS,
+                statement=source.statement,
+                source_references=source.source_references,
+                payload={
+                    **dict(source.payload),
+                    "not_an_exploit": True,
+                    "not_evidence": True,
+                    "not_candidate": True,
+                    "not_finding": True,
+                    "not_causality_proof": True,
+                },
+            )
+            for source in sorted(chain_hypotheses, key=lambda item: item.chain_id)
+        )
+        opportunity_items = tuple(
+            ContextItem(
+                item_id=source.opportunity_id,
+                epistemic_class=EpistemicClass.HYPOTHESIS,
+                statement=source.statement,
+                source_references=source.source_references,
+                payload={
+                    **dict(source.payload),
+                    "not_hypothesis_truth": True,
+                    "not_authorization": True,
+                    "not_a_vulnerability": True,
+                    "not_evidence": True,
+                },
+            )
+            for source in sorted(research_opportunities, key=lambda item: item.opportunity_id)
+        )
+        change_items = tuple(
+            ContextItem(
+                item_id=source.change_event_id,
+                epistemic_class=EpistemicClass.DERIVED_FACT,
+                statement=source.statement,
+                source_references=source.source_references,
+                payload={
+                    **dict(source.payload),
+                    "not_a_vulnerability": True,
+                    "not_evidence": True,
+                    "not_candidate": True,
+                    "not_finding": True,
+                },
+            )
+            for source in sorted(change_events, key=lambda item: item.change_event_id)
         )
 
         negative_sources = tuple(
@@ -454,7 +688,12 @@ class ResearchContextBuilder:
             "authoritative_facts": [_item_summary(item) for item in authoritative],
             "observations": [_item_summary(item) for item in observation_items],
             "deterministic_derivations": [_item_summary(item) for item in derivation_items],
+            "inferences": [_item_summary(item) for item in inference_items],
             "prior_hypotheses": [_item_summary(item) for item in hypothesis_items],
+            "invariant_hypotheses": [_item_summary(item) for item in invariant_items],
+            "chain_hypotheses": [_item_summary(item) for item in chain_items],
+            "research_opportunities": [_item_summary(item) for item in opportunity_items],
+            "change_events": [_item_summary(item) for item in change_items],
             "negative_evidence": [_item_summary(item) for item in negative_items],
             "procedural_context": [_item_summary(item) for item in procedural],
             "untrusted_external_content": [_item_summary(item) for item in external_items],
@@ -477,7 +716,12 @@ class ResearchContextBuilder:
             authoritative_facts=authoritative,
             observations=observation_items,
             deterministic_derivations=derivation_items,
+            inferences=inference_items,
             prior_hypotheses=hypothesis_items,
+            invariant_hypotheses=invariant_items,
+            chain_hypotheses=chain_items,
+            research_opportunities=opportunity_items,
+            change_events=change_items,
             negative_evidence=negative_items,
             procedural_context=procedural,
             unresolved_questions=unresolved,

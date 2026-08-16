@@ -10,6 +10,12 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Mapping, Protocol
 
+from research_os.research.model_runtime import (
+    ModelRuntimeIdentity,
+    reject_secret_keys,
+)
+from research_os.research.types import ResearchInputError
+
 
 class ModelRole(Enum):
     """Reasoning job. Not a vendor, not a Finding authority, not a router product."""
@@ -42,6 +48,22 @@ class StructuredOutputTransportError(ModelPortError):
     """Adapter could not obtain parseable JSON. Does not repair the proposal."""
 
 
+class RuntimeUnavailableError(ModelPortError):
+    """Runtime is not installed, not authenticated, or not configured. Not a research conclusion."""
+
+
+class ContentPolicyBlockedError(ModelPortError):
+    """Provider/runtime safety refusal. Not Hypothesis rejection, Evidence, or a research conclusion."""
+
+
+class RuntimeCancelledError(ModelPortError):
+    """Caller cancelled the runtime invocation. Not a research conclusion."""
+
+
+class RuntimeProcessError(ModelPortError):
+    """CLI/process runtime failed. Process failure is not a research result."""
+
+
 @dataclass(frozen=True)
 class ModelCallRequest:
     """One reasoning invocation. Instructions and untrusted data stay separate."""
@@ -65,7 +87,10 @@ class ModelCallRequest:
             raise ModelPortError("instructions must be a non-empty string")
         if not isinstance(self.payload, Mapping):
             raise ModelPortError("payload must be a mapping")
-        object.__setattr__(self, "payload", dict(self.payload))
+        try:
+            object.__setattr__(self, "payload", reject_secret_keys(self.payload, "payload"))
+        except ResearchInputError as exc:
+            raise ModelPortError(str(exc)) from exc
         if self.timeout_ms is not None and (
             not isinstance(self.timeout_ms, int) or isinstance(self.timeout_ms, bool) or self.timeout_ms <= 0
         ):
@@ -95,6 +120,7 @@ class ModelCallResult:
     model_id: str | None = None
     model_version: str | None = None
     telemetry: ModelCallTelemetry | None = None
+    runtime_identity: ModelRuntimeIdentity | None = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.role, ModelRole):
@@ -119,6 +145,10 @@ class ModelCallResult:
             raise ModelPortError("model_version must be a non-empty string when set")
         if self.telemetry is not None and not isinstance(self.telemetry, ModelCallTelemetry):
             raise ModelPortError("telemetry must be ModelCallTelemetry when set")
+        if self.runtime_identity is not None and not isinstance(
+            self.runtime_identity, ModelRuntimeIdentity
+        ):
+            raise ModelPortError("runtime_identity must be ModelRuntimeIdentity when set")
 
 
 class ModelPort(Protocol):

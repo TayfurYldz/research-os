@@ -424,13 +424,13 @@ class Gate03LearningCycleTests(unittest.TestCase):
                     )
                 )
             }
-        self.assertEqual(version, "a10_001_evidence_admission")
+        self.assertEqual(version, "a15_001_exploration_temporal")
         self.assertIn("research_admission", tables)
         self.assertIn("experiment_plan", tables)
         self.assertIn("hypothesis_assessment", tables)
         self.assertIn("evidence", tables)
-        self.assertNotIn("candidate", tables)
-        self.assertNotIn("finding", tables)
+        self.assertIn("candidate", tables)
+        self.assertIn("verification", tables)
 
 
 if __name__ == "__main__":

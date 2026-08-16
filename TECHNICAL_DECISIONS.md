@@ -6543,5 +6543,1247 @@ New Alembic revision `a10_001_evidence_admission` only. a3/a6/a7/a8/a9 are not e
 
 **FINAL STATUS: PASS**
 
+---
+
+# Decision 035 — Verification Engine
+
+Status: **accepted with constraints** (GATE 05)
+
+Date: 2026-08-17
+
+Does not rewrite Decisions 001–034. Does not implement Finding, FindingProposal, Human Review, severity, or live-model verification.
+
+## Strategy
+
+Evidence admission ≠ Verification. Evidence ≠ verified vulnerability.
+
+Verification asks whether collected Evidence survives deliberate reproduction and falsification of a Candidate claim. It consumes typed references (Candidate, Hypothesis, Evidence, Observation, Experiment/ExperimentPlan, assessment history, execution provenance). It does not consume arbitrary prose and does not treat WorkerResult as trusted truth.
+
+The first implemented path is deterministic diagnostic.echo plumbing: reproduce with a new Experiment / request_id (original `alpha`, reproduction `beta`). That proves Verification machinery. It is not a security vulnerability.
+
+## Verification subject
+
+Candidate is created OPEN from an Evidence-backed diagnostic claim. Verification operates on Candidate.
+
+Verifier → `VerificationResult` → Research transition rules → Candidate state update.
+
+A model/verifier must not mutate Candidate directly. Verification records are append-only proposals, not Candidate lifecycle authority.
+
+## Independence
+
+Decision 017 remains: the generating source is not sufficient to validate itself. A second provider is not required. This slice uses a deterministic verifier plus a new Worker experiment. Original Evidence cannot be the sole proof.
+
+## Reproduction
+
+Reproduction Evidence must be distinguishable from original Evidence: different evidence id, experiment id, request_id, and observation ids. Missing or non-independent reproduction yields INCONCLUSIVE, not VALIDATED.
+
+All verification observations travel Worker → Transition A → Observation → Transition B → Evidence. There is no Verification bypass that manufactures Evidence.
+
+## Negative controls
+
+`VerificationPlan` requires a negative-control intent. For diagnostic.echo, the fail token `__diagnostic_control_fail__` must not be the observed echo. An optional mismatch-fixture Evidence path may also be supplied. A control that does not hold yields INCONCLUSIVE, not VALIDATED.
+
+## Result semantics
+
+Outcomes: VALIDATED, REJECTED, INCONCLUSIVE, DUPLICATE, OUT_OF_SCOPE.
+
+Infrastructure failure (timeout, UNKNOWN_OUTCOME, process failure) → INCONCLUSIVE. Failure to verify is not proof the claim is false.
+
+REJECTED requires an affirmative contradiction (reproduction consistently contradicts the claim). Tool failure is not REJECTED.
+
+OUT_OF_SCOPE only from authoritative existing Core/Program scope input, not a new URL/CIDR matcher.
+
+DUPLICATE only from an explicit known Candidate reference. No semantic/vector guessing.
+
+## Persistence
+
+Append-only `verification` records: identity, candidate, strategy, outcome, original/reproduction/control evidence refs, alternative-explanation checks, verifier kind/identity, created_at. No payload copies, severity, or Finding.
+
+New Alembic revision `a11_001_candidate_verification` only. a3/a6/a7/a8/a9/a10 are not edited.
+
+## Confidence
+
+**HIGH** that Verification must not commit Candidate state.
+
+**HIGH** that infrastructure failure must not be REJECTED.
+
+**MEDIUM** for later security-class verification plans; not opened here.
+
+## Constraints
+
+1. Do not validate from original Evidence alone.
+2. Do not treat timeout/process failure as REJECTED.
+3. Do not create Finding or severity.
+4. Do not invent scope or guess duplicates.
+5. Do not import provider SDKs, PostgreSQL, subprocess, or Strix into Research.
+
+## Revisit triggers
+
+- First security-relevant VerificationPlan
+- Human-in-the-loop verification steps
+- Multi-evidence composition beyond diagnostic.echo
+- Need for a second reasoning role as verifier
+
+**FINAL STATUS: PASS**
+
+---
+
+# Decision 036 — Candidate Lifecycle
+
+Status: **accepted with constraints** (GATE 05)
+
+Date: 2026-08-17
+
+Does not rewrite Decisions 001–035. Does not implement FindingProposal, Human Review, Finding, or CVSS.
+
+## Strategy
+
+Locked lifecycle:
+
+OPEN → VERIFYING → VALIDATED | REJECTED | INCONCLUSIVE | DUPLICATE | OUT_OF_SCOPE
+
+Candidate means a security-testable (here: diagnostic-testable) claim requiring verification. It does not mean a verified issue. VALIDATED does not mean Finding.
+
+This slice’s only creation path is diagnostic.echo Evidence → explicit `CandidateProposal` → OPEN. Observation, model prose, HypothesisAssessment, and Evidence auto-promotion are forbidden.
+
+## Creation gate
+
+Research owns Candidate admission semantics. Application coordinates persistence. Data persists. Core remains authorization authority, not vulnerability truth. Worker cannot create or transition Candidate.
+
+Minimum checks: Evidence exists; provenance resolves; claim is the diagnostic testable claim and does not exceed Evidence scope; ResearchRun consistent; no authoritative out-of-scope flag. No score threshold. No giant rule engine.
+
+Rejected proposals create admission history and no Candidate row.
+
+## State machine
+
+Legal transitions are enforced centrally in Research (`transition_candidate`). OPEN → VALIDATED is illegal. REJECTED → VALIDATED is illegal. Terminal states are not silently rewritten. Future reopen is a later decision.
+
+## Transition authority
+
+Verifier output is a proposal. Research applies it. Application cannot invent VALIDATED. Model cannot write Candidate state.
+
+## VALIDATED semantics
+
+VALIDATED means the Candidate passed the configured VerificationPlan. Locked formula remains:
+
+VALIDATED Candidate + FindingProposal + Human Review + Core Approval = Finding
+
+That formula is **not** implemented in this slice.
+
+## INCONCLUSIVE semantics
+
+INCONCLUSIVE is a first-class correct outcome. It is not auto-retried and not auto-demoted to REJECTED. Later Research may propose another Experiment; there is no autonomous loop here.
+
+## Persistence
+
+`candidate` (lifecycle state mutable; originating evidence refs immutable), `candidate_evidence`, append-only `candidate_admission`, append-only `verification`. New Alembic `a11_001` only.
+
+## Confidence
+
+**HIGH** that Candidate must not skip Verification to VALIDATED.
+
+**HIGH** that VALIDATED must not be treated as Finding.
+
+**MEDIUM** for later security Candidate classifications; this slice allows `DIAGNOSTIC_PLUMBING` only.
+
+## Constraints
+
+1. Do not create Candidate from Observation, model, or assessment.
+2. Do not auto-create Candidate from Evidence.
+3. Do not allow OPEN → VALIDATED.
+4. Do not add severity, CVSS, exploitability, or numeric confidence.
+5. Do not implement FindingProposal / Finding.
+6. Do not edit old Alembic revisions.
+
+## Revisit triggers
+
+- First non-diagnostic Candidate class
+- FindingProposal
+- Explicit reopen-from-terminal decision
+- Human mapping of duplicates
+
+**FINAL STATUS: PASS**
+
+---
+
+# Decision 037 — FindingProposal Boundary
+
+Status: **accepted with constraints** (GATE 06)
+
+Date: 2026-08-17
+
+Does not rewrite Decisions 001–036. Does not implement security-specific Finding classes, CVSS, CVE, bounty, or a dashboard.
+
+## Strategy
+
+VALIDATED Candidate ≠ Finding. There is no shortcut.
+
+Minimum chain:
+
+VALIDATED Candidate → explicit FindingProposal → Human Review → Core Approval → Finding
+
+Research owns FindingProposal admission and lifecycle semantics. Application coordinates persistence and review use cases. Data persists. Core does not decide vulnerability truth. A model or Worker cannot create an authoritative FindingProposal.
+
+The first implemented path is diagnostic.echo plumbing. The proposal title is `Diagnostic echo verification proposal`. It is not a vulnerability.
+
+## Creation gate
+
+A FindingProposal may be created only from a VALIDATED Candidate.
+
+Rejected source states: OPEN, VERIFYING, REJECTED, INCONCLUSIVE, DUPLICATE, OUT_OF_SCOPE.
+
+Forbidden direct paths: Evidence → FindingProposal, Observation → FindingProposal, model → FindingProposal.
+
+Admission checks ResearchRun consistency, Evidence/Verification provenance, diagnostic title/claim, and `DIAGNOSTIC_PLUMBING` classification. No score threshold. No numeric confidence.
+
+## Lifecycle
+
+PROPOSED → HUMAN_REVIEW → APPROVED | REJECTED
+
+APPROVED is the domain view of the same human/Core Approval event. It is not a second independent approval authority. Illegal shortcuts such as PROPOSED → APPROVED are rejected.
+
+## Immutability / version semantics
+
+Reviewed content is frozen after insert. Only lifecycle `state` may change.
+
+`content_fingerprint` is SHA-256 of canonical JSON over candidate_id, title, claim, evidence_ids, and verification_ids.
+
+Approval subject is `finding-proposal:{proposal_id}:{content_fingerprint}`.
+
+Material content change requires a new proposal/version. An Approval for proposal A or an old fingerprint cannot authorize different content.
+
+## Provenance
+
+FindingProposal preserves exact Evidence and Verification references used at creation. It does not copy WorkerResult bodies.
+
+## Confidence
+
+**HIGH** that only a VALIDATED Candidate may create a FindingProposal.
+
+**HIGH** that FindingProposal is not a Finding.
+
+**MEDIUM** for later security-class proposals; not opened here.
+
+## Constraints
+
+1. Do not create FindingProposal from OPEN/INCONCLUSIVE/other non-VALIDATED Candidate states.
+2. Do not auto-create Finding from FindingProposal.
+3. Do not add CVSS, severity, CVE, bounty, exploitability, or numeric confidence.
+4. Do not let Core, Application, model, or Worker own FindingProposal truth.
+5. Do not edit Alembic a3–a11.
+
+## Revisit triggers
+
+- First non-diagnostic FindingProposal class
+- Explicit proposal versioning beyond fingerprint + new proposal_id
+- Human mapping of duplicate proposals
+
+**FINAL STATUS: PASS**
+
+---
+
+# Decision 038 — Human Review / Core Approval / Finding
+
+Status: **accepted with constraints** (GATE 06)
+
+Date: 2026-08-17
+
+Does not rewrite Decisions 001–037. Does not implement security Finding classes, CVSS, CVE, bounty, or a dashboard.
+
+## Strategy
+
+Locked formula:
+
+VALIDATED Candidate + FindingProposal + Human Review + Core Approval = Finding
+
+Human review is permanent architecture. No AUTO_APPROVE. No automatic Finding path.
+
+This gate’s only fixture is DIAGNOSTIC_PLUMBING. A Finding here is workflow plumbing proof, not a security vulnerability.
+
+## Human identity
+
+Approval is tied to `ActorType.HUMAN_OPERATOR`. Tests use explicit identity `operator-test-1`.
+
+Model cannot be the approval principal. Worker cannot approve. Integration cannot impersonate a human.
+
+## Review semantics
+
+HumanReviewDecision is APPROVE or REJECT. Review references the exact FindingProposal content fingerprint. It may include a bounded note, reason codes, reviewer identity, and timestamp. No secrets.
+
+Human Review ≠ Core Approval. Recording a review does not create Approval or Finding.
+
+## Core Approval
+
+Core already owns Approval semantics. Smallest compatible extension: `evaluate_recorded_approval` validates a durable human decision for an explicit subject. `authorizes` is true only for APPROVE. A valid REJECT is a recorded decision and does not authorize.
+
+Flow: Human submits review → Application requests Core evaluation of a constructed recorded Approval view → Core validates actor, subject, decision, and recorded provenance → Approval is persisted in the finalize transaction → Application asks Research transition/creation rules.
+
+Application cannot fabricate Approval. Core does not interpret Candidate, Evidence, or vulnerability truth.
+
+Subject/version matching fails closed. An Approval for proposal A cannot approve proposal B.
+
+## Finding creation gate
+
+Finding is created only when:
+
+1. Candidate == VALIDATED
+2. FindingProposal is in HUMAN_REVIEW and Research admits APPROVED
+3. valid HumanReview exists
+4. matching Core Approval exists and authorizes
+5. all references belong to the same ResearchRun/context
+
+Finding provenance: Finding → FindingProposal → Candidate → Verification → Evidence.
+
+Finding is append-only. Unique identity is one Finding per `finding_proposal_id`. Duplicate finalize returns the same Finding.
+
+## Rejection semantics
+
+Human REJECT → FindingProposal REJECTED → no Finding.
+
+Candidate may remain VALIDATED. Human rejection of a FindingProposal does not mutate Candidate to REJECTED. These are different lifecycle layers.
+
+## Persistence
+
+New Alembic `a12_001_finding_acceptance` only. Tables: `finding_proposal` (state mutable), append-only `human_review`, `approval`, `finding`.
+
+Finalize is one transaction for Approval + proposal state + optional Finding + audit. Review interaction is a prior short transaction. Failure must not leave an APPROVED proposal with a fabricated Finding, or a Finding without Approval provenance.
+
+Audit events: FINDING_PROPOSAL_CREATED, HUMAN_REVIEW_RECORDED, CORE_APPROVAL_RECORDED, FINDING_CREATED. AuditEvent ≠ Approval ≠ Finding.
+
+## Confidence
+
+**HIGH** that Finding requires Human Review and matching Core Approval.
+
+**HIGH** that Human REJECT must not demote a VALIDATED Candidate.
+
+**MEDIUM** for later security Finding classes; not opened here.
+
+## Constraints
+
+1. Do not auto-approve.
+2. Do not let Application, model, or Worker approve.
+3. Do not reuse Approval across proposals or fingerprints.
+4. Do not treat Core as a vulnerability judge.
+5. Do not call diagnostic plumbing a vulnerability.
+6. Do not add CVSS/CVE/bounty/severity yet.
+7. Do not edit Alembic a3–a11.
+
+## Revisit triggers
+
+- First security-relevant Finding class
+- Explicit FindingProposal version table
+- Dashboard / Interface review UX
+- Reopen of a REJECTED proposal
+
+**FINAL STATUS: PASS**
+
+---
+
+# Decision 039 — Target / Causal Model
+
+Status: **accepted with constraints** (GATE 07)
+
+Date: 2026-08-17
+
+Does not rewrite Decisions 001–038. Does not implement invariant mining, chain engine, Temporal Intelligence, Strix, or a graph/vector database.
+
+## Strategy
+
+The Target Model is a Research projection/read model over the System of Record, plus explicit inferred records where persistence is required.
+
+It is not a second source of truth. Authoritative facts remain Observation, Experiment, WorkerResult, and other existing SoR records. Inference never becomes OBSERVED.
+
+The model is black-box capable. Source/AST/call-graph enrichment is later and optional.
+
+The first builder is deterministic diagnostic.echo plumbing: Actor handle executes diagnostic Action and produces Observation. It is not a security authorization graph.
+
+## Entity model
+
+Minimal typed kinds: Actor, Role, Session, Resource, Action, State, Relationship, StateTransition.
+
+Only what Research reasoning needs. Opaque handles only. Session/token secret material is forbidden. Session, if present later, uses references/handles; secrets stay behind SecretPort/runtime.
+
+No universal ontology. No “Actor owns Resource” fact unless directly/deterministically established.
+
+## Epistemic status
+
+Every element carries one of: OBSERVED, DERIVED, INFERRED, HYPOTHESIZED.
+
+- OBSERVED: reconstructed from SoR Observation provenance.
+- DERIVED: deterministic projection (for example echoed value, unknown-precondition transition).
+- INFERRED / HYPOTHESIZED: explicit admitted records only.
+
+A model proposal may enter only as INFERRED or HYPOTHESIZED, with resolving source references. Hallucinated sources are rejected. Inference cannot silently upgrade to OBSERVED or DERIVED.
+
+ResearchContext gains `INFERRED` as a distinct class so inferences cannot be relabelled Observation.
+
+## Causal / state transitions
+
+Represent, where known: State S + Actor A + Action X → observed/derived State S2.
+
+Permit uncertainty: unknown precondition, derived postcondition, hypothesized relation. Do not invent certainty.
+
+## Persistence / projection
+
+PostgreSQL remains SoR. No Neo4j. No vector DB. No giant graph JSON blob as authority.
+
+OBSERVED/DERIVED elements are rebuilt from existing records. Append-only `target_inference` stores only INFERRED/HYPOTHESIZED elements with source refs, epistemic status, strategy/version, and created_at.
+
+New Alembic `a13_001_target_differential` only. a3–a12 are not edited.
+
+## Model-generated inference
+
+ModelPort may later propose relationships. They remain untrusted structured proposals until `admit_target_inference`. They cannot modify authorization or scope.
+
+## Confidence
+
+**HIGH** that Target Model must not become a second truth store.
+
+**HIGH** that inference must not become OBSERVED.
+
+**MEDIUM** for later security-class relations and source-code enrichment.
+
+## Constraints
+
+1. Do not persist inference as Observation.
+2. Do not persist session secrets.
+3. Do not introduce a graph or vector product.
+4. Do not let Target Model change Core authorization/scope.
+5. Do not treat diagnostic actor/resource handles as ownership or authorization.
+6. Do not edit Alembic a3–a12.
+
+## Revisit triggers
+
+- First security-relevant relationship class
+- Source/AST enrichment
+- Explicit Asset SoR records beyond diagnostic handles
+- Temporal change feed
+
+**FINAL STATUS: PASS**
+
+---
+
+# Decision 040 — Differential Reasoning Engine
+
+Status: **accepted with constraints** (GATE 07)
+
+Date: 2026-08-17
+
+Does not rewrite Decisions 001–039. Does not implement Temporal Intelligence, invariant mining, or autonomous exploration.
+
+## Strategy
+
+Difference ≠ vulnerability.
+
+Differential reasoning detects meaningful, controlled differences and produces HypothesisProposal inputs. It does not create Evidence, Candidate, or Finding.
+
+Do not compare two arbitrary response blobs and ask an LLM what differs. The comparison must know which dimensions changed.
+
+## Comparison dimensions
+
+Explicit dimensions: ACTOR, ROLE, SESSION, RESOURCE, STATE, ACTION, INPUT, TIME.
+
+TIME is reserved/deferred. Using TIME as a changed dimension is rejected in this slice.
+
+## Controlled comparison
+
+`DifferentialCase` names baseline/variant observation refs, changed dimensions, and common dimensions.
+
+Prefer one/few changed variables. The diagnostic fixture is: same capability/action, different input.
+
+Undeclared extra changes are INCOMPARABLE / rejected, not auto-interpreted.
+
+## Result semantics
+
+`DifferentialObservation` records changed/common dimensions, observed differences/similarities, source refs, strategy/version, and interpretation:
+
+CONTROLLED_DIFFERENCE | EQUIVALENT | INCOMPARABLE
+
+No severity, Evidence, Candidate, Finding, or vulnerability verdict. Same response is not authorization proof. 200 vs 403 is not implemented and would not be IDOR proof.
+
+## Alternative explanations
+
+Results carry explanation slots (intended input difference, runtime/protocol difference, asynchronous processing). These are not universal hardcoded verdicts. Falsifier still owns adversarial challenge.
+
+## Hypothesis integration
+
+Flow: Observations → Target Model → DifferentialCase → DifferentialObservation → ResearchContext → Generator → Falsifier → Admission → Hypothesis.
+
+DifferentialObservation enters context as DERIVED_FACT with explicit not-Evidence / not-vulnerability flags. It is not Hypothesis truth.
+
+## Persistence
+
+Append-only `differential_observation` with baseline/variant refs, dimensions, strategy/version. No global payload-hash deduplication. ResearchRun isolation is required; cross-run sources fail closed.
+
+## Confidence
+
+**HIGH** that a difference must not auto-promote to Evidence/Candidate/Finding.
+
+**HIGH** that comparisons must declare changed dimensions.
+
+**MEDIUM** for later security actor/role/session cases.
+
+## Constraints
+
+1. Do not call a difference a vulnerability.
+2. Do not auto-create Evidence or Candidate from a differential result.
+3. Do not delegate arbitrary blob diff to an LLM.
+4. Do not implement Temporal Intelligence.
+5. Do not allow cross-run comparison by default.
+6. Do not edit Alembic a3–a12.
+
+## Revisit triggers
+
+- First security actor/role/session differential
+- Explicit cross-run comparison design
+- TIME/Temporal Intelligence
+- Invariant mining consuming differentials
+
+**FINAL STATUS: PASS**
+
+---
+
+# Decision 041 — Invariant Mining
+
+Status: **accepted with constraints** (GATE 08)
+
+Date: 2026-08-17
+
+Does not rewrite Decisions 001–040. Does not implement Exploration Policy, Temporal Intelligence, Strix, a generic exploit engine, or a universal vulnerability taxonomy.
+
+## Strategy
+
+Invariant Hypothesis ≠ Fact ≠ Authorization rule ≠ Evidence ≠ Vulnerability.
+
+Invariant mining asks what behavior appears expected to remain true across relevant actor/resource/session/state contexts, then produces testable expected-behavior hypotheses.
+
+The first implemented path is deterministic diagnostic.echo plumbing:
+
+`for diagnostic.echo, output should correspond to the submitted input.`
+
+That is an `INPUT_OUTPUT_RELATION` expectation class, not an authorization bug and not a vulnerability.
+
+An admitted invariant may later produce a HypothesisProposal. It does not create a direct execution path.
+
+Flow:
+
+Invariant → HypothesisProposal → Falsifier → Admission → Hypothesis → ExperimentPlan → Core
+
+Existing safety chain remains. Core scope is unchanged.
+
+## Invariant semantics
+
+Expectation classes, not vulnerability classes:
+
+ACCESS_RELATION, STATE_TRANSITION, OWNERSHIP_RELATION, ROLE_BOUNDARY, SESSION_BINDING, RESOURCE_ISOLATION, IMMUTABILITY_AFTER_STATE, SEQUENCE_PRECONDITION, INPUT_OUTPUT_RELATION, OTHER
+
+GATE 08 admits only `INPUT_OUTPUT_RELATION`. Other kinds are rejected as untestable in this slice.
+
+Epistemic lifecycle is separate from Candidate lifecycle:
+
+PROPOSED (in-memory only) → persisted TESTABLE | CHALLENGED | RETIRED
+
+There is no `CONFIRMED_TRUE`. Repeated supporting observations do not turn an invariant into an authoritative application rule. An admitted record cannot remain PROPOSED and cannot become OBSERVED.
+
+## Inputs
+
+Potential inputs: Target Model, OBSERVED/DERIVED facts, DifferentialObservations, ExperimentFeedback, HypothesisAssessment history, admitted Evidence where relevant, explicit human research seed, procedural knowledge.
+
+INFERRED/HYPOTHESIZED Target Model items may inform proposal generation but must preserve epistemic status. Do not flatten all inputs into facts.
+
+GATE 08 uses deterministic diagnostic views plus an optional DifferentialObservation source ref. No live model is required. If a ModelPort is used in tests, ScriptedModelPort only.
+
+## Proposal / admission
+
+`InvariantProposal` is an untrusted structured proposal. It carries proposal id, ResearchRun, kind, subject refs, expected behavior, source refs, applicability context, assumptions, known counterexamples, falsification direction, proposer provenance, and version.
+
+It does not carry vulnerability verdict, severity, confidence score, Evidence status, Finding status, or Core authorization semantics.
+
+Model, human, or heuristic may propose. Research admits. No numeric threshold.
+
+Admission outcomes: ADMITTED, REJECTED_UNTESTABLE, REJECTED_BROKEN_PROVENANCE, REJECTED_CONTRADICTED, REJECTED_CROSS_RUN, REJECTED_POLICY_CONFLICT, NEEDS_MORE_CONTEXT.
+
+Strong requirements: source refs resolve in the same ResearchRun; expected behavior is testable; applicability context is explicit; unacknowledged contradiction of known source facts is rejected; authorization/scope claims are not treated as truth; at least one falsification direction exists.
+
+Strategy version: `invariant.diagnostic.echo.v1`. Proposer provenance: `deterministic.diagnostic.echo.v1`.
+
+## Counterexamples / context
+
+Counterexample discipline is mandatory. A contradiction under context C is not automatically a global disproof.
+
+Acknowledged mismatches admit as CHALLENGED. Unacknowledged contradicting observations reject as REJECTED_CONTRADICTED.
+
+Recording a later counterexample moves TESTABLE|CHALLENGED → CHALLENGED, preserves applicability context, and does not auto-create Evidence, Candidate, or Finding.
+
+## Persistence
+
+PostgreSQL remains SoR. No universal policy table. No graph DB.
+
+New Alembic `a14_001_invariant_chain` only. a3–a13 are not edited.
+
+Tables:
+
+- `invariant_hypothesis` — status mutable; TESTABLE|CHALLENGED|RETIRED
+- append-only `invariant_source_ref`
+- append-only `invariant_counterexample_ref`
+
+Persist only what reconstructive research history needs.
+
+## Model role
+
+Architecture supports deterministic proposal now and future ModelPort-assisted proposal.
+
+Model output remains an untrusted structured proposal until Research admission. GATE 08 does not require a live model.
+
+## Confidence
+
+**HIGH** that an invariant must not become application truth, Core scope, or a vulnerability verdict.
+
+**HIGH** that counterexamples must stay context-bound.
+
+**MEDIUM** for later security-class invariants such as ownership or role boundary.
+
+## Constraints
+
+1. Do not treat an invariant as OBSERVED or CONFIRMED_TRUE.
+2. Do not feed an invariant as a ScopeRule.
+3. Do not call an invariant violation a vulnerability.
+4. Do not generalize a context-bound counterexample globally.
+5. Do not create a direct execution path from invariant to Worker.
+6. Do not edit Alembic a3–a13.
+7. Do not introduce a graph or vector product.
+
+## Revisit triggers
+
+- First non-diagnostic invariant kind
+- ModelPort-assisted invariant proposal
+- Explicit RETIRED workflow beyond counterexample challenge
+- Exploration Policy consuming invariant features
+
+**FINAL STATUS: PASS**
+
+---
+
+# Decision 042 — Chain Engine
+
+Status: **accepted with constraints** (GATE 08)
+
+Date: 2026-08-17
+
+Does not rewrite Decisions 001–041. Does not implement Exploration Policy, Temporal Intelligence, Strix, a generic exploit engine, or an arbitrary attack graph.
+
+## Strategy
+
+Chain ≠ LLM story.
+
+A chain is an explicit sequence of research capabilities / state transitions supported by provenance:
+
+Observation → capability/state consequence → next precondition satisfied → next action/experiment → new Observation → …
+
+Purpose: support N2 primarily (novel combinations of known primitives) and prepare for N3 where target-specific state/invariant violations compose. Do not claim N4 discovery.
+
+GATE 08 proves diagnostic provenance/state composition only. The fixture is not an exploit chain.
+
+Chain Engine does not execute tools. It outputs chain research plans/hypotheses. Each executable step still goes Research → Application → Core → Worker. Level 2 still requires Core Approval. Level 3 still DENY.
+
+## Chain representation
+
+Minimal research nodes: OBSERVATION, CAPABILITY, STATE, STATE_TRANSITION, INVARIANT, EXPERIMENT, HYPOTHESIS.
+
+`ChainHypothesis` is a Hypothesis structure. Not Evidence. Not Candidate. Not Finding. Not an exploit.
+
+Fields: chain id, ResearchRun, ordered steps, source refs, preconditions, expected resulting capability/state, unresolved assumptions, falsification points, strategy/version, exact structural identity.
+
+Every node/reference preserves source identity. Sequence is not causality. Do not interpret “A happened before B” as “A caused B”.
+
+Strategy version: `chain.diagnostic.echo.v1`.
+
+## Capability semantics
+
+Capability means a research-relevant consequence established under context. It is not a global permission.
+
+Diagnostic fixture uses only `CAN_OBSERVE_ECHO`. Do not implement a real security capability taxonomy yet.
+
+Do not globally state `Actor A CAN_MUTATE` without resource/state/context. Diagnostic attributes mark `not_global_permission`.
+
+## Edge semantics
+
+Defensible relations: PRODUCES, ENABLES, REQUIRES, TRANSITIONS_TO, CONTRADICTS, SATISFIES_PRECONDITION.
+
+There is no CAUSES edge. An LLM must not invent arbitrary causal edges as fact. Model-proposed edges remain HYPOTHESIZED/INFERRED until tested/admitted.
+
+`PRODUCES` requires the same `experiment_id`. `ENABLES` requires a previous CAPABILITY, OBSERVATION, or STATE node. Missing edges and unsupported causal leaps are rejected.
+
+An invariant violation may be one chain step, not automatically the final finding.
+
+## Bounded search
+
+v1 uses bounded deterministic search. No autonomous graph explosion.
+
+`ChainSearchLimits`: max_depth, max_branching, max_generated_chains.
+
+Zero means no allowance. Negative is invalid. Conservative test defaults: depth 4, branching 1, generated chains 2.
+
+Cycle identity is `(node_kind, source_ref, state_signature)` including input/actor/resource/action. Revisiting the same resource under a different state/context is not the same visit.
+
+Dedup is exact structural identity (SHA-256) per ResearchRun. No vector similarity. Same actions with different actor/session/state context must not collapse.
+
+## State / context handling
+
+Chain search may use Target Model state transitions. If an intermediate state is only inferred, the chain preserves INFERRED/HYPOTHESIZED. No hidden certainty promotion.
+
+Descriptive features exist for a later Exploration Policy: depth, unresolved assumptions, supported steps, inferred steps, side-effect requirement, evidence coverage, novelty/composition marker. No weighted priority score.
+
+## Model role
+
+ModelPort may later propose a missing edge, suggest composition, or explain a potential chain. Those proposals remain untrusted.
+
+GATE 08 uses a deterministic diagnostic fixture only. No live model is required.
+
+## Persistence
+
+PostgreSQL remains SoR. No Neo4j. No vector DB.
+
+Append-only `chain_hypothesis` with unique `(research_run_id, structural_identity)`.
+
+New Alembic `a14_001_invariant_chain` only. a3–a13 are not edited.
+
+## Confidence
+
+**HIGH** that a chain must not execute a Worker, bypass Core, or auto-promote to Evidence/Candidate/Finding.
+
+**HIGH** that sequence must not be treated as causality and inferred state must not become observed.
+
+**MEDIUM** for later security capability taxonomies and N3 composition.
+
+## Constraints
+
+1. Do not let a chain dispatch a Worker.
+2. Do not bypass Core authorization, including Level 2/3.
+3. Do not treat temporal order as causality.
+4. Do not promote inferred state to observed.
+5. Do not collapse different actor/session/state context into one chain identity.
+6. Do not introduce unbounded graph search, Neo4j, or vectors.
+7. Do not edit Alembic a3–a13.
+
+## Revisit triggers
+
+- First non-diagnostic capability class
+- Exploration Policy consuming descriptive features
+- ModelPort-assisted edge proposal
+- Explicit N3 target-state composition beyond diagnostic plumbing
+
+**FINAL STATUS: PASS**
+
+---
+
+# Decision 043 — Exploration / Exploitation Policy
+
+Status: **accepted with constraints** (GATE 09)
+
+Date: 2026-08-17
+
+Does not rewrite Decisions 001–042. Does not implement an autonomous infinite loop, Strix, final Model Runtime architecture, Codex CLI, subscription OAuth, a production scheduler, or distributed orchestration.
+
+## Strategy
+
+Research priority ≠ truth ≠ authorization ≠ Evidence.
+
+Exploration Policy decides what Research should investigate next. It never decides what is a vulnerability.
+
+Without an explicit policy the system tends to repeat known patterns, over-test high-confidence hypotheses, ignore weak but high-information observations, converge on local maxima, and paraphrase existing hypotheses.
+
+GATE 09 implements one bounded selection cycle:
+
+Research state → Opportunity set → Selection policy → selected `ResearchOpportunity`(s)
+
+Execution remains separate. Core still authorizes every Experiment. There is no `while budget: select; execute; repeat`.
+
+Strategy version: `exploration.diagnostic.echo.v1`.
+
+## Opportunity model
+
+`ResearchOpportunity` is a research workflow category, not a vulnerability class.
+
+Conceptual fields: opportunity id, ResearchRun, kind, source references, proposed direction, unresolved question, expected information-value description, known assumptions, estimated execution cost class, required side-effect level, novelty/composition marker, prior-attempt references, exact structural identity.
+
+It does not carry a vulnerability verdict, severity, Finding, confidence-as-authority, or automatic authorization.
+
+Kinds: `HYPOTHESIS_FOLLOWUP`, `DIFFERENTIAL_FOLLOWUP`, `INVARIANT_CHALLENGE`, `CHAIN_EXTENSION`, `NEGATIVE_KNOWLEDGE_REVISIT`, `UNRESOLVED_TARGET_RELATION`, `CONTROL_EXPERIMENT`, `OTHER`.
+
+Modes: `EXPLOITATION` (continue promising existing directions) and `EXPLORATION` (bounded spend on uncertain but informative directions). Neither implies a vulnerability.
+
+GATE 09 generates opportunities deterministically from structured Research state: Hypotheses, Assessments, Target Model, DifferentialObservations, Invariants, ChainHypotheses, negative/counterexample history, previous attempts, budget state, duplicate history, and ResearchRun context. Finding count is not next-action authority. The input is not flattened into giant prose.
+
+## Selection dimensions
+
+Do not invent one magic weighted score. Do not implement `priority = 0.4 novelty + 0.3 confidence`.
+
+Independent ordinal dimensions (`LOW` / `MEDIUM` / `HIGH` where applicable):
+
+- expected information value
+- security relevance potential
+- novelty/composition
+- unresolved uncertainty
+- chain potential
+- evidence coverage
+- execution cost
+- side-effect requirement
+- duplicate/repetition risk
+- previous failed attempts
+
+`ResearchSelectionDecision` outcomes: `SELECT`, `DEFER`, `SKIP_DUPLICATE`, `SKIP_LOW_INFORMATION`, `BLOCKED_BUDGET`, `BLOCKED_POLICY`, `NEEDS_MORE_CONTEXT`.
+
+`SELECT` means the direction is worth planning. It is not Core execution ALLOW.
+
+## Exploration budgeting
+
+`ResearchPolicyBudget` is a selection allowance, not Core `IssuedBudget`.
+
+- `max_selected`
+- `max_exploratory` (exploration slots, not a percentage)
+- `max_chain_extensions`
+- `max_estimated_cost_rank` (`0..3`)
+
+`0` means no allowance. Negative is invalid.
+
+The policy may reserve bounded exploration capacity so the system does not choose only exploitation forever. There is no hardcoded universal “20% must always be exploration.” A persistent budget ledger remains deferred.
+
+## Diversity
+
+Exact structural identity (SHA-256) and provenance/source/context keys suppress equivalent selections. No vectors.
+
+When otherwise comparable, selection favors different source combinations, actor/state contexts, invariant classes, chain branches, and research questions. Semantic diversity is not claimed solved.
+
+## Negative knowledge handling
+
+Negative history suppresses waste; it is not a permanent blacklist.
+
+A failed or contradicted test under context C using strategy/version S must not globally eliminate the opportunity. A revisit may be legitimate if context changed, a new Observation exists, a new actor/state exists, a different strategy exists, or a later temporal change occurred.
+
+Historical assessments are not rewritten when a revisit is selected.
+
+## Model role
+
+ModelPort may later propose opportunities. The model cannot select itself for execution. Research policy decides from a structured proposal.
+
+GATE 09 uses deterministic opportunity generation/selection only. No live model is required. Tests may use ScriptedModelPort only.
+
+## Confidence
+
+**HIGH** that selection must not authorize, dispatch, or auto-promote to Evidence/Candidate/Finding.
+
+**HIGH** that a weighted priority formula would become fake truth.
+
+**MEDIUM** for later model-proposed opportunities and a persistent exploration ledger.
+
+## Constraints
+
+1. Do not treat priority as confidence or truth.
+2. Do not bypass Core with a selected opportunity.
+3. Do not introduce an autonomous infinite loop.
+4. Do not permanently blacklist negative knowledge.
+5. Do not auto-create a Hypothesis from an opportunity.
+6. Do not use Finding count as next-action authority.
+7. Do not edit Alembic a3–a14.
+
+## Revisit triggers
+
+- ModelPort-proposed opportunities
+- Persistent exploration budget ledger
+- Semantic diversity beyond exact structural identity
+- Non-diagnostic opportunity kinds beyond diagnostic.echo plumbing
+
+**FINAL STATUS: PASS**
+
+---
+
+# Decision 044 — Temporal Intelligence
+
+Status: **accepted with constraints** (GATE 09)
+
+Date: 2026-08-17
+
+Does not rewrite Decisions 001–043. Decision 040 reserved TIME; this decision implements TIME only with compatible snapshot/change provenance. Does not implement Strix, Model Runtime, Codex CLI, OAuth, a production scheduler, or autonomous orchestration.
+
+## Strategy
+
+Target state at t1 ≠ target state at t2. Change ≠ vulnerability.
+
+Temporal Intelligence asks what materially changed over time. It does not ask whether a vulnerability was introduced.
+
+Keep separate:
+
+- **Stateful research:** changes caused within one research interaction/session/workflow.
+- **Temporal Intelligence:** comparison of target observations/snapshots across time.
+
+Preferred flow:
+
+Snapshot t1 → Snapshot t2 → deterministic ChangeEvent → ResearchOpportunity → Generator/Falsifier if needed → Hypothesis → Experiment
+
+Never ChangeEvent → Finding. Never ChangeEvent → Evidence/Candidate.
+
+Strategy version: `temporal.diagnostic.echo.v1`.
+
+## Snapshot semantics
+
+A Snapshot is a bounded point-in-time view by reference. It is not a second SoR and not a full database copy.
+
+GATE 09 snapshots reference ResearchRun / program, selected observation ids, target identity, `captured_at`, and strategy/version. No secrets.
+
+A Snapshot is immutable once created. Later pictures are new Snapshots. Earlier Snapshots remain historical.
+
+## ChangeEvent semantics
+
+A ChangeEvent is a deterministic delta where possible. Categories: `ADDED`, `REMOVED`, `MODIFIED`, `RELATION_CHANGED`, `STATE_CHANGED`, `BEHAVIOR_CHANGED`, `UNKNOWN_CHANGE`.
+
+`VULNERABILITY_INTRODUCED` is not a ChangeEvent category. That would be Research interpretation.
+
+A ChangeEvent may later seed a ResearchOpportunity, DifferentialCase, or HypothesisProposal. It never becomes Evidence, Candidate, or Finding.
+
+## Temporal differential
+
+Compare compatible snapshots only:
+
+- same relevant target identity
+- same ResearchRun
+- compatible strategy/schema version
+- explicit t1/t2 with variant after baseline
+- source provenance
+
+Cross-program comparisons are denied by default.
+
+TIME is a legitimate `DifferentialDimension` only when backed by baseline/variant snapshot ids. Timestamp-only difference is rejected. TIME without snapshot provenance is `REJECTED_MISSING_TEMPORAL_PROVENANCE`.
+
+A temporal DifferentialCase must identify the baseline snapshot, variant snapshot, controlled target identity, and known changes.
+
+## Negative-knowledge interaction
+
+Something previously tested unsuccessfully may become interesting again after a relevant ChangeEvent.
+
+Example: Hypothesis H contradicted under snapshot t1. At t2 a related diagnostic behavior changed. Policy may allow revisiting H under the new temporal context.
+
+Do not automatically revive every rejected direction. Do not rewrite the historical assessment.
+
+## Persistence
+
+PostgreSQL remains SoR. Append-only `snapshot`, `snapshot_member`, and `change_event`. Snapshot members are observation references, not payload copies.
+
+New Alembic `a15_001_exploration_temporal` only. a3–a14 are not edited.
+
+Retention/compaction is deferred. Never silently delete Evidence, Verification, or Finding provenance because temporal snapshot cleanup occurs.
+
+## Confidence
+
+**HIGH** that change must not be called a vulnerability and must not auto-promote to Evidence/Candidate/Finding.
+
+**HIGH** that TIME comparison without snapshot provenance is not Temporal Intelligence.
+
+**MEDIUM** for later security actor/role/session temporal cases and retention policy.
+
+## Constraints
+
+1. Do not call a change a vulnerability.
+2. Do not auto-create Evidence or Candidate from a ChangeEvent.
+3. Do not allow cross-program temporal comparison by default.
+4. Do not mutate a Snapshot after creation.
+5. Do not rewrite historical assessments because a later change occurred.
+6. Do not compare timestamps without snapshot provenance.
+7. Do not snapshot the entire database blindly.
+8. Do not edit Alembic a3–a14.
+
+## Revisit triggers
+
+- Snapshot retention/compaction policy
+- Cross-program temporal comparison design
+- Non-diagnostic temporal fixtures
+- Persistent exploration ledger consuming ChangeEvents
+
+**FINAL STATUS: PASS**
+
+
+# Decision 045 — Model Runtime Architecture
+
+Status: **accepted with constraints** (GATE 10)
+
+Date: 2026-08-17
+
+Does not rewrite Decisions 001–044. Does not select a model winner, implement full routing policy, scrape undocumented credentials, or bypass provider/runtime safety refusals. GATE 04B remains PENDING until >=2 real comparable runtime configurations execute.
+
+## Strategy
+
+Keep Research `ModelPort` provider-neutral. Research classifies runtime identity and operational outcomes. It does not know provider SDKs, CLI processes, OAuth/session implementation, or local model transport.
+
+Lower runtime abstraction:
+
+```
+ModelPort
+    ↓
+ModelRuntimeAdapter
+```
+
+Concrete adapters live in Integrations. Argv execution lives in Platform (`argv_process`) as first transport, not architecture. Application and Research do not import argv or Integrations.
+
+API key is one auth mode, not the primary architecture.
+
+## Runtime kinds
+
+- `API`
+- `SUBSCRIPTION_OAUTH`
+- `CLI_SESSION`
+- `LOCAL_MODEL`
+- `EXTERNAL_AGENT`
+
+Same underlying model through API vs CLI is two different runtime configurations.
+
+`LOCAL_MODEL` is a runtime kind, not an Ollama/LM Studio product commitment.
+
+`SUBSCRIPTION_OAUTH` is reserved. No OAuth client is implemented in this gate.
+
+## Inference vs agent runtime
+
+`INFERENCE_RUNTIME` is completion/structured-output only.
+
+`AGENT_RUNTIME` may have tools or side effects. An authenticated CLI is not automatically an ordinary inference-only ModelPort.
+
+Codex CLI is `CLI_SESSION` + `AUTHENTICATED_CLI_SESSION` + `AGENT_RUNTIME`. Unrestricted tool capability (`*`, `all`, `unrestricted`, `shell`, `yolo`, `danger-full-access`) is rejected. Explicit capability allowlist is required. `--yolo` / `--full-auto` / `danger-full-access` are forbidden.
+
+An agent runtime cannot gain Core authority because it is authenticated. Side-effecting execution still requires Core ALLOW and a capability-controlled boundary.
+
+## Identity
+
+`ModelRuntimeIdentity` records:
+
+- runtime_kind
+- runtime_class
+- adapter_id
+- runtime_id
+- auth_mode
+- configuration_fingerprint
+- runtime_version when actually available
+- session_reference where safe (label only)
+
+No secrets. Session references that look like `sk-`, `token=`, or `bearer ` are rejected. Benchmark `ModelConfigurationIdentity` records the same runtime fields so GATE 04B can compare API vs CLI vs local without treating them as one identity.
+
+## Authentication/session model
+
+Supported auth modes:
+
+- `API_KEY`
+- `SUBSCRIPTION_OAUTH`
+- `AUTHENTICATED_CLI_SESSION`
+- `LOCAL_NO_REMOTE_AUTH`
+- `EXTERNAL_RUNTIME_AUTH`
+
+Credentials and session material are not ResearchContext, SoR, Evidence, logs, or benchmark reports. Adapters hold composition-root references or rely on an already-authenticated local CLI session via a constructed child environment (`HOME`/`USERPROFILE` passthrough). Database URLs and provider API keys are stripped from child env. Research OS does not scrape undocumented credentials from another application.
+
+## Outcome taxonomy
+
+Operational runtime outcomes, not research conclusions:
+
+- `COMPLETED`
+- `UNAVAILABLE`
+- `AUTH_FAILED`
+- `RATE_LIMITED`
+- `TIMED_OUT`
+- `PROCESS_FAILED`
+- `PROTOCOL_ERROR`
+- `STRUCTURED_OUTPUT_INVALID`
+- `CONTENT_POLICY_BLOCKED`
+- `CANCELLED`
+
+`CONTENT_POLICY_BLOCKED` ≠ Hypothesis rejection ≠ Evidence ≠ research conclusion. Application maps it to `AdmissionOutcome.MODEL_INVOCATION_FAILED` with reason_code `CONTENT_POLICY_BLOCKED`. There is no guardrail-bypass behavior. Research may later choose another explicitly configured runtime through normal policy/routing; that is not a hidden bypass.
+
+Process failure is not a research result. Unavailable CLI is `UNAVAILABLE`, not a fake PASS.
+
+## CLI/session semantics
+
+Authenticated CLI runtime (Codex CLI as first adapter):
+
+- argv execution, `shell=False`
+- bounded stdout/stderr
+- timeout and kill
+- cancellation via timeout/kill in this gate
+- explicit working directory
+- constructed environment
+- documented flags only (`codex --version`, `codex exec --sandbox read-only`)
+- structured-output validation
+- version/capability probe before use
+
+If CLI is unavailable: `UNAVAILABLE`. If installed, a controlled diagnostic ModelPort test may run. No security-testing capability in this gate. Codex `--json` event streams are not treated as ModelPort structured objects by default.
+
+## External-agent semantics
+
+Boundary prepared for Codex-style host agents, Claude-style host agents, and MCP-connected external agents.
+
+External-agent output remains UNTRUSTED. It cannot alter scope, authorize execution, admit Evidence, validate Candidate, or approve Finding. Empty or unrestricted capability sets are rejected. Live host-agent product is deferred; GATE 10 exposes the contract only.
+
+## Confidence
+
+**HIGH** that API must not be the only runtime type and that CLI/session is first-class.
+
+**HIGH** that inference and agent runtimes must stay distinct, and that content-policy blocks are operational outcomes.
+
+**MEDIUM** for later OAuth subscription adapters, local-model product choice, and full runtime routing policy.
+
+## Constraints
+
+1. Research must not import provider SDKs, subprocess, or Integrations.
+2. Do not treat an unrestricted agent CLI as ordinary inference.
+3. Do not persist API keys or CLI session tokens.
+4. Do not scrape undocumented credentials.
+5. Do not implement provider safety bypass.
+6. Do not mark GATE 04B PASS without >=2 real comparable runtime configurations.
+7. Do not hardcode undocumented CLI flags.
+
+## Revisit triggers
+
+- Full runtime routing policy
+- Live >=2-runtime GATE 04B comparison
+- OAuth/subscription adapter product
+- Local-model product selection
+- Persistent secret manager (Decision 013 product still deferred)
+
+
+# Decision 046 — Strix Integration
+
+Status: **accepted with constraints** (GATE 10)
+
+Date: 2026-08-17
+
+Does not rewrite Decisions 001–045. Does not make Strix the Research Brain, implement security scanning workflows, expose unlimited MCP tools, or create Findings from Strix output.
+
+## Strategy
+
+Strix is a replaceable Integration / security execution runtime.
+
+Locked:
+
+- Strix ≠ Research Brain
+- Strix ≠ Core
+- Strix ≠ Research Memory
+- Strix ≠ Evidence authority
+- Strix ≠ Finding authority
+
+Research OS ModelRuntime remains independently usable. No circular dependency with Strix model internals.
+
+## Architectural placement
+
+```
+Research OS
+  → Application/Core authorization
+  → controlled execution boundary
+  → StrixIntegration (Platform port)
+  → Strix runtime/tools (Integrations adapter)
+```
+
+Research and Application must not import `integrations.strix`. Core is unaware of Strix internals. The adapter must not import Data or write the SoR.
+
+Future topology allowed:
+
+```
+Research Brain → ModelRuntimePort → Codex CLI
+authorized Experiment → StrixIntegration → Strix tools
+```
+
+Those paths do not share authority.
+
+## Execution boundary
+
+Research must not send arbitrary free-form shell authority to Strix.
+
+Controlled envelope:
+
+- ResearchRun id
+- Experiment id
+- correlation/request id
+- capability
+- authorized target/scope reference
+- execution budget id
+- side-effect level
+- authorization-decision reference
+- allowed capabilities
+- artifact/result constraints
+
+GATE 10 allowlist: `strix.diagnostic.ping` only. Unrestricted markers are rejected.
+
+## Authorization/scope handling
+
+Core `evaluate_execution` ALLOW is required before the adapter is invoked. Denied requests never reach Strix.
+
+Redirect, newly discovered asset, or scope expansion: stop and request Core re-evaluation (`SCOPE_RECHECK_REQUIRED`). Assumptions such as “same domain family” are not authorization.
+
+## Result semantics
+
+Normalize runtime outcome separately from semantic research result.
+
+Distinguish:
+
+- runtime failure
+- tool failure
+- policy/content block
+- budget exhaustion
+- successful execution
+
+from a security research conclusion.
+
+Strix result ≠ Observation automatically ≠ Evidence ≠ Candidate ≠ Finding.
+
+Runtime failure fabricates no Observation. Diagnostic success still remains untrusted boundary data and follows controlled normalization. It does not write SoR.
+
+## External-agent/MCP handling
+
+An authenticated external coding agent may later consume Strix/security capabilities. Research OS remains authority.
+
+External agent/MCP cannot bypass:
+
+- scope
+- Core authorization
+- side-effect policy
+- budgets
+- Evidence admission
+- Verification
+- Human Finding approval
+
+Unlimited MCP tool exposure is rejected. Capability allowlist is required. Production Strix security capability set is deferred.
+
+## Runtime availability
+
+Reported separately from architecture PASS:
+
+- API runtime: AVAILABLE / UNAVAILABLE
+- CLI/session runtime: AVAILABLE / UNAVAILABLE
+- local runtime: AVAILABLE / UNAVAILABLE
+- Strix runtime: AVAILABLE / UNAVAILABLE
+
+If Strix is not installed: UNAVAILABLE / PENDING. Architecture tests may still PASS. Availability must not be fabricated.
+
+## Confidence
+
+**HIGH** that Strix must remain Integration and cannot bypass Core.
+
+**HIGH** that Strix outputs remain untrusted and cannot become Evidence/Finding by arrival.
+
+**MEDIUM** for later production capability sets, sandbox topology, and agent-native MCP mode.
+
+## Constraints
+
+1. Do not let Research import the concrete Strix adapter.
+2. Do not execute Strix without an authorization-decision reference and Core ALLOW.
+3. Do not implement security-specific scanning workflows in this gate.
+4. Do not implement provider/runtime safeguard bypass via Strix.
+5. Do not let Strix write the SoR.
+6. Do not treat Strix model configuration as Research OS ModelRuntime.
+
+## Revisit triggers
+
+- Production Strix security capability set
+- Agent-native MCP mode with an explicit allowlist
+- WorkerResult/normalization path for non-diagnostic Strix artifacts
+- Persistent budget consumption ledger for Strix execution
+
+
+
+
 
 
