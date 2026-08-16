@@ -9,6 +9,7 @@ from typing import Any
 
 from research_os.benchmark.cycle import run_bounded_cycle
 from research_os.benchmark.errors import BenchmarkError
+from research_os.benchmark.failures import classify_failure
 from research_os.benchmark.leakage import leakage_hits
 from research_os.benchmark.metrics import (
     HardFailCode,
@@ -42,6 +43,18 @@ class ScenarioRunResult:
     elapsed_ms: int
     leakage: tuple[str, ...]
     parse_error: str | None
+    failure_class: str = "NONE"
+    provider_runtime_error: bool = False
+    source_references: tuple[str, ...] = ()
+    experiment_direction: str | None = None
+    run_index: int = 1
+    latency_ms: int | None = None
+    input_tokens: int | None = None
+    output_tokens: int | None = None
+    provider_reported_cost: float | None = None
+    pricing_reference: str | None = None
+    retries: int | None = None
+    timeout: bool | None = None
 
     @property
     def harness_invariant_failed(self) -> bool:
@@ -67,6 +80,19 @@ class ScenarioRunResult:
             "elapsed_ms": self.elapsed_ms,
             "leakage": list(self.leakage),
             "parse_error": self.parse_error,
+            "failure_class": self.failure_class,
+            "provider_runtime_error": self.provider_runtime_error,
+            "source_references": list(self.source_references),
+            "experiment_direction": self.experiment_direction,
+            "run_index": self.run_index,
+            "latency_ms": self.latency_ms,
+            "input_tokens": self.input_tokens,
+            "output_tokens": self.output_tokens,
+            "provider_reported_cost": self.provider_reported_cost,
+            "pricing_reference": self.pricing_reference,
+            "retries": self.retries,
+            "timeout": self.timeout,
+            "unset_provider_telemetry_not_fabricated": True,
         }
 
 
@@ -151,6 +177,7 @@ def evaluate_scenario(
     *,
     adapter_identity: str,
     correlation_id: str | None = None,
+    run_index: int = 1,
 ) -> ScenarioRunResult:
     started = time.perf_counter()
     context = context_from_visible(scenario.visible_input)
@@ -158,13 +185,16 @@ def evaluate_scenario(
     trace = run_bounded_cycle(
         context,
         model,
-        correlation_id=correlation_id or f"bench:{scenario.identity}",
+        correlation_id=correlation_id or f"bench:{scenario.identity}:r{run_index}",
     )
     leaks = leakage_hits(scenario, context, trace.requests)
     fails = collect_hard_fails(scenario, context, trace)
     quality = collect_quality(scenario, context, trace)
     elapsed_ms = int((time.perf_counter() - started) * 1000)
     claim = None if trace.proposal is None else normalize_claim(trace.proposal.proposed_claim)
+    direction = None
+    if trace.proposal is not None:
+        direction = normalize_claim(trace.proposal.suggested_disconfirming_test)
     return ScenarioRunResult(
         scenario_id=scenario.scenario_id,
         version=scenario.version,
@@ -181,6 +211,11 @@ def evaluate_scenario(
         elapsed_ms=elapsed_ms,
         leakage=leaks,
         parse_error=trace.parse_error,
+        failure_class=classify_failure(trace, fails).value,
+        provider_runtime_error=trace.provider_runtime_error,
+        source_references=() if trace.proposal is None else trace.proposal.source_references,
+        experiment_direction=direction,
+        run_index=run_index,
     )
 
 

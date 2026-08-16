@@ -24,4 +24,4 @@ Research must not:
 
 Application coordinates `ProposeResearchHypothesis` and `EvaluateExperimentFeedback` with Data ports. Deterministic assessment for GATE 03 is `diagnostic.echo.v1` only.
 
-Provider-neutral research-behavior evaluation lives in `research_os.benchmark` and `benchmarks/research/` (Decisions 029–030). Research must not import the benchmark package. Benchmark reports are not Evidence, Finding, or SoR truth.
+Provider-neutral research-behavior evaluation lives in `research_os.benchmark` and `benchmarks/research/` (Decisions 029–032). Research must not import the benchmark package. Benchmark reports are not Evidence, Finding, or SoR truth. Git commit metadata for reports is collected by the benchmark script, not by Domain.

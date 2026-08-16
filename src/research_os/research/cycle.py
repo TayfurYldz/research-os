@@ -21,6 +21,10 @@ from research_os.research.proposals import (
 )
 from research_os.research.types import ResearchInputError
 
+GENERATOR_INSTRUCTION_VERSION = "research.generator.v1"
+FALSIFIER_INSTRUCTION_VERSION = "research.falsifier.v1"
+STRUCTURED_OUTPUT_SPEC_VERSION = "research.structured-output.v1"
+
 GENERATOR_INSTRUCTIONS = (
     "Propose one testable research hypothesis as structured fields only. "
     "You cannot set policy, choose tools, change scope, raise budget, or declare "

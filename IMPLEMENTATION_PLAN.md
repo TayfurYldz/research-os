@@ -42,6 +42,8 @@ Decision-driver order remains: correctness → authorization/security → durabi
 | 028 | Persist reasoning/admission for all completed cycles including rejected; rejected ≠ Hypothesis; N4 claim preserved as model_claimed_novelty, system novelty UNCLASSIFIED |
 | 029 | Versioned benchmark scenarios; hard split of model-visible input vs hidden evaluation; leakage is a test failure; development vs holdout |
 | 030 | Scorecard of hard-fail events + quality dimensions; no magic aggregate model score; no LLM-as-judge; no vector similarity; provider comparison deferred to GATE 04B |
+| 031 | Real-model comparison is a controlled experiment: config/instruction identity, repeated runs, paired scenarios, provider vs research failures, metamorphic variants, no automatic winner |
+| 032 | DEVELOPMENT / CALIBRATION / SEALED_HOLDOUT; sealed suite lives outside the Cursor workspace; fingerprint without hidden answers |
 
 ---
 
@@ -412,6 +414,28 @@ Benchmark reports are evaluation artifacts. They are not Evidence, Finding, Cand
 **Verify:** unit + contract + `scripts/check_contracts.py` + integration (no PostgreSQL-required skips) + `uv run python scripts/run_research_benchmark.py`.
 
 GATE 04B (deferred): real provider adapters compared on this same harness.
+
+## GATE 04B-PREP — Real Model Evaluation Readiness
+
+Makes real-model comparison scientifically defensible **before** any provider SDK is installed.
+
+- `BenchmarkExperimentConfig` + `ModelConfigurationIdentity` + instruction fingerprints
+- repeated runs with hard-fail occurrence fractions (not hidden averages)
+- paired comparison with incomparable-suite detection
+- provider/runtime failure ≠ research-quality failure
+- metamorphic development variants
+- context-utilization / scenario-specificity observations
+- external sealed holdout loader (`RESEARCH_OS_BENCHMARK_HOLDOUT_PATH`)
+- suite fingerprint/manifest without hidden answers
+- immutable JSON reports under `var/benchmark-results/`
+
+Does **not** select OpenAI, Anthropic, Gemini, or any other provider. Does not print `WINNER`.
+
+**GATE 04B-PREP status: PASS** (2026-08-17). GATE 01–04A remain PASS on real PostgreSQL.
+
+**Verify:** unit + contract + `scripts/check_contracts.py` + integration (0 skipped) + `uv run python scripts/run_research_benchmark.py --runs-per-scenario 1`.
+
+Live GATE 04B (deferred): attach real provider adapters to this experiment protocol.
 
 ---
 

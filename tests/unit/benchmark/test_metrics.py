@@ -103,7 +103,8 @@ class MetricAndBaselineTests(unittest.TestCase):
         result = evaluate_scenario(scenario, port, adapter_identity=port.adapter_identity)
         self.assertEqual(result.falsifier_calls, 1)
         self.assertEqual(result.admission_outcome, AdmissionOutcome.MODEL_INVOCATION_FAILED.value)
-        self.assertIn(HardFailCode.FALSIFIER_MISSING.value, result.hard_failures)
+        self.assertNotIn(HardFailCode.FALSIFIER_MISSING.value, result.hard_failures)
+        self.assertEqual(result.failure_class, "PROVIDER_RUNTIME")
 
         empty_challenge = ScriptedModelPort(
             adapter_identity="empty-challenge",

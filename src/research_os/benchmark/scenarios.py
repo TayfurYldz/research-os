@@ -26,6 +26,8 @@ SCENARIO_KEYS = frozenset(
         "split",
         "visible_input",
         "hidden_evaluation",
+        "variant_of",
+        "variant_kind",
     }
 )
 VISIBLE_KEYS = frozenset(
@@ -53,6 +55,10 @@ HIDDEN_KEYS = frozenset(
         "scenario_invariants",
         "evaluation_tags",
         "unexpected_admit_is_hard_fail",
+        "relevant_source_ids",
+        "required_source_groups",
+        "irrelevant_source_ids",
+        "scenario_specific_tokens",
     }
 )
 HIDDEN_KEY_SENTINELS = frozenset(
@@ -71,6 +77,10 @@ HIDDEN_KEY_SENTINELS = frozenset(
         "injection_needles",
         "scenario_invariants",
         "unexpected_admit_is_hard_fail",
+        "relevant_source_ids",
+        "required_source_groups",
+        "irrelevant_source_ids",
+        "scenario_specific_tokens",
     }
 )
 
@@ -90,7 +100,8 @@ class ScenarioCategory(Enum):
 
 class ScenarioSplit(Enum):
     DEVELOPMENT = "development"
-    HOLDOUT = "holdout"
+    CALIBRATION = "calibration"
+    SEALED_HOLDOUT = "sealed_holdout"
 
 
 def _require_text(value: object, field_name: str) -> str:
@@ -116,6 +127,20 @@ def _text_tuple(value: object, field_name: str) -> tuple[str, ...]:
             raise BenchmarkError(f"{field_name}[{index}] must be a non-empty string")
         items.append(item.strip())
     return tuple(items)
+
+
+def _source_groups(value: object, field_name: str) -> tuple[tuple[str, ...], ...]:
+    if value is None:
+        return ()
+    if not isinstance(value, list):
+        raise BenchmarkError(f"{field_name} must be a list of string lists")
+    groups: list[tuple[str, ...]] = []
+    for index, item in enumerate(value):
+        group = _text_tuple(item, f"{field_name}[{index}]")
+        if not group:
+            raise BenchmarkError(f"{field_name}[{index}] must be a non-empty list")
+        groups.append(group)
+    return tuple(groups)
 
 
 def _unknown(raw: Mapping[str, Any], allowed: frozenset[str], label: str) -> None:
@@ -149,6 +174,10 @@ class HiddenEvaluation:
     scenario_invariants: tuple[str, ...] = ()
     evaluation_tags: tuple[str, ...] = ()
     unexpected_admit_is_hard_fail: bool = False
+    relevant_source_ids: tuple[str, ...] = ()
+    required_source_groups: tuple[tuple[str, ...], ...] = ()
+    irrelevant_source_ids: tuple[str, ...] = ()
+    scenario_specific_tokens: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -159,6 +188,8 @@ class BenchmarkScenario:
     split: ScenarioSplit
     visible_input: VisibleInput
     hidden_evaluation: HiddenEvaluation
+    variant_of: str | None = None
+    variant_kind: str | None = None
     source_path: str | None = None
 
     @property
@@ -270,6 +301,18 @@ def parse_hidden_evaluation(raw: object) -> HiddenEvaluation:
         ),
         evaluation_tags=_text_tuple(mapping.get("evaluation_tags"), "evaluation_tags"),
         unexpected_admit_is_hard_fail=unexpected,
+        relevant_source_ids=_text_tuple(
+            mapping.get("relevant_source_ids"), "relevant_source_ids"
+        ),
+        required_source_groups=_source_groups(
+            mapping.get("required_source_groups"), "required_source_groups"
+        ),
+        irrelevant_source_ids=_text_tuple(
+            mapping.get("irrelevant_source_ids"), "irrelevant_source_ids"
+        ),
+        scenario_specific_tokens=_text_tuple(
+            mapping.get("scenario_specific_tokens"), "scenario_specific_tokens"
+        ),
     )
 
 
@@ -281,9 +324,21 @@ def parse_scenario(raw: object, *, source_path: str | None = None) -> BenchmarkS
     except ValueError as exc:
         raise BenchmarkError("category is not a known benchmark category") from exc
     try:
-        split = ScenarioSplit(_require_text(mapping.get("split"), "split"))
+        raw_split = _require_text(mapping.get("split"), "split")
+        if raw_split == "holdout":
+            split = ScenarioSplit.SEALED_HOLDOUT
+        else:
+            split = ScenarioSplit(raw_split)
     except ValueError as exc:
-        raise BenchmarkError("split must be development or holdout") from exc
+        raise BenchmarkError(
+            "split must be development, calibration, or sealed_holdout"
+        ) from exc
+    variant_of = mapping.get("variant_of")
+    variant_kind = mapping.get("variant_kind")
+    if variant_of is not None:
+        variant_of = _require_text(variant_of, "variant_of")
+    if variant_kind is not None:
+        variant_kind = _require_text(variant_kind, "variant_kind")
     return BenchmarkScenario(
         scenario_id=_require_text(mapping.get("scenario_id"), "scenario_id"),
         version=_require_text(mapping.get("version"), "version"),
@@ -291,6 +346,8 @@ def parse_scenario(raw: object, *, source_path: str | None = None) -> BenchmarkS
         split=split,
         visible_input=parse_visible_input(mapping.get("visible_input")),
         hidden_evaluation=parse_hidden_evaluation(mapping.get("hidden_evaluation")),
+        variant_of=variant_of,
+        variant_kind=variant_kind,
         source_path=source_path,
     )
 
@@ -304,14 +361,26 @@ def load_scenario(path: Path) -> BenchmarkScenario:
 
 
 def load_scenarios(
-    directory: Path, *, include_holdout: bool = False
+    directory: Path,
+    *,
+    include_holdout: bool = False,
+    include_calibration: bool = False,
+    include_sealed: bool = False,
 ) -> tuple[BenchmarkScenario, ...]:
     if not directory.is_dir():
         raise BenchmarkError(f"scenario directory not found: {directory}")
+    include_sealed = include_sealed or include_holdout
+    repo_development = _is_repo_development_tree(directory)
     loaded: list[BenchmarkScenario] = []
     for path in sorted(directory.glob("*.json")):
         scenario = load_scenario(path)
-        if scenario.split is ScenarioSplit.HOLDOUT and not include_holdout:
+        if scenario.split is ScenarioSplit.SEALED_HOLDOUT and repo_development:
+            raise BenchmarkError(
+                "sealed holdout scenarios must not live in the development repository tree"
+            )
+        if scenario.split is ScenarioSplit.CALIBRATION and not include_calibration:
+            continue
+        if scenario.split is ScenarioSplit.SEALED_HOLDOUT and not include_sealed:
             continue
         loaded.append(scenario)
     identities = [scenario.identity for scenario in loaded]
@@ -319,8 +388,13 @@ def load_scenarios(
     if duplicates:
         raise BenchmarkError(f"duplicate scenario identity: {duplicates}")
     if not loaded:
-        raise BenchmarkError(f"no development scenarios in {directory}")
+        raise BenchmarkError(f"no matching scenarios in {directory}")
     return tuple(loaded)
+
+
+def _is_repo_development_tree(directory: Path) -> bool:
+    parts = directory.resolve().parts
+    return len(parts) >= 3 and parts[-3:] == ("benchmarks", "research", "scenarios")
 
 
 def context_from_visible(visible: VisibleInput) -> ResearchContext:

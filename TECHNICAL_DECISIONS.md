@@ -6199,5 +6199,188 @@ Provider choice must be empirical against Research OS behavior, not marketing or
 
 **FINAL STATUS: PASS**
 
+---
+
+# Decision 031 — Real-Model Experimental Evaluation Protocol
+
+Status: **accepted with constraints** (GATE 04B-PREP)
+
+Date: 2026-08-17
+
+Does not rewrite Decisions 001–030. Does not install a provider SDK or select a vendor.
+
+## Candidates evaluated
+
+| Option | Verdict |
+|---|---|
+| A. One run per scenario, then pick a winner | Rejected. Stochastic models and hidden hard fails. |
+| B. Average quality into one score / automatic WINNER | Rejected. Fake precision; Decision 030 already forbids this. |
+| C. Controlled experiment: shared config identity, repeated runs, paired scenarios, explicit failure classes | **Accepted.** |
+
+## Strategy
+
+Real-model comparison is a controlled experiment. Compared configurations must share:
+
+- benchmark suite fingerprint / scenario versions
+- visible ResearchContext construction
+- Generator and Falsifier instruction versions/fingerprints
+- structured-output specification fingerprint
+- admission logic version
+- context-builder version
+- evaluator/harness version
+
+If those differ, results are **incomparable**.
+
+`gpt` / `claude` / `gemini` aliases are not experiment identity. `ModelConfigurationIdentity` records adapter identity and only those provider fields the adapter actually supplies. Unset fields stay unset; they are not fabricated.
+
+## Repeated runs
+
+`runs_per_scenario` is configurable. The development default is 3. That number is a conservative engineering default, not a scientific law.
+
+Reports expose attempted, completed, provider/runtime failures, research-quality failures, hard-fail occurrence fractions, admission distributions, exact-duplicate rate, and per-scenario variance. A 1/5 hallucination is reported as `1/5`, not “80% success” and not PASS.
+
+Single-run output is allowed for harness debugging. It is **not** an authoritative real-model comparison.
+
+## Paired comparison
+
+Model A and Model B are compared on the same `scenario_id@version`. Humans inspect per-scenario observations. No p-values. No automatic winner line.
+
+## Stability
+
+Instability is tracked as separate observations: hard-fail occurrence, admission-outcome mix, source-reference set diversity, exact-repeat rate, experiment-direction diversity. There is no single stability score. A model that is occasionally ungrounded is operationally worse than a consistently grounded one.
+
+## Provider vs research failures
+
+Keep separate:
+
+- provider/API unavailable, timeout, malformed provider envelope (`PROVIDER_RUNTIME`)
+- structured-output parse failure
+- Generator research-quality failure
+- Falsifier research-quality failure
+- harness invariant (hidden leakage)
+
+A provider outage is not a bad security hypothesis. A hallucinated source is not infrastructure noise.
+
+## Cost / latency philosophy
+
+Reports have fields for latency, tokens, provider-reported or deterministically calculated cost, retries, timeout, and a pricing reference. Values are recorded only when a real adapter provides them. Pricing tables are not baked into Research domain logic. Cost is operational metadata, not target truth. Quality priority remains: hard safety/grounding, usefulness, falsification, stability, then cost. No weighted formula yet.
+
+## Metamorphic testing
+
+Variants keep hidden semantics and change surface form (wording, opaque ids, order, irrelevant benign observation, paraphrased untrusted instruction). Exact natural-language equality is not required. Epistemic class, policy discipline, testability, and admission family must remain compatible.
+
+## Scenario specificity
+
+Structural proxies only: relevant sources used, required source groups combined, irrelevant stuffing avoided, scenario-specific tokens or ids in the proposal/challenge. This is **context utilization**, not creativity measurement.
+
+## Reproducibility
+
+Reports record suite fingerprint, scenario identities, Research OS git commit when the script can obtain it (otherwise `unknown`), instruction fingerprints, model configuration identity, runs_per_scenario, timestamp, harness/evaluator versions. Git is engineering metadata in the benchmark script, not a Domain dependency. Reports are immutable files; overwrite is refused. Not PostgreSQL SoR.
+
+## Confidence
+
+**HIGH** that one run is insufficient for real-model claims.
+
+**HIGH** that provider outage must not be scored as research failure.
+
+**MEDIUM** for the default `runs_per_scenario=3`.
+
+## Constraints
+
+1. Do not print `WINNER` or a magic aggregate score.
+2. Do not hide a hard fail behind an average.
+3. Do not fabricate provider telemetry.
+4. Do not install provider SDKs in this gate.
+5. Do not demand exact prose equality on metamorphic variants.
+6. Do not treat development fixtures as unseen holdout.
+
+## Revisit triggers
+
+- First live provider adapter (GATE 04B)
+- Need for statistical tests with justified sample sizes
+- Pricing reference format once a real adapter exists
+- Human pairwise review UI
+
+**FINAL STATUS: PASS**
+
+---
+
+# Decision 032 — Holdout Integrity / Benchmark Contamination Strategy
+
+Status: **accepted with constraints** (GATE 04B-PREP)
+
+Date: 2026-08-17
+
+Does not rewrite Decisions 001–031. Does not require a cloud holdout service.
+
+## Candidates evaluated
+
+| Option | Verdict |
+|---|---|
+| A. Call the repo `development` fixtures a holdout | Rejected. Cursor and developers read them. Contaminated. |
+| B. Encrypt holdout in-repo and give the agent the key | Rejected. Not statistically clean. |
+| C. DEVELOPMENT / CALIBRATION / SEALED_HOLDOUT with sealed files outside the development workspace | **Accepted.** |
+
+## Strategy
+
+Three dataset classes:
+
+| Class | Who may see it | Use |
+|---|---|---|
+| DEVELOPMENT | Developers and coding assistants | Harness debug, metric creation, deterministic bug fixes. Current fixtures belong here. |
+| CALIBRATION | Inspected at defined milestones | Compare instruction changes; inspect failures. After tuning, it is not holdout. |
+| SEALED_HOLDOUT | Not in the normal Cursor/repo context | Evaluation that must not have driven prompt/admission tuning. |
+
+## Sealed holdout
+
+Preferred: external directory at runtime via `RESEARCH_OS_BENCHMARK_HOLDOUT_PATH` or `--sealed-holdout-path`.
+
+The repository contains schema/format docs, loader, and integrity rules. It does **not** need the sealed scenario files.
+
+Sealed files must not live under `benchmarks/research/scenarios/`. A missing path is reported **unavailable**, not PASS.
+
+## Fingerprinting
+
+A suite manifest records suite id, version, scenario count, identities, and a fingerprint over visible+hidden integrity hashes. Reports include the fingerprint and omit hidden evaluator contents.
+
+Changing hidden semantics changes the fingerprint. Unchanged files keep the same fingerprint.
+
+## Model leakage vs development contamination
+
+| Kind | Meaning | Owner |
+|---|---|---|
+| Model leakage | Hidden evaluation entered a model-visible request | GATE 04A tests |
+| Development contamination | Developers/agents saw sealed semantics while tuning | Decision 032 |
+
+Both must be tracked. Solving one does not solve the other.
+
+## Report policy
+
+Do not log hidden answers. Do not store sealed scenario bodies inside benchmark reports. Do not rewrite previous report files.
+
+## Confidence
+
+**HIGH** that in-repo fixtures cannot be a strong unseen holdout.
+
+**HIGH** that missing holdout must not be reported as PASS.
+
+**MEDIUM** for operational discipline (humans must actually keep sealed files out of Cursor).
+
+## Constraints
+
+1. Do not describe development fixtures as holdout.
+2. Do not put sealed scenarios in the default repo tree.
+3. Do not print hidden evaluation into reports.
+4. Do not require a cloud service.
+5. Do not treat encryption-in-repo as cleanliness.
+
+## Revisit triggers
+
+- First sealed suite actually used for a live model comparison
+- Need for signed manifests
+- Multi-operator holdout custody
+
+**FINAL STATUS: PASS**
+
 
 

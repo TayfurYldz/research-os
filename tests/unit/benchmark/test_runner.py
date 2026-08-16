@@ -27,17 +27,24 @@ class RunnerTests(unittest.TestCase):
                         "GOOD_BASELINE",
                         "--scenarios",
                         str(REPO / "benchmarks" / "research" / "scenarios"),
+                        "--runs-per-scenario",
+                        "1",
                         "--json-report",
                         str(report_path),
                     ]
                 )
             self.assertEqual(code, 0)
-            self.assertIn("no aggregate model score", buffer.getvalue())
+            self.assertIn("no automatic winner", buffer.getvalue())
             payload = json.loads(report_path.read_text(encoding="utf-8"))
             self.assertTrue(payload["no_aggregate_model_score"])
+            self.assertTrue(payload["no_automatic_winner"])
             self.assertTrue(payload["not_evidence"])
             self.assertNotIn("model_score", payload)
-            self.assertGreaterEqual(len(payload["scenario_results"]), 10)
+            self.assertNotIn('"WINNER"', json.dumps(payload))
+            self.assertGreaterEqual(len(payload["summaries"]), 10)
+            self.assertFalse(payload["authoritative_real_model_comparison"])
+            self.assertTrue(payload["git_commit"])
+            self.assertIn("hidden_evaluation_omitted", payload["suite"])
 
     def test_leakage_invariant_returns_nonzero(self) -> None:
         err = io.StringIO()

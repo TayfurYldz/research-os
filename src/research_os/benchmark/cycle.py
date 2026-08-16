@@ -47,6 +47,7 @@ class BoundedCycleTrace:
     generator_output: Mapping[str, Any] | None = None
     falsifier_output: Mapping[str, Any] | None = None
     parse_error: str | None = None
+    provider_runtime_error: bool = False
 
 
 def run_bounded_cycle(
@@ -83,6 +84,7 @@ def run_bounded_cycle(
             falsifier_calls=0,
             requests=tuple(recorder.requests),
             parse_error=str(exc),
+            provider_runtime_error=True,
         )
     except ProposalAuthorityError as exc:
         generator_output = _output_from_exc(exc)
@@ -144,6 +146,7 @@ def run_bounded_cycle(
             proposal=proposal,
             generator_output=generator_output,
             parse_error=str(exc),
+            provider_runtime_error=True,
         )
     except ProposalAuthorityError as exc:
         falsifier_output = _output_from_exc(exc)

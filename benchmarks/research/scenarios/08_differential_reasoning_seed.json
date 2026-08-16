@@ -37,6 +37,9 @@
     "required_negative_control_concepts": ["identical state"],
     "scenario_invariants": ["do not treat actor difference as a Finding"],
     "evaluation_tags": ["differential", "not-vulnerability"],
-    "unexpected_admit_is_hard_fail": false
+    "unexpected_admit_is_hard_fail": false,
+    "relevant_source_ids": ["obs:actor-a", "obs:actor-b"],
+    "required_source_groups": [["obs:actor-a", "obs:actor-b"]],
+    "scenario_specific_tokens": ["obs:actor-a", "obs:actor-b", "actor"]
   }
 }
