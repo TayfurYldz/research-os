@@ -3975,3 +3975,586 @@ JSON Schema is the only candidate that is language-neutral, transport-neutral, a
 
 **FINAL STATUS: PASS**
 
+---
+
+# Decision 017 — False Positive / Verification Discipline
+
+**Status:** ACCEPT WITH CONSTRAINTS  
+**Date:** 2026-08-16  
+**Depends on:** Domain Model (Observation ≠ Hypothesis ≠ Evidence ≠ Candidate ≠ Finding; Candidate lifecycle including INCONCLUSIVE; Verification proposes, does not commit); Decision 008 (model output is UNTRUSTED STRUCTURED PROPOSAL; verification is a ModelPort role hint, not a v1 second provider); Decision 012 (research metrics are SoR aggregates, not a second ledger)
+
+This decision locks **verification quality and false-positive suppression** as first-class architecture.
+
+It does **not** select:
+
+- a confidence-score product, threshold, or calibration method
+- a second model provider or multi-agent runtime
+- Verification as a Core authority
+- new Candidate lifecycle states
+- V0–V4 as stored domain enums
+- test payloads, scanner products, or exploit PoC libraries
+
+Python types, PostgreSQL columns, and prompt text are **not** this decision’s contract.
+
+---
+
+## Decision
+
+**STRATEGY: ACCEPT WITH CONSTRAINTS**
+
+Research OS optimizes for **high-confidence, evidence-backed, reproducible Findings**.
+
+It does **not** optimize for maximum Candidate count, scanner-hit volume, or model-suspicion volume.
+
+False-positive suppression is a standing requirement of Research, Data (Evidence/Candidate records), and Human Review — **not** of Core authorization.
+
+A Candidate is not a Finding. A model assertion is not Evidence. A scanner match is not Evidence. A WorkerResult is not Evidence. A successful HTTP or tool response is not automatically a vulnerability.
+
+**CONFIDENCE MODEL: DEFER.** No universal numeric threshold (including 0.70) is architecture. If a numeric score is added later, it is an explicit, evidence-calibrated annotation. It cannot promote a Candidate, replace Verification, or replace Human Review.
+
+---
+
+## Why this decision exists
+
+The domain already forbids collapsing WorkerResult → Evidence → Finding. Without an explicit verification discipline, a later Research Brain can still drift into “scanner match = issue” or “the same model that guessed now confirms.”
+
+That drift would maximize Candidates and destroy trust. Bug-bounty and authorized research value accepted Findings with provenance, not a firehose of unverified signals.
+
+INCONCLUSIVE already exists as a Candidate outcome. This decision forbids removing it to force binary VALID/INVALID and forbids promoting uncertainty to raise Finding count.
+
+---
+
+## Conceptual validation ladder
+
+These are **verification maturity levels**, not Candidate lifecycle states and not Finding states. They must not become a second `verification_status` field that competes with Candidate lifecycle (DOMAIN_MODEL.md).
+
+They may remain documentation-only until a later Research/Data design needs an annotation. They are **not** required enums in A2 Core or A3 persistence.
+
+| Level | Name | Meaning |
+|---|---|---|
+| **V0** | Unverified signal | Heuristic, scanner match, model suspicion, anomaly. May seed a Hypothesis. Must not be Evidence or a Finding |
+| **V1** | Observed behavior | Directly observed, reproducible where practical. Still not vulnerability proof |
+| **V2** | Security hypothesis supported | Admitted Evidence supports a security-relevant Hypothesis. Expected vs observed behavior differs |
+| **V3** | Verified security impact | Exploitability or invariant violation demonstrated with provenance. Alternative benign explanations evaluated |
+| **V4** | Human-accepted Finding | Existing path only: Candidate VALIDATED + FindingProposal + Human Review + Core Approval |
+
+V3 is **necessary but not sufficient** for Candidate VALIDATED. VALIDATED remains Research’s Evidence-and-invariant commit, not a maturity-label rewrite.
+
+V4 is **not a new status**. It is the existing Finding path. No Finding exists at V0–V3.
+
+A claim may sit at V1/V2 and the Candidate may still be INCONCLUSIVE. That is correct.
+
+---
+
+## What a vulnerability claim must answer
+
+Verification of a security claim must be able to answer, as structured research record — not as chat residue:
+
+1. What was expected?
+2. What actually happened?
+3. Why is this security-relevant?
+4. Under which actor / session / authorization / state?
+5. Can it be reproduced (where practical)?
+6. What Evidence proves it (admitted Observation/Artifact, with provenance)?
+7. What benign explanation was ruled out?
+
+Missing answers favor **INCONCLUSIVE** or further Experiment, not VALIDATED.
+
+---
+
+## False-positive control rules
+
+Future Verification logic (Research) must consider, where relevant to the claim:
+
+1. Reproducibility
+2. Preconditions
+3. Authorization context
+4. Session / user identity
+5. Expected behavior
+6. Negative controls
+7. Alternative explanations
+8. Environmental noise
+9. Tool / scanner limitations
+10. Duplicate behavior
+11. Evidence provenance
+12. State consistency
+13. Temporal consistency
+
+These are evaluation concerns. They are not Core scope-matching, not Worker payloads, and not a hardcoded exploit catalog.
+
+---
+
+## Negative controls
+
+Where a Candidate depends on a **behavioral difference**, Verification should prefer differential / control observations over a single isolated success response.
+
+Conceptual controls (examples, not payloads):
+
+- same action with an unauthorized actor
+- same action with an invalid object
+- same action before vs after a state change
+- same endpoint with a control parameter
+- same action under the expected valid role
+
+A control observation is still an Observation until Transition B. It does not become Evidence by being “negative.” Negative Evidence is first-class only after admission.
+
+This decision does **not** implement or prescribe test payloads.
+
+---
+
+## INCONCLUSIVE is a valid outcome
+
+Do not force binary VALID / INVALID.
+
+Candidate lifecycle remains:
+
+`OPEN → VERIFYING → VALIDATED / REJECTED / INCONCLUSIVE / DUPLICATE / OUT_OF_SCOPE`
+
+INCONCLUSIVE is the correct result when Evidence is insufficient, alternatives are untested, or impact is not demonstrated.
+
+Never promote uncertainty to increase Finding count.
+
+REJECTED is for disconfirmed claims. DUPLICATE is for already-represented behavior. OUT_OF_SCOPE is a scope outcome, not a verification shortcut around Core.
+
+---
+
+## Verification independence
+
+The same model/agent that generated a Hypothesis must **not** be automatically trusted to validate its own conclusion.
+
+Preferred conceptual flow:
+
+```
+Hypothesis generation
+→ evidence collection
+→ verification evaluation
+→ independent challenge / counter-hypothesis
+→ Candidate transition proposal
+→ Research commit of Candidate state (not Verification-record authority)
+```
+
+This does **not** require a second model provider in v1 (Decision 008: live multi-model routing deferred). Independence may be any of:
+
+- a different reasoning pass
+- a different prompt / context role (ModelPort verification role hint)
+- deterministic checks
+- a different Worker producing new Observations
+- Human Review (required for Finding; may also challenge earlier)
+- a later verifier model, if and when routing is justified
+
+Do not force multi-agent infrastructure. Do not move this into Core.
+
+---
+
+## Counter-hypothesis
+
+Future Verification must actively ask: **what else could explain this observation?**
+
+Conceptual alternatives include: intended behavior, caching, stale session, authorization inherited by design, asynchronous processing, user error, rate-limiting artifact, WAF behavior, test-environment behavior, scanner/parser false positive.
+
+The system must seek **disconfirming** evidence, not only confirming evidence.
+
+A high-impact Candidate that has only confirming Evidence and no recorded attempt to rule out benign explanations is not ready for VALIDATED.
+
+---
+
+## Stage 1 — Mandatory gates
+
+| Gate | Meaning |
+|---|---|
+| Signal ≠ Evidence | Scanner, model, WorkerResult, raw HTTP success cannot skip Transition B |
+| Evidence ≠ Finding | Admitted Evidence still requires Candidate VALIDATED + proposal + human + Core Approval |
+| INCONCLUSIVE preserved | Insufficient evidence is not forced VALIDATED or REJECTED |
+| Score ≠ authority | No numeric threshold promotes or accepts |
+| Independence possible | Self-check by the generating model is not the sole validation path |
+| Core unchanged | Verification quality is not execution authorization |
+| No payload catalog | This decision does not specify exploits or scanner rules |
+
+### Candidate results
+
+| Candidate | Stage 1 | Note |
+|---|---|---|
+| **1. Maximize Candidate/scanner volume** | **Fail** | Opposite of this decision |
+| **2. Binary VALID/INVALID only** | **Fail** | Deletes INCONCLUSIVE |
+| **3. Confidence threshold as promotion** | **Fail** | Fake precision; bypasses Verification and Human Review |
+| **4. Generator model auto-validates itself** | **Fail as sole path** | Independence required; mechanism deferred |
+| **5. Separate verifier vendor required in v1** | **Fail as requirement** | Contradicts Decision 008 product deferral |
+| **6. Evidence-backed ladder + existing Finding path** | **Pass** | Selected. V0–V4 conceptual; V4 = current promotion path |
+| **7. Put Verification in Core** | **Fail** | Core owns authorization/Approval, not research judgment |
+
+---
+
+## Constraints
+
+1. **Optimize for accepted, evidence-backed Findings**, not Candidate count.
+2. **Model assertion ≠ Evidence.** Scanner match ≠ Evidence. WorkerResult ≠ Evidence. HTTP/tool success ≠ vulnerability.
+3. **Finding never from model output, scanner signal, WorkerResult, or confidence score alone.** Path remains VALIDATED Candidate + FindingProposal + Human Review + Core Approval.
+4. **V0–V4 are conceptual maturity**, not Candidate lifecycle and not a competing status authority.
+5. **INCONCLUSIVE remains valid.** Uncertainty is not promoted.
+6. **Numeric confidence is deferred.** If added later: explicit meaning, evidence-based calibration, cannot promote, cannot replace Verification, cannot replace Human Review.
+7. **Hypothesis generator is not sole validator** of its own conclusion.
+8. **Seek disconfirming evidence** for high-impact claims where practical.
+9. **Negative controls preferred** when the claim is a behavioral difference.
+10. **Verification proposes; Research commits Candidate state; Human Review + Core Approval create Finding.** Verification cannot create Finding or commit Candidate state (unchanged domain).
+11. **No test payloads, scanner products, or Core changes** in this decision.
+12. **Research Memory does not become verification truth.** Episodic Verification records remain proposals plus provenance, not a shadow Finding ledger.
+
+---
+
+## Revisit triggers
+
+- Measured false-positive rate or Human Review rejection rate makes the current process unusable
+- A calibrated confidence model exists with explicit meaning and does **not** bypass Verification/Human Review
+- A verifier model or second provider is justified by measurement (still behind ModelPort; still untrusted)
+- Duplicate semantics (open in DOMAIN_MODEL.md) are designed and need Verification rules
+- Evidence-admission authority details are locked (open in DOMAIN_MODEL.md)
+
+Revisit does **not** mean: drop Human Review, treat scanner output as Evidence, or move Verification into Core.
+
+---
+
+## Open questions
+
+- Whether V0–V4 are ever stored as annotations (must not replace Candidate lifecycle)
+- Exact Verification process design and record schema
+- Confidence/belief calibration (DOMAIN_MODEL.md open question; this decision only forbids treating it as truth)
+- How strongly negative controls are required vs preferred per claim class
+- Evidence admission authority mix (human / deterministic / verifier-assisted)
+
+---
+
+## Confidence
+
+**HIGH**
+
+The discipline matches existing domain law. The constraints close the remaining loopholes (score-as-truth, self-validation, INCONCLUSIVE erasure, scanner-as-Evidence) without choosing products or schemas.
+
+Confidence is not a claim that Verification is implemented. The ladder is conceptual; independence mechanisms and confidence scoring remain deferred.
+
+---
+
+## Self-audit (Decision 017)
+
+| Forbidden reading | Status |
+|---|---|
+| Scanner finding is Evidence | **No** |
+| Model assertion is Evidence | **No** |
+| Confidence threshold is truth | **No**; model deferred |
+| Candidate automatically promoted | **No**; Verification proposal + Research commit; Finding still needs human + Core |
+| INCONCLUSIVE removed | **No** |
+| Verification only seeks confirmation | **No**; counter-hypothesis required in future Verification |
+| Negative controls ignored | **No**; preferred where claim is differential |
+| Same generator auto-validates without challenge | **No** as sole path |
+| Human Review bypassed | **No** |
+| V0–V4 replace Candidate lifecycle | **No** |
+| Second model vendor required in v1 | **No** |
+| Verification moved into Core | **No** |
+| Payloads / exploits specified | **No** |
+
+**FINAL STATUS: PASS**
+
+---
+
+# Decision 018 — Novel Discovery / Exploration Strategy
+
+**Status:** ACCEPT WITH CONSTRAINTS  
+**Date:** 2026-08-16  
+**Depends on:** Decision 017 (verification discipline; signal ≠ Finding); Decision 008 (LLM is not a novelty engine; output untrusted); Decision 009 (Research Memory is not SoR / not shadow truth); Decision 002 (no premature graph/SoR companion); Core authority (scope, budget, side-effect — exploration cannot bypass)
+
+This decision locks a **realistic novelty strategy** and future **Research Brain** capability requirements.
+
+It does **not** select:
+
+- a graph database or target-model schema
+- numerical priority weights or a scoring formula
+- a claim that AI discovers new vulnerability classes
+- multi-agent exploration infrastructure
+- moving research intelligence into Core
+- N4 (“new vulnerability class”) as a product promise
+
+---
+
+## Decision
+
+**STRATEGY: ACCEPT WITH CONSTRAINTS**
+
+Research OS will be built to **support** expert-grade authorized research: persistent target understanding, invariant hypotheses, differential reasoning, and measured exploration.
+
+It will **not** be described or sold as:
+
+- autonomous novel vulnerability discovery
+- an expert replacement
+- a “zero-day machine”
+
+unless empirical evaluation supports those claims.
+
+**Realistic novelty target (v1/v2):**
+
+| Level | Meaning | Product stance |
+|---|---|---|
+| **N1** | Known vulnerability pattern on a new target instance | **Strong target** |
+| **N2** | New combination / chain of known primitives | **Meaningful target** |
+| **N3** | Target-specific invariant or business-logic violation | **Increasing capability**; not guaranteed |
+| **N4** | Genuinely new vulnerability mechanism/class | **Research aspiration only**; not a product promise |
+
+Do not claim N4 capability. Do not treat generic LLM prompting as a novelty engine.
+
+---
+
+## Why this decision exists
+
+Without this lock, later Research work collapses to `LLM → tool → result → LLM`, or over-claims “AI finds novel classes.” Both fail the project identity: Research OS is not an AI vulnerability scanner.
+
+Known-pattern replay (N1) is valuable and honest. Chain and invariant reasoning (N2/N3) need architecture: target/state model, differential tests, negative evidence, exploration vs exploitation. Those belong in **Research**, using Data records and Core-authorized execution — not in Core policy and not in a prompt.
+
+Exact ranking formulas and graph schemas are premature. Inventing weights would be fake precision (same failure mode Decision 017 forbids for confidence).
+
+---
+
+## Research Brain (future, not Core)
+
+Future Research Brain must not reduce to “ask the LLM for vulnerability ideas” or a closed `LLM → tool → LLM` loop.
+
+When designed, it must be **architecturally capable** of:
+
+1. Persistent target model
+2. Actor / role / session reasoning
+3. Resource relationship reasoning
+4. State-transition reasoning
+5. Expected-invariant representation
+6. Differential analysis
+7. Temporal comparison
+8. Multi-step hypothesis chaining
+9. Negative evidence memory
+10. Exploration vs exploitation
+11. Information-gain-driven testing
+12. Hypothesis diversity
+13. Evidence-based prioritization
+14. Cost-aware testing
+
+This is a **capability requirement list**, not a slice that starts now, not a microservice, and not a Core module.
+
+Core still answers only: authorization, scope, budget, side-effect, Approval, ExecutionDecision.
+
+---
+
+## Target model (capability, not schema)
+
+Future target model should be able to represent, **where observed**:
+
+- actors, roles, sessions
+- resources, relationships
+- actions
+- preconditions, postconditions
+- state transitions
+- trust boundaries
+
+Do **not** create a database schema in this decision. Do **not** invent a complete entity catalog. Do **not** add a graph product (Decision 002/009 remain). Observed structure is stored as domain records and typed projections; inferred structure remains Hypothesis.
+
+---
+
+## Invariant mining
+
+Future Research should be able to derive and **test** hypotheses such as (examples, not hardcoded rules):
+
+- only owner may mutate resource
+- submitted object should become immutable
+- tenant A data should not be accessible by tenant B
+- privileged transition should require privileged actor
+- token should be bound to expected actor / session / action
+- state progression should follow expected rules
+
+**Invariant hypothesis ≠ fact.** It becomes useful only after Observations and admitted Evidence. An invariant guess is a Hypothesis. Breaking it in one response is not a Finding (Decision 017).
+
+---
+
+## Differential reasoning
+
+Future engine should compare relevant contexts, for example:
+
+- actor A vs actor B
+- role A vs role B
+- anonymous vs authenticated
+- before vs after state change
+- old vs new endpoint / version
+- snapshot t1 vs t2
+
+**Differential anomaly ≠ vulnerability.** It creates or updates a Hypothesis. Promotion still follows Decision 017 and the Finding path.
+
+---
+
+## Exploration vs exploitation
+
+Do not build a system that only tests high-confidence known patterns.
+
+Future prioritization should **reserve some ResearchRun budget** for low-confidence but high-novelty or high-information-gain Hypotheses.
+
+Conceptual factors may include: expected security value, likelihood, novelty, information gain, chain potential, evidence quality, test cost, duplicate probability.
+
+**Do not freeze a formula. Do not invent numerical weights.**
+
+Exploration is still Core-authorized work:
+
+- no extra scope
+- no budget bypass
+- no side-effect-level exception
+- no Worker self-authorization
+
+Research proposes; Core decides ExecutionDecision; Workers execute.
+
+---
+
+## Negative knowledge
+
+Persistent Research Memory (read model over SoR — Decision 009) must preserve:
+
+Hypothesis + context + Experiment + negative result + reason.
+
+**Negative in context C ≠ globally impossible.**
+
+Negative evidence stays **context-bound**. It must not be generalized into “this class never exists on this program” without new Evidence. BUDGET_EXHAUSTED and EXECUTION_FAILED remain execution outcomes, not negative Evidence (DOMAIN_MODEL.md).
+
+Research Memory must not become a shadow truth database of “known impossible bugs.”
+
+---
+
+## Hypothesis diversity
+
+Future hypothesis generation must not rely on one LLM prompt.
+
+Potential sources (none is truth):
+
+- target state model
+- authorization relationships
+- endpoint semantics
+- observed parameter relations
+- temporal changes
+- differential behavior
+- technology-specific observations
+- previous failed hypotheses
+- human analyst seeds
+- tool outputs
+- chain opportunities
+
+Tool output and model output remain untrusted proposals (Decisions 008, 017).
+
+---
+
+## Anti-hype / measurement
+
+Research OS claims must be **measurement-driven**.
+
+Do not describe capabilities as autonomous novel vulnerability discovery, expert replacement, or zero-day machine unless empirical evaluation supports them.
+
+Track real metrics (SoR aggregates via ObservabilityPort — Decision 012; not a second Candidate ledger). Including:
+
+- Candidate → VALIDATED conversion
+- Candidate → REJECTED conversion
+- INCONCLUSIVE rate
+- false-positive rate
+- duplicate rate
+- accepted Finding rate
+- requests per accepted Finding
+- cost per accepted Finding
+- time-to-first-valid-Finding
+- reproduction success rate
+- verification disagreement rate
+
+Decision 012 already named several of these. This decision requires using them (and the additional verification-quality rates) **before** capability claims. It does not choose a metrics product.
+
+---
+
+## Stage 1 — Mandatory gates
+
+| Gate | Meaning |
+|---|---|
+| Honesty | N4 not promised; LLM prompt ≠ novelty engine |
+| Layering | Research Brain in Research, not Core |
+| Authority | Exploration cannot bypass scope/budget/policy |
+| Epistemology | Invariant hypothesis and differential anomaly are not Findings |
+| Memory | Negative evidence context-bound; Memory ≠ SoR |
+| No fake precision | No frozen weights |
+| No premature schema | No graph/target DB design in this decision |
+
+### Candidate results
+
+| Candidate | Stage 1 | Note |
+|---|---|---|
+| **1. Promise N4 / “AI finds new classes”** | **Fail** | Hype; unsupported |
+| **2. Generic LLM prompt as novelty engine** | **Fail** | Contradicts project identity and Decision 008 |
+| **3. Frozen numerical priority formula now** | **Fail** | Fake precision |
+| **4. Target graph/database schema now** | **Fail** | Premature; SoR/companion already decided |
+| **5. Put novel research in Core** | **Fail** | Core is authority, not intelligence |
+| **6. Exploration bypasses budget/scope** | **Fail** | DEFAULT DENY |
+| **7. Negative evidence is global impossibility** | **Fail** | Context-bound required |
+| **8. Realistic N1/N2, growing N3; Brain as Research capability** | **Pass** | Selected |
+
+---
+
+## Constraints
+
+1. **v1/v2 target is strong N1, meaningful N2, increasing N3. N4 is aspiration, not promise.**
+2. **No hype claims** without measurement.
+3. **Research Brain is Research, not Core.**
+4. **Target model is a future capability, not a schema or graph product in this decision.**
+5. **Invariant hypothesis ≠ fact.** Differential anomaly ≠ vulnerability.
+6. **No exact scoring formula or weights now.**
+7. **Exploration cannot bypass Core** authorization, scope, budget, or side-effect policy.
+8. **Negative evidence is context-bound**, not global impossibility.
+9. **Hypothesis sources are diverse; none mint truth.**
+10. **Research Memory remains a read/retrieval abstraction**, not shadow SoR (Decision 009).
+11. **Decision 017 still applies** to every novel claim: Evidence, Verification, INCONCLUSIVE, Human Review.
+12. **No Worker, scanner, or Strix product** is selected as the discovery engine.
+
+---
+
+## Revisit triggers
+
+- Empirical N3 (or claimed N4) results exist and need a tighter product statement
+- Prioritization without any exploration starves information gain (measured)
+- Duplicate rate or cost-per-Finding makes pattern-only N1 insufficient
+- A target-model persistence design is needed for A3+ and can be done without a new SoR paradigm
+- Decision 008 routing is revisited and a verifier/explorer role is measured as useful
+- Operators need documented exploration-budget **policy** (still Core-issued envelopes; still no bypass)
+
+Revisit does **not** mean: promise N4, move Brain into Core, or treat Memory as truth.
+
+---
+
+## Open questions
+
+- Target-model persistence shape (records vs projections; still not a graph-product mandate)
+- Duplicate semantics (DOMAIN_MODEL.md)
+- When, if ever, a numeric prioritization function is calibrated
+- How much ResearchRun budget is reserved for exploration (policy later; Core still enforces totals)
+- Chain-search algorithm (later Advanced Research)
+
+---
+
+## Confidence
+
+**MEDIUM**
+
+The anti-hype stance, N1–N3 targeting, and “Brain lives in Research” split are solid. Confidence is not HIGH because target-model design, exploration policy, and N3 capability are explicitly future, and over-building a “world model” remains a real failure mode. Constraints exist so that future work cannot “complete” this decision by inventing a graph schema or a weight vector.
+
+---
+
+## Self-audit (Decision 018)
+
+| Forbidden reading | Status |
+|---|---|
+| N4 promised without evidence | **No** |
+| Generic LLM prompt is novelty engine | **No** |
+| Exact scoring weights invented | **No** |
+| Invariant hypothesis treated as fact | **No** |
+| Differential anomaly treated as vulnerability | **No** |
+| Exploration bypasses scope/budget | **No** |
+| Novel research moved into Core | **No** |
+| Research Memory became shadow truth | **No** |
+| Negative evidence generalized globally | **No** |
+| Target graph/database schema over-designed | **No**; capability only |
+| Decision 017 bypassed for “novel” claims | **No** |
+| Graph/vector product selected | **No** |
+
+**FINAL STATUS: PASS**
+

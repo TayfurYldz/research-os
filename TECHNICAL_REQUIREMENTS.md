@@ -119,6 +119,15 @@ This does not become an autonomous acceptance system if scale grows, unless the 
 
 Research cannot create a Finding. Candidate VALIDATED != Finding. FindingProposal != Finding.
 
+A Finding must never be created solely from:
+
+- model output
+- scanner signal
+- WorkerResult
+- a confidence score
+
+INCONCLUSIVE is a valid Candidate outcome. Insufficient evidence must not be promoted to increase Finding count (Decision 017).
+
 ### Truth and execution boundaries
 
 - Transition A / Transition B separation
@@ -332,6 +341,18 @@ These are preferred for the first local implementation. They may change with a s
 - separate large/binary artifact byte storage
 - optional later semantic retrieval
 - easy testing against the initial Kali/WSL worker environment without making that environment the architecture
+
+### Research quality (preferred)
+
+Where a Candidate depends on a behavioral difference, Verification should prefer differential / control observations over a single isolated success response.
+
+The system should actively seek **disconfirming** evidence for high-impact Candidate claims where practical (Decision 017).
+
+Hypothesis generation and verification independence may use a different reasoning pass, deterministic checks, a different Worker, Human Review, or a later verifier model. A second model provider is not required in v1 (Decision 008).
+
+Numeric confidence, if added later, must not replace Verification or Human Review. No universal threshold is specified here.
+
+These preferences do not move research intelligence into Core (Decision 018).
 
 Execution boundaries must be replay-aware.
 

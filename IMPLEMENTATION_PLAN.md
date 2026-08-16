@@ -28,6 +28,8 @@ Decision-driver order remains: correctness → authorization/security → durabi
 | 014 | Process/OS boundary; in-process = fakes; containers **not** required |
 | 015 | Identity classes; operator id for audit/Approval; authn ≠ authz; no IAM product |
 | 016 | JSON Schema Draft 2020-12 canonical contracts; Python classes are not contract truth |
+| 017 | False-positive suppression; signal ≠ Evidence ≠ Finding; INCONCLUSIVE valid; confidence deferred |
+| 018 | Realistic novelty N1/N2/growing N3; N4 not promised; Research Brain in Research, not Core |
 
 ---
 
@@ -36,6 +38,7 @@ Decision-driver order remains: correctness → authorization/security → durabi
 - DEFAULT DENY. Core authorizes; Workers execute; Data persists.
 - WorkerResult untrusted until Transition A. Evidence only via Transition B.
 - Finding only after Human Review and Core-recorded Approval.
+- Finding never from model output, scanner signal, WorkerResult, or confidence score alone (Decision 017).
 - Interface does not own Approval. Models are not principals.
 - PostgreSQL wins vs companions, logs, traces, metrics, caches, vector indexes (none in v1).
 - Secret **values** never logged or stored as Domain.
@@ -174,3 +177,39 @@ A single operator can:
 8. Persist a Finding only after that Approval
 
 All of that uses this repository layout, PostgreSQL as SoR, and no extra product mandated by this plan.
+
+Research Brain (target/state model, invariant mining, differential engine, exploration policy) is **not** required for this first working implementation. It is later Research work (Decisions 017–018), not Core.
+
+---
+
+## Research Brain (future Research capability — not Core)
+
+Not a Phase A slice. Not a Core module. Not a graph/database product. Not required to declare the first working implementation done.
+
+When Research Brain is designed, it must be architecturally capable of:
+
+- persistent target / state model (capability, not a schema in this plan)
+- invariant hypotheses (hypothesis ≠ fact)
+- differential reasoning (anomaly ≠ vulnerability)
+- independent verification (Decision 017; not a required second model vendor in v1)
+- counter-hypothesis / disconfirming evidence
+- negative evidence that stays **context-bound**
+
+It must not reduce to “ask the LLM for vulnerability ideas” or `LLM → tool → LLM`.
+
+Exploration remains Core-authorized: no scope, budget, or side-effect bypass.
+
+---
+
+## Advanced Research (later than first working implementation)
+
+After the first Human Review loop exists and metrics can be read from the SoR:
+
+- chain search (N2)
+- temporal prioritization
+- exploration vs exploitation policy (no frozen weights)
+- novelty / information-gain factors (conceptual; no fake formula)
+- duplicate reduction (duplicate semantics still an open domain question)
+- empirical calibration of claims (Decision 018 anti-hype metrics)
+
+These stay in **Research** (plus Data records and ObservabilityPort aggregates). Do not move them into Core.
