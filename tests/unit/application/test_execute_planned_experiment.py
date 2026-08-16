@@ -22,7 +22,7 @@ from research_os.core.enums import (
 )
 from research_os.core.scope import ScopeEvaluationInput, ScopeRuleMatch
 from research_os.data.errors import PersistenceConflictError, PersistenceError
-from research_os.data.records import ExecutionAttemptRecord, ExecutionAttemptState
+from research_os.data.records import ExecutionAttemptRecord, ExecutionAttemptState, HypothesisRecord
 from research_os.platform.worker import InvocationStatus
 from research_os.research.planning import human_seeded_hypothesis, plan_diagnostic_echo
 from support.fake_unit_of_work import FakeUnitOfWorkFactory, _Store
@@ -30,7 +30,7 @@ from support.recording_worker import (
     RecordingWorkerPort,
     invocation_outcome,
 )
-from support.spine import CREATED_AT, DIAGNOSTIC_CLAIM, seed_spine
+from support.spine import CREATED_AT, DIAGNOSTIC_CLAIM, seed_authorization_run, seed_spine
 
 
 class FixedClock:
@@ -229,6 +229,54 @@ class DecisionProvenanceTests(unittest.TestCase):
             request["authorization_decision_reference"], "forged-authz"
         )
         UUID(request["correlation"]["request_id"])
+
+
+class PlanDurabilityTests(unittest.TestCase):
+    def test_executed_plan_is_persisted_and_cannot_silently_change(self) -> None:
+        use_case, factory, _ = _use_case()
+        outcome = use_case.execute(_command())
+        self.assertEqual(outcome.status, ResearchLoopStatus.OBSERVATION_PRODUCED)
+        record = factory.store.experiment_plans["exp-1"]
+        self.assertEqual(record.expected_observation, "echoed value matches input")
+        self.assertEqual(record.disconfirming_observation, "no result or mismatched value")
+        self.assertEqual(record.evaluation_strategy, "diagnostic.echo.v1")
+        mutated = _plan(message="other")
+        retry = use_case.execute(_command(plan=mutated))
+        self.assertEqual(retry.status, ResearchLoopStatus.ALREADY_TERMINAL)
+        reloaded = factory.store.experiment_plans["exp-1"]
+        self.assertEqual(reloaded.arguments["message"], "ping")
+        self.assertEqual(reloaded.expected_observation, record.expected_observation)
+
+    def test_prepare_then_mutated_plan_is_rejected(self) -> None:
+        from research_os.application.prepare_planned_experiment import (
+            PreparePlannedExperiment,
+            PreparePlannedExperimentCommand,
+        )
+
+        store = _Store()
+        seed_authorization_run(store)
+        store.hypotheses["hyp-1"] = HypothesisRecord(
+            hypothesis_id="hyp-1",
+            research_run_id="run-1",
+            claim=DIAGNOSTIC_CLAIM,
+            origin_reference="human-seed-1",
+            created_at=CREATED_AT,
+        )
+        factory = FakeUnitOfWorkFactory(store)
+        PreparePlannedExperiment(factory, clock=FixedClock()).execute(
+            PreparePlannedExperimentCommand(
+                experiment_id="exp-1",
+                research_run_id="run-1",
+                plan=_plan(message="ping"),
+            )
+        )
+        use_case = ExecutePlannedExperiment(
+            factory, RecordingWorkerPort(store=store), clock=FixedClock()
+        )
+        outcome = use_case.execute(_command(plan=_plan(message="mutated")))
+        self.assertEqual(outcome.status, ResearchLoopStatus.INPUT_REJECTED)
+        self.assertEqual(store.experiment_plans["exp-1"].arguments["message"], "ping")
+        self.assertEqual(store.hypotheses["hyp-1"].claim, DIAGNOSTIC_CLAIM)
 
 
 class AttemptIdentityTests(unittest.TestCase):

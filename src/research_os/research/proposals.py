@@ -114,16 +114,16 @@ def _unknown_keys(raw: Mapping[str, object], allowed: frozenset[str]) -> frozens
     return frozenset(raw.keys()) - allowed
 
 
-def parse_novelty_basis(value: object) -> NoveltyBasis:
+def parse_novelty_basis(value: object) -> tuple[NoveltyBasis, str | None]:
     if value is None:
-        return NoveltyBasis.UNCLASSIFIED
+        return NoveltyBasis.UNCLASSIFIED, None
     if not isinstance(value, str) or not value.strip():
         raise ResearchInputError("novelty_basis must be a string")
     token = value.strip()
     if token in {"N4_ZERO_DAY", "ZERO_DAY", "N4"}:
-        return NoveltyBasis.UNCLASSIFIED
+        return NoveltyBasis.UNCLASSIFIED, token
     try:
-        return NoveltyBasis(token)
+        return NoveltyBasis(token), token
     except ValueError as exc:
         raise ResearchInputError("novelty_basis is not a known advisory class") from exc
 
@@ -141,6 +141,7 @@ class HypothesisProposal:
     suggested_capability: str
     expected_security_relevance: str | None = None
     novelty_basis: NoveltyBasis = NoveltyBasis.UNCLASSIFIED
+    model_claimed_novelty: str | None = None
 
     def to_mapping(self) -> dict[str, object]:
         return {
@@ -153,6 +154,7 @@ class HypothesisProposal:
             "suggested_capability": self.suggested_capability,
             "expected_security_relevance": self.expected_security_relevance,
             "novelty_basis": self.novelty_basis.value,
+            "model_claimed_novelty": self.model_claimed_novelty,
         }
 
 
@@ -188,6 +190,7 @@ def parse_hypothesis_proposal(raw: object) -> HypothesisProposal:
         raise ResearchInputError(
             f"HypothesisProposal has unsupported keys: {sorted(unknown)}"
         )
+    normalized_novelty, claimed_novelty = parse_novelty_basis(mapping.get("novelty_basis"))
     return HypothesisProposal(
         proposed_claim=_require_text(mapping.get("proposed_claim"), "proposed_claim"),
         rationale=_require_text(mapping.get("rationale"), "rationale"),
@@ -205,7 +208,8 @@ def parse_hypothesis_proposal(raw: object) -> HypothesisProposal:
         expected_security_relevance=_optional_text(
             mapping.get("expected_security_relevance"), "expected_security_relevance"
         ),
-        novelty_basis=parse_novelty_basis(mapping.get("novelty_basis")),
+        novelty_basis=normalized_novelty,
+        model_claimed_novelty=claimed_novelty,
     )
 
 

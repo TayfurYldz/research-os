@@ -15,6 +15,9 @@ Hypothesis / Experiment
 → Observation
 + AuditEvent
 + ResearchReasoningRecord (append-only Generator/Falsifier provenance; not Hypothesis truth)
++ ResearchAdmissionRecord (append-only admission process history; not target truth)
++ ExperimentPlanRecord (immutable executed-plan specification; not Experiment lifecycle)
++ HypothesisAssessmentRecord (append-only context-bound assessment; not Evidence)
 ```
 
 This is **not** a database copy of DOMAIN_MODEL.md.
@@ -44,7 +47,10 @@ This is **not** a database copy of DOMAIN_MODEL.md.
 - WorkerResult is UNTRUSTED EXECUTION OUTPUT. Inserting it does not create Observation or Evidence.
 - Transition A (Application) is the only path that may persist Observation from a completed Worker invocation.
 - Observation is not a vulnerability.
-- `research_reasoning` is append-only untrusted reasoning provenance. It is not Observation, Evidence, or Hypothesis truth.
+- `research_reasoning` is append-only untrusted reasoning provenance. It is not Observation, Evidence, or Hypothesis truth. `hypothesis_id` is nullable so rejected cycles can be stored without promoting a Hypothesis.
+- `research_admission` is append-only research-process history. Rejected admissions have no `admitted_hypothesis_id`.
+- `experiment_plan` is the immutable specification used for later assessment. It is not authorization state.
+- `hypothesis_assessment` is append-only context-bound learning. It is not Evidence and does not mutate Hypothesis truth.
 - WorkerResult stores first-class request-envelope provenance (`request_id`, correlation, capability/action, authorization decision reference, budget reference). `request_id` is unique (idempotency). Correlation is not JSON-only.
 - IssuedBudget is immutable after insert (0 = no allowance).
 - AuditEvent is append-only reconstructive history, not Evidence, not a log substitute, and not a dispatch queue.

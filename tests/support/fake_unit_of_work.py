@@ -17,11 +17,14 @@ from research_os.data.records import (
     AuditEventRecord,
     AuthorizationSourceRecord,
     ExecutionAttemptRecord,
+    ExperimentPlanRecord,
     ExperimentRecord,
+    HypothesisAssessmentRecord,
     HypothesisRecord,
     IssuedBudgetRecord,
     ObservationRecord,
     ProgramRecord,
+    ResearchAdmissionRecord,
     ResearchReasoningRecord,
     ResearchRunRecord,
     WorkerResultRecord,
@@ -42,6 +45,9 @@ class _Store:
         self.worker_results_by_request: dict[str, str] = {}
         self.observations: dict[str, ObservationRecord] = {}
         self.research_reasoning: dict[str, ResearchReasoningRecord] = {}
+        self.research_admissions: dict[str, ResearchAdmissionRecord] = {}
+        self.experiment_plans: dict[str, ExperimentPlanRecord] = {}
+        self.hypothesis_assessments: dict[str, HypothesisAssessmentRecord] = {}
         self.audit_events: dict[str, AuditEventRecord] = {}
         self.open_transactions = 0
         self.set_state_calls = 0
@@ -85,6 +91,12 @@ def _id_of(record: Any) -> str:
         return record.observation_id
     if isinstance(record, ResearchReasoningRecord):
         return record.reasoning_record_id
+    if isinstance(record, ResearchAdmissionRecord):
+        return record.admission_record_id
+    if isinstance(record, ExperimentPlanRecord):
+        return record.experiment_id
+    if isinstance(record, HypothesisAssessmentRecord):
+        return record.assessment_id
     if isinstance(record, AuditEventRecord):
         return record.audit_event_id
     raise PersistenceError("unknown record identity")
@@ -235,6 +247,16 @@ class _WorkerResultRepo(_Repo):
             key=lambda record: record.worker_result_id,
         )
 
+    def list_for_experiment(self, experiment_id: str) -> list[WorkerResultRecord]:
+        return sorted(
+            [
+                record
+                for record in self._root.worker_results.values()
+                if record.experiment_id == experiment_id
+            ],
+            key=lambda record: record.worker_result_id,
+        )
+
 
 class _ObservationRepo(_Repo):
     def __init__(self, store: _Store, fail_on_insert: bool = False) -> None:
@@ -253,6 +275,21 @@ class _ObservationRepo(_Repo):
             record.worker_result_id
             for record in self._root.worker_results.values()
             if record.research_run_id == research_run_id
+        }
+        return sorted(
+            [
+                record
+                for record in self._root.observations.values()
+                if record.worker_result_id in result_ids
+            ],
+            key=lambda record: record.observation_id,
+        )
+
+    def list_for_experiment(self, experiment_id: str) -> list[ObservationRecord]:
+        result_ids = {
+            record.worker_result_id
+            for record in self._root.worker_results.values()
+            if record.experiment_id == experiment_id
         }
         return sorted(
             [
@@ -292,6 +329,66 @@ class _ResearchReasoningRepo(_Repo):
         )
 
 
+class _ResearchAdmissionRepo(_Repo):
+    def __init__(self, store: _Store, fail_on_insert: bool = False) -> None:
+        super().__init__(store.research_admissions, fail_on_insert=fail_on_insert)
+        self._root = store
+
+    def list_for_research_run(
+        self, research_run_id: str
+    ) -> list[ResearchAdmissionRecord]:
+        return sorted(
+            [
+                record
+                for record in self._root.research_admissions.values()
+                if record.research_run_id == research_run_id
+            ],
+            key=lambda record: record.admission_record_id,
+        )
+
+
+class _HypothesisAssessmentRepo(_Repo):
+    def __init__(self, store: _Store, fail_on_insert: bool = False) -> None:
+        super().__init__(store.hypothesis_assessments, fail_on_insert=fail_on_insert)
+        self._root = store
+
+    def list_for_experiment(
+        self, experiment_id: str
+    ) -> list[HypothesisAssessmentRecord]:
+        return sorted(
+            [
+                record
+                for record in self._root.hypothesis_assessments.values()
+                if record.experiment_id == experiment_id
+            ],
+            key=lambda record: record.assessment_id,
+        )
+
+    def list_for_hypothesis(
+        self, hypothesis_id: str
+    ) -> list[HypothesisAssessmentRecord]:
+        return sorted(
+            [
+                record
+                for record in self._root.hypothesis_assessments.values()
+                if record.hypothesis_id == hypothesis_id
+            ],
+            key=lambda record: record.assessment_id,
+        )
+
+    def list_for_research_run(
+        self, research_run_id: str
+    ) -> list[HypothesisAssessmentRecord]:
+        return sorted(
+            [
+                record
+                for record in self._root.hypothesis_assessments.values()
+                if record.research_run_id == research_run_id
+            ],
+            key=lambda record: record.assessment_id,
+        )
+
+
 class FakeUnitOfWork:
     def __init__(self, store: _Store | None = None, fail_on: str | None = None) -> None:
         self._store = store or _Store()
@@ -319,6 +416,15 @@ class FakeUnitOfWork:
         )
         self.research_reasoning = _ResearchReasoningRepo(
             self._store, fail_on_insert=fail_on == "research_reasoning"
+        )
+        self.research_admissions = _ResearchAdmissionRepo(
+            self._store, fail_on_insert=fail_on == "research_admissions"
+        )
+        self.experiment_plans = _Repo(
+            self._store.experiment_plans, fail_on_insert=fail_on == "experiment_plans"
+        )
+        self.hypothesis_assessments = _HypothesisAssessmentRepo(
+            self._store, fail_on_insert=fail_on == "hypothesis_assessments"
         )
         self.audit_events = _Repo(
             self._store.audit_events, fail_on_insert=fail_on == "audit_events"
@@ -374,6 +480,12 @@ class FakeUnitOfWork:
         self._store.observations.update(snapshot.observations)
         self._store.research_reasoning.clear()
         self._store.research_reasoning.update(snapshot.research_reasoning)
+        self._store.research_admissions.clear()
+        self._store.research_admissions.update(snapshot.research_admissions)
+        self._store.experiment_plans.clear()
+        self._store.experiment_plans.update(snapshot.experiment_plans)
+        self._store.hypothesis_assessments.clear()
+        self._store.hypothesis_assessments.update(snapshot.hypothesis_assessments)
         self._store.audit_events.clear()
         self._store.audit_events.update(snapshot.audit_events)
 

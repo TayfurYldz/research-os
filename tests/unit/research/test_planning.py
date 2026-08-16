@@ -79,6 +79,7 @@ class ResearchPlanningTests(unittest.TestCase):
                 requested_budget_id="budget-1",
                 expected_observation="echoed value matches input",
                 disconfirming_observation="no result or mismatched value",
+                evaluation_strategy="diagnostic.echo.v1",
             )
 
 

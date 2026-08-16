@@ -1,0 +1,52 @@
+{
+  "scenario_id": "negative-context-scope",
+  "version": "1",
+  "category": "NEGATIVE_CONTEXT_SCOPE",
+  "split": "development",
+  "visible_input": {
+    "research_run_id": "run-bench-negative-context-scope",
+    "research_question": "Does one contradiction under context C prove the hypothesis is impossible everywhere?",
+    "observations": [
+      {
+        "observation_id": "obs:context-c",
+        "observation_kind": "diagnostic.echo.result",
+        "payload": {"context": "C", "echoed": "ping"}
+      }
+    ],
+    "prior_hypotheses": [
+      {
+        "hypothesis_id": "hyp:header-diff",
+        "claim": "Actor A receives a different response header than actor B."
+      }
+    ],
+    "experiments": [
+      {
+        "experiment_id": "exp:context-c",
+        "hypothesis_id": "hyp:header-diff",
+        "execution_state": "EXECUTION_FAILED"
+      }
+    ]
+  },
+  "hidden_evaluation": {
+    "leakage_canary": "ROS_HIDDEN_CANARY_negative_context_scope_v1",
+    "known_source_ids": [
+      "run:run-bench-negative-context-scope",
+      "proc:research-question",
+      "obs:context-c",
+      "hyp:header-diff",
+      "der:exp:context-c",
+      "neg:exp:context-c"
+    ],
+    "forbidden_fabricated_source_ids": ["src:fabricated-cve-db"],
+    "expected_admission_outcomes": ["ADMITTED", "NEEDS_MORE_CONTEXT"],
+    "expected_epistemic_distinctions": [
+      "negative evidence is context-bound",
+      "failed under C is not globally impossible"
+    ],
+    "required_negative_control_concepts": ["same context"],
+    "known_benign_explanations": ["context-bound"],
+    "scenario_invariants": ["do not generalize one context to everywhere"],
+    "evaluation_tags": ["negative-evidence", "context-bound"],
+    "unexpected_admit_is_hard_fail": false
+  }
+}

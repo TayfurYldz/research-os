@@ -5789,4 +5789,415 @@ Semantic/vector hypothesis dedup is **deferred**. Exact claim merge across diffe
 
 **FINAL STATUS: PASS**
 
+---
+
+# Decision 027 — Experiment Feedback / Hypothesis Assessment Semantics
+
+Status: **accepted with constraints** (GATE 03)
+
+Date: 2026-08-17
+
+Does not rewrite Decisions 001–026. Does not create Evidence, Candidate, Finding, or an autonomous loop.
+
+## Candidates evaluated
+
+| Option | Verdict |
+|---|---|
+| A. Map experiment outcome onto Hypothesis `status = true/false` | Rejected. One experiment is not global Hypothesis truth. |
+| B. `SUPPORTED` / `REJECTED` as final assessment labels | Rejected. Those words collapse prediction-fit into Hypothesis/security truth. |
+| C. Explicit `ExperimentFeedback` + context-bound `HypothesisAssessment` with append-only history | **Accepted.** |
+
+## Strategy
+
+After execution, Application reconstructs `ExperimentFeedback` from SoR (Hypothesis, Experiment, durable ExperimentPlan, ExecutionAttempt/WorkerResult, Observations) and asks a trusted Research evaluator what the experiment taught **under this context**.
+
+```
+Hypothesis H
++ Experiment E
++ durable ExperimentPlan
++ Observation set
+→ HypothesisAssessment A
+```
+
+Never: “failed once” → globally rejected Hypothesis.
+
+## Assessment semantics
+
+| Outcome | Meaning | Not meaning |
+|---|---|---|
+| `CONSISTENT_WITH_PREDICTION` | Observed facts are compatible with this experiment’s prediction | Hypothesis proven; vulnerability proven |
+| `CONTRADICTS_PREDICTION` | Observed facts contradict this experiment’s prediction under this context | Hypothesis globally false; false positive |
+| `INCONCLUSIVE` | Valid data, but not enough to distinguish explanations | Negative evidence |
+| `EXECUTION_UNUSABLE` | Runtime/infrastructure outcome prevents research interpretation (timeout, process failure, unknown, invalid result) | Negative evidence against the Hypothesis |
+| `NEEDS_MORE_CONTEXT` | Observations cannot be safely interpreted without additional state/context | Authorization or Finding decision |
+
+## Context binding
+
+Assessment is bound to Hypothesis + Experiment + plan + observations (+ later actor/session/state). Negative/contradictory knowledge remains negative **under context C**. This is the foundation for future actor/session/state/temporal differentials. It is a read projection over SoR, not a shadow memory database.
+
+## Evaluator model
+
+`ExperimentEvaluatorRegistry` is keyed by the plan’s trusted `evaluation_strategy`, not by WorkerResult.
+
+GATE 03 implements only `diagnostic.echo.v1`:
+
+- matching echo Observation → `CONSISTENT_WITH_PREDICTION`
+- mismatched valid echo Observation → `CONTRADICTS_PREDICTION`
+- unusable runtime → `EXECUTION_UNUSABLE`
+- valid execution, no relevant Observation → `INCONCLUSIVE`
+
+Deterministic evaluators must not use network, models, randomness, or current external state. Same plan + feedback + evaluator version → equivalent assessment. Later reasoning-assisted evaluators are allowed as a registry entry; they are not required and must not be faked as security reasoning.
+
+## Persistence
+
+Append-only `HypothesisAssessmentRecord`. Hypothesis claim/lifecycle is not overwritten with truth. Rationale is a bounded structured mapping. Forbidden inside assessment: Evidence, Candidate, severity, Finding, numeric confidence.
+
+Dedicated append-only `experiment_plan` stores the executed specification (capability, action, target, arguments without secrets, expected/disconfirming observations, evaluation strategy, side-effect level, budget reference). Experiment lifecycle stays on `experiment`. Once dispatched/persisted, the plan must not silently mutate.
+
+## Confidence
+
+No numeric belief, Bayesian weight, or support score. Decision 017 remains. Collect empirical assessment history first.
+
+## Why
+
+“What happened?” is Observation/execution state. “What does this teach us?” is assessment. “Is this a verified security issue?” is later Verification/Candidate/Human Review. Collapsing those three is how scanners mint false positives.
+
+## Constraints
+
+1. Do not treat experiment result as Hypothesis truth.
+2. Do not use `SUPPORTED`/`REJECTED` as global truth labels.
+3. Do not let one contradiction delete or globally reject a Hypothesis.
+4. Do not create Evidence from assessment.
+5. Do not let WorkerResult choose the evaluator.
+6. Do not require an LLM for diagnostic.echo assessment.
+7. Do not invent numeric confidence.
+8. Do not auto-plan the next experiment or start an autonomous loop.
+9. Do not edit Alembic `a3_001`, `a6_001`, `a7_001`, or `a8_001`.
+10. Research assessment must not import PostgreSQL adapters, Worker adapters, subprocess, provider SDKs, or Strix.
+
+## Revisit triggers
+
+- Real diagnostic data showing the five outcomes are insufficient
+- Actor/session/state differential requiring explicit context identity fields
+- A second trusted evaluation strategy beyond `diagnostic.echo.v1`
+- Calibrated belief model **after** empirical assessment history exists
+- Transition B / Verification consuming assessments (still not Evidence)
+
+---
+
+# Decision 028 — Research Reasoning / Admission Provenance Ledger
+
+Status: **accepted with constraints** (GATE 03)
+
+Date: 2026-08-17
+
+Does not rewrite Decisions 001–027. Revisits Decision 026’s “persist reasoning only when ADMITTED” choice. Does not create Evidence, Candidate, Finding, or an autonomous loop.
+
+## Candidates evaluated
+
+| Option | Verdict |
+|---|---|
+| A. Keep GATE 02: persist reasoning only on `ADMITTED` | Rejected for learning. False-positive reduction needs rejected-proposal patterns. |
+| B. Persist rejected proposals as Hypothesis rows | Rejected. Reasoning record ≠ Hypothesis. |
+| C. Persist reasoning for all completed bounded cycles; separate append-only `ResearchAdmissionRecord`; rejected proposals never become Hypothesis | **Accepted.** |
+
+## Strategy
+
+Every completed Generator → Falsifier → admission cycle writes process history:
+
+- structured Generator output (when the model call completed)
+- structured Falsifier output (when that call completed)
+- `ResearchAdmissionRecord` (always)
+
+Rejected proposal **must not** become a Hypothesis. `research_reasoning.hypothesis_id` is nullable.
+
+## Reasoning ledger
+
+`ResearchReasoningRecord` remains untrusted provenance, not Observation, Evidence, or Hypothesis truth. Persist adapter/model identity when present, context fingerprint, source references inside structured output, and role. Do **not** store full prompts by default. Do not dump secrets. Raw external content stays referenced through source ids.
+
+## Admission provenance
+
+Append-only `ResearchAdmissionRecord`: admission id, research run, generator/falsifier reasoning ids (nullable), outcome, nullable `admitted_hypothesis_id`, reason codes, context fingerprint, created_at.
+
+This is research-process history, not authoritative target truth.
+
+If Generator or Falsifier **invocation** fails (`ModelPortError`): no Hypothesis, no fabricated structured proposal, admission outcome `MODEL_INVOCATION_FAILED`, no reasoning row unless a completed model result exists. Invocation failure is not research-negative evidence. No provider retry engine.
+
+## Rejected reasoning
+
+Persisting rejected reasoning is allowed because reasoning ≠ Hypothesis ≠ fact. Future measurements: generator rejection rate, hallucinated-source rate, untestable proposal rate, falsifier intervention rate, policy-conflict rate, `NEEDS_MORE_CONTEXT` rate. Do not treat `CONTRADICTS_PREDICTION` as a false positive; that metric needs Verification/Candidate/human outcomes later.
+
+## N4 claim handling
+
+**Option B.** Unsupported novelty tokens `N4_ZERO_DAY` / `ZERO_DAY` / `N4` normalize system `novelty_basis` to `UNCLASSIFIED` and preserve `model_claimed_novelty` as the raw model token.
+
+- N4 never becomes product truth
+- the model’s claim is not silently erased
+- novelty claim cannot promote a Hypothesis
+
+Other unknown novelty tokens still fail proposal parse (`ResearchInputError`). Authority keys such as `n4` / `zero_day` still fail as `ProposalAuthorityError`.
+
+## Confidence
+
+**HIGH** that rejected proposals must not become Hypotheses and that N4 cannot be product novelty.
+
+**HIGH** that completed-cycle provenance should include rejections.
+
+**MEDIUM** for omitting reasoning rows on raw `ModelPortError` (admission-only operational provenance) versus inventing an adapter identity.
+
+## Why
+
+GATE 02’s admitted-only ledger hid the failures the system must learn from. Learning requires seeing what Generator proposed, what Falsifier challenged, and why admission refused—without laundering that into Hypothesis or Finding truth.
+
+## Constraints
+
+1. Do not persist a Hypothesis from a rejected proposal.
+2. Do not store raw prompts by default.
+3. Do not silently erase model-claimed N4; do not promote it.
+4. Do not treat model invocation failure as Hypothesis-negative evidence.
+5. Do not build a provider retry system.
+6. Do not add Evidence/Candidate/Finding tables.
+7. Do not edit Alembic `a3_001`, `a6_001`, `a7_001`, or `a8_001`.
+8. Core remains unaware of assessment/admission semantics. Workers remain unaware of Hypothesis.
+
+## Revisit triggers
+
+- First real ModelPort adapter (provider still deferred)
+- Need to persist bounded operational failure envelopes with adapter identity
+- Prompt/redaction policy if a later audit requires selected prompt excerpts
+- Semantic hypothesis dedup with explicit actor/state/context identity
+- Dashboard metrics over this SoR (not in this slice)
+
+**FINAL STATUS: PASS**
+
+---
+
+# Decision 029 — Research Benchmark Scenario / Ground-Truth Separation
+
+Status: **accepted with constraints** (GATE 04A)
+
+Date: 2026-08-17
+
+Does not rewrite Decisions 001–028. Does not select a model provider. Does not add a PostgreSQL benchmark schema.
+
+## Candidates evaluated
+
+| Option | Verdict |
+|---|---|
+| A. Grade model output subjectively after the fact | Rejected. Not reproducible. |
+| B. Put expected answers in the prompt / ResearchContext | Rejected. The model repeats the answer. Leakage. |
+| C. Versioned scenario with a hard visible/hidden split; leakage is a test failure | **Accepted.** |
+
+## Strategy
+
+A benchmark scenario is engineering/evaluation data under `benchmarks/research/`. It is not Domain SoR, Research Memory, production configuration, or a Worker contract.
+
+JSON fixtures are enough. YAML is not introduced.
+
+Each scenario has explicit `scenario_id`, `version`, `category`, `split`, `visible_input`, and `hidden_evaluation`.
+
+## Visible vs hidden material
+
+**Model-visible** (`visible_input` → `ResearchContext` only):
+
+- ResearchContext-compatible facts
+- Observations
+- prior Hypotheses
+- negative evidence / experiment execution state
+- procedural context / research question
+- untrusted external content
+
+**Hidden evaluation** (evaluator only):
+
+- known source ids
+- forbidden fabricated source ids
+- expected epistemic distinctions
+- known benign explanations
+- required negative-control concepts
+- known policy traps / injection needles
+- scenario-specific invariants
+- evaluation tags
+- leakage canary
+- expected admission outcomes
+- benchmark-only ground truth
+
+Hidden evaluation MUST NEVER enter:
+
+- Generator prompt
+- Falsifier prompt
+- ResearchContext
+- ModelCallRequest
+- model-visible metadata
+
+## Versioning
+
+`scenario_id` + `version` is the identity. A material change to hidden expected semantics increments `version`. Do not silently rewrite benchmark history after results exist.
+
+## Leakage prevention
+
+Hidden key names, leakage canaries, and forbidden fabricated ids must not serialize into `ResearchContext` or the model-visible portions of `ModelCallRequest`. An accidental merge is a test failure, not a footnote. The harness records Generator/Falsifier requests and scans them.
+
+## Development / holdout policy
+
+| Split | Rule |
+|---|---|
+| development | May be inspected while building the harness |
+| holdout | Must not be used to tune prompts or admission logic by hand |
+
+GATE 04A ships development scenarios only. The holdout rule is in force for any future holdout files. Otherwise Research Brain is optimized to the benchmark.
+
+## Confidence
+
+**HIGH** that hidden evaluator data must not enter the model channel.
+
+**HIGH** that scenarios must be versioned.
+
+**MEDIUM** for the exact initial category list; more synthetic categories can be added without changing the split.
+
+## Why
+
+Without hidden evaluator data the benchmark becomes “the model sees the answer” or “we judge subjectively later.” Neither is acceptable for comparing Research OS behavior under a shared ResearchContext.
+
+## Constraints
+
+1. Do not put hidden evaluation into ResearchContext, prompts, or ModelCallRequest.
+2. Do not use exploit payloads or real bug-bounty targets.
+3. Do not treat scenarios as SoR, Evidence, Finding, or Candidate.
+4. Do not require YAML.
+5. Do not invent hundreds of fixtures in this gate.
+6. Do not optimize the suite so every scenario should be `ADMITTED`.
+7. Do not use holdout scenarios to tune prompts/admission.
+
+## Revisit triggers
+
+- First holdout scenario file
+- Need to persist scenario history after published results exist
+- Cross-language scenario contract (JSON Schema) if another runtime must load them
+- GATE 04B real-provider runs on this same suite
+
+**FINAL STATUS: PASS**
+
+---
+
+# Decision 030 — Research Model Quality Evaluation Strategy
+
+Status: **accepted with constraints** (GATE 04A)
+
+Date: 2026-08-17
+
+Does not rewrite Decisions 001–029. Does not select OpenAI, Anthropic, Gemini, or any other provider.
+
+## Candidates evaluated
+
+| Option | Verdict |
+|---|---|
+| A. Single `MODEL_SCORE = 8.72` | Rejected. Fake precision. A policy-breaking model could “win.” |
+| B. LLM-as-judge grades the Research Brain | Rejected for GATE 04A. Hides evaluator uncertainty; adds a model dependency. |
+| C. Scorecard: explicit hard-fail events + defensible structural quality dimensions | **Accepted.** |
+
+## Strategy
+
+Evaluate research *behavior* under the same ResearchContext:
+
+which scripted or future adapter produces better grounding, testability, falsification, and policy discipline for Research OS?
+
+Do not answer “which model is smartest?”
+
+The runner uses `ModelPort`. GATE 04A uses deterministic `ScriptedModelPort` doubles. Scoring must not switch on baseline names.
+
+Results are `ScenarioRunResult` / `ModelBenchmarkReport`. They are evaluation artifacts, not Evidence, Finding, Candidate, or ResearchRun target truth. Optional files go under gitignored `var/benchmark-results/`. No PostgreSQL benchmark schema.
+
+## Hard failures
+
+Recorded as explicit events/counts, not a weighted IQ:
+
+- malformed structured output
+- hallucinated source reference
+- authority claim
+- scope-bypass request
+- Evidence/Finding claim
+- Falsifier missing
+- hidden benchmark data leakage
+- untrusted external instruction followed as policy
+- invalid epistemic relabeling
+- proposal not testable
+- policy-trap followed
+- prior Hypothesis treated as fact
+
+A model with serious policy/grounding failure does not win because another numeric quality score is high. There is no such numeric total.
+
+## Quality dimensions
+
+Automatic metrics stay defensible and structural:
+
+- source fidelity (referenced ids exist; no fabricated ids)
+- testability (capability + disconfirming test)
+- falsification (alternative explanation present)
+- negative-control / disconfirming path
+- grounding / epistemic discipline (prior Hypothesis not promoted to fact)
+- policy discipline
+- context discipline (`NEEDS_MORE_CONTEXT` / unsupported when information is insufficient)
+- injection containment
+- discriminating-experiment *structure* (expected vs disconfirming observations plus alternatives)
+
+No universal information-gain formula. No claim of “true creativity.”
+
+Admission outcomes are observed (`ADMITTED`, `REJECTED_*`, `NEEDS_MORE_CONTEXT`). Maximum admission rate is not the objective.
+
+## Novelty handling
+
+Reports may use: diversity, composition, target-specificity, non-template behavior.
+
+Reports must not claim: zero-day discovery, N4, or “this model finds vulnerabilities.”
+
+Exact deterministic duplicate detection on normalized claims is in scope. Vector / semantic similarity is not. Semantic diversity remains partly human-evaluated and deferred.
+
+## Falsifier evaluation
+
+Track challenge presence, alternatives, missing preconditions, hallucinated refs surfaced, untestable proposals, policy conflicts, and admission changes after challenge.
+
+Do **not** equate “Falsifier rejected many things” with “good Falsifier.” Over-rejection is also bad.
+
+## Scoring philosophy
+
+Hard-fail counts and per-dimension pass/total. No magic aggregate. Human/pairwise or LLM-assisted judging may be evaluated later. A documented ordinal rubric (POOR / ACCEPTABLE / STRONG) exists for future blind human review. No dashboard in GATE 04A.
+
+Model-call counts (Generator / Falsifier) are recorded now. Latency, tokens, and provider cost are not fabricated; they wait for a real adapter.
+
+## Confidence
+
+**HIGH** that a single scalar score would be misleading.
+
+**HIGH** that hidden leakage, hallucinated sources, and policy-following must be hard fails.
+
+**MEDIUM** for the exact quality dimension set; dimensions can be added without introducing an aggregate score.
+
+## Why
+
+Provider choice must be empirical against Research OS behavior, not marketing or a hidden judge model. GATE 04A builds the measuring instrument. GATE 04B attaches real adapters to it.
+
+## Constraints
+
+1. Do not emit `MODEL_SCORE` or equivalent.
+2. Do not use LLM-as-judge in GATE 04A.
+3. Do not add vector similarity.
+4. Do not infer N4 / zero-day capability.
+5. Do not persist benchmark reports into authoritative Research SoR.
+6. Do not install a provider SDK.
+7. Do not treat ScriptedModelPort as a real model.
+8. Do not claim prompt injection is “solved”; measure containment.
+9. Do not score Falsifier quality by rejection count alone.
+10. Do not optimize the suite for always-`ADMITTED`.
+
+## Revisit triggers
+
+- GATE 04B real provider adapters
+- Human-review UI for the ordinal rubric
+- Optional LLM-as-judge experiment with explicit uncertainty
+- Semantic diversity once actor/state/context identity exists
+- Provider-reported latency/token/cost fields when a real adapter exists
+
+**FINAL STATUS: PASS**
+
+
 

@@ -1,17 +1,22 @@
 """Propose a research Hypothesis through Generator, Falsifier, and admission.
 
-Does not execute a Worker. Does not create Evidence or Finding.
-Core still owns later execution authorization.
+Persists reasoning and admission provenance for every completed cycle.
+Rejected proposals never become a Hypothesis. Does not execute a Worker.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Any, Mapping
 
 from research_os.application.errors import ApplicationError
 from research_os.application.identity import new_opaque_id
 from research_os.application.ports import Clock, SystemClock, UnitOfWorkFactory
-from research_os.data.records import HypothesisRecord, ResearchReasoningRecord
+from research_os.data.records import (
+    HypothesisRecord,
+    ResearchAdmissionRecord,
+    ResearchReasoningRecord,
+)
 from research_os.research.admission import AdmissionDecision, AdmissionOutcome, admit_hypothesis
 from research_os.research.context import (
     ContextBudget,
@@ -23,7 +28,7 @@ from research_os.research.context import (
     ResearchContextBuilder,
 )
 from research_os.research.cycle import generate_challenge, generate_proposal
-from research_os.research.model_port import ModelPort, ModelRole
+from research_os.research.model_port import ModelCallResult, ModelPort, ModelPortError, ModelRole
 from research_os.research.planning import plan_admitted_hypothesis
 from research_os.research.proposals import (
     HypothesisChallenge,
@@ -54,6 +59,7 @@ class ProposeResearchHypothesisResult:
     hypothesis_id: str | None
     generator_reasoning_id: str | None
     falsifier_reasoning_id: str | None
+    admission_record_id: str | None
     generator_calls: int
     falsifier_calls: int
 
@@ -119,34 +125,73 @@ class ProposeResearchHypothesis:
             budget=command.context_budget,
         )
 
-        proposal: HypothesisProposal | None
+        proposal: HypothesisProposal | None = None
         challenge: HypothesisChallenge | None = None
+        generator_result: ModelCallResult | None = None
+        falsifier_result: ModelCallResult | None = None
         generator_calls = 0
         falsifier_calls = 0
-        generated = None
-        challenged = None
+
         try:
             generated = generate_proposal(
                 context, self._model, correlation_id=command.correlation_id
             )
             generator_calls = 1
+            generator_result = generated.model_result
             proposal = generated.proposal
+        except ModelPortError as exc:
+            admission = AdmissionDecision(
+                outcome=AdmissionOutcome.MODEL_INVOCATION_FAILED,
+                reason=str(exc),
+                reason_code="MODEL_INVOCATION_FAILED",
+                proposal=None,
+                challenge=None,
+            )
+            return self._persist_cycle(
+                command,
+                context,
+                admission,
+                generator_calls=generator_calls,
+                falsifier_calls=falsifier_calls,
+            )
         except ProposalAuthorityError as exc:
+            generator_result = getattr(exc, "model_result", None)
+            generator_calls = 1 if generator_result is not None else generator_calls
             admission = AdmissionDecision(
                 outcome=AdmissionOutcome.REJECTED_POLICY_CONFLICT,
                 reason=str(exc),
+                reason_code="POLICY_CONFLICT",
                 proposal=None,
                 challenge=None,
             )
-            return self._empty_result(admission, context, generator_calls, 0)
+            return self._persist_cycle(
+                command,
+                context,
+                admission,
+                generator_result=generator_result,
+                generator_structured=_structured_or_raw(generator_result),
+                generator_calls=generator_calls,
+                falsifier_calls=falsifier_calls,
+            )
         except ResearchInputError as exc:
+            generator_result = getattr(exc, "model_result", None)
+            generator_calls = 1 if generator_result is not None else generator_calls
             admission = AdmissionDecision(
                 outcome=AdmissionOutcome.REJECTED_UNTESTABLE,
                 reason=str(exc),
+                reason_code="INVALID_STRUCTURED_OUTPUT",
                 proposal=None,
                 challenge=None,
             )
-            return self._empty_result(admission, context, generator_calls, 0)
+            return self._persist_cycle(
+                command,
+                context,
+                admission,
+                generator_result=generator_result,
+                generator_structured=_structured_or_raw(generator_result),
+                generator_calls=generator_calls,
+                falsifier_calls=falsifier_calls,
+            )
 
         try:
             challenged = generate_challenge(
@@ -156,78 +201,170 @@ class ProposeResearchHypothesis:
                 correlation_id=command.correlation_id,
             )
             falsifier_calls = 1
+            falsifier_result = challenged.model_result
             challenge = challenged.challenge
+        except ModelPortError as exc:
+            admission = AdmissionDecision(
+                outcome=AdmissionOutcome.MODEL_INVOCATION_FAILED,
+                reason=str(exc),
+                reason_code="MODEL_INVOCATION_FAILED",
+                proposal=proposal,
+                challenge=None,
+            )
+            return self._persist_cycle(
+                command,
+                context,
+                admission,
+                proposal=proposal,
+                generator_result=generator_result,
+                generator_structured=proposal.to_mapping(),
+                generator_calls=generator_calls,
+                falsifier_calls=falsifier_calls,
+            )
         except ProposalAuthorityError as exc:
+            falsifier_result = getattr(exc, "model_result", None)
+            falsifier_calls = 1 if falsifier_result is not None else falsifier_calls
             admission = AdmissionDecision(
                 outcome=AdmissionOutcome.REJECTED_POLICY_CONFLICT,
                 reason=str(exc),
+                reason_code="POLICY_CONFLICT",
                 proposal=proposal,
                 challenge=None,
             )
-            return self._empty_result(admission, context, generator_calls, falsifier_calls)
+            return self._persist_cycle(
+                command,
+                context,
+                admission,
+                proposal=proposal,
+                generator_result=generator_result,
+                generator_structured=proposal.to_mapping(),
+                falsifier_result=falsifier_result,
+                falsifier_structured=_structured_or_raw(falsifier_result),
+                generator_calls=generator_calls,
+                falsifier_calls=falsifier_calls,
+            )
         except ResearchInputError as exc:
+            falsifier_result = getattr(exc, "model_result", None)
+            falsifier_calls = 1 if falsifier_result is not None else falsifier_calls
             admission = AdmissionDecision(
                 outcome=AdmissionOutcome.REJECTED_UNTESTABLE,
                 reason=str(exc),
+                reason_code="INVALID_STRUCTURED_OUTPUT",
                 proposal=proposal,
                 challenge=None,
             )
-            return self._empty_result(admission, context, generator_calls, falsifier_calls)
+            return self._persist_cycle(
+                command,
+                context,
+                admission,
+                proposal=proposal,
+                generator_result=generator_result,
+                generator_structured=proposal.to_mapping(),
+                falsifier_result=falsifier_result,
+                falsifier_structured=_structured_or_raw(falsifier_result),
+                generator_calls=generator_calls,
+                falsifier_calls=falsifier_calls,
+            )
 
         admission = admit_hypothesis(context, proposal, challenge)
-        if not admission.admitted:
-            return self._empty_result(
-                admission, context, generator_calls, falsifier_calls
-            )
-
-        hypothesis_id = new_opaque_id()
-        generator_reasoning_id = new_opaque_id()
-        falsifier_reasoning_id = new_opaque_id()
-        now = self._clock.now()
-        assert generated is not None
-        assert challenged is not None
-        plan = plan_admitted_hypothesis(
-            hypothesis_id,
-            proposal,
-            challenge,
-            budget_id=command.budget_id,
-            target_reference=command.target_reference,
-            message=command.echo_message,
+        return self._persist_cycle(
+            command,
+            context,
+            admission,
+            proposal=proposal,
+            challenge=challenge,
+            generator_result=generator_result,
+            generator_structured=proposal.to_mapping(),
+            falsifier_result=falsifier_result,
+            falsifier_structured=challenge.to_mapping() if challenge is not None else None,
+            generator_calls=generator_calls,
+            falsifier_calls=falsifier_calls,
         )
+
+    def _persist_cycle(
+        self,
+        command: ProposeResearchHypothesisCommand,
+        context: ResearchContext,
+        admission: AdmissionDecision,
+        *,
+        proposal: HypothesisProposal | None = None,
+        challenge: HypothesisChallenge | None = None,
+        generator_result: ModelCallResult | None = None,
+        generator_structured: Mapping[str, Any] | None = None,
+        falsifier_result: ModelCallResult | None = None,
+        falsifier_structured: Mapping[str, Any] | None = None,
+        generator_calls: int,
+        falsifier_calls: int,
+    ) -> ProposeResearchHypothesisResult:
+        now = self._clock.now()
+        admitted = admission.admitted
+        hypothesis_id = new_opaque_id() if admitted else None
+        generator_reasoning_id = new_opaque_id() if generator_result is not None else None
+        falsifier_reasoning_id = new_opaque_id() if falsifier_result is not None else None
+        admission_record_id = new_opaque_id()
+        plan = None
+        if admitted and proposal is not None and challenge is not None and hypothesis_id is not None:
+            plan = plan_admitted_hypothesis(
+                hypothesis_id,
+                proposal,
+                challenge,
+                budget_id=command.budget_id,
+                target_reference=command.target_reference,
+                message=command.echo_message,
+            )
         with self._uow_factory.open() as uow:
-            uow.hypotheses.insert(
-                HypothesisRecord(
-                    hypothesis_id=hypothesis_id,
-                    research_run_id=command.research_run_id,
-                    claim=proposal.proposed_claim,
-                    created_at=now,
-                    origin_reference=generator_reasoning_id,
+            if hypothesis_id is not None and proposal is not None:
+                uow.hypotheses.insert(
+                    HypothesisRecord(
+                        hypothesis_id=hypothesis_id,
+                        research_run_id=command.research_run_id,
+                        claim=proposal.proposed_claim,
+                        created_at=now,
+                        origin_reference=generator_reasoning_id,
+                    )
                 )
-            )
-            uow.research_reasoning.insert(
-                self._reasoning_record(
-                    reasoning_record_id=generator_reasoning_id,
-                    research_run_id=command.research_run_id,
-                    hypothesis_id=hypothesis_id,
-                    role=ModelRole.GENERATOR,
-                    generated=generated.model_result,
-                    structured_output=proposal.to_mapping(),
-                    fingerprint=context.fingerprint,
-                    correlation_id=command.correlation_id,
-                    created_at=now,
+            if generator_reasoning_id is not None and generator_result is not None:
+                uow.research_reasoning.insert(
+                    self._reasoning_record(
+                        reasoning_record_id=generator_reasoning_id,
+                        research_run_id=command.research_run_id,
+                        hypothesis_id=hypothesis_id,
+                        role=ModelRole.GENERATOR,
+                        generated=generator_result,
+                        structured_output=dict(generator_structured or generator_result.structured_output),
+                        fingerprint=context.fingerprint,
+                        correlation_id=command.correlation_id,
+                        created_at=now,
+                    )
                 )
-            )
-            uow.research_reasoning.insert(
-                self._reasoning_record(
-                    reasoning_record_id=falsifier_reasoning_id,
+            if falsifier_reasoning_id is not None and falsifier_result is not None:
+                uow.research_reasoning.insert(
+                    self._reasoning_record(
+                        reasoning_record_id=falsifier_reasoning_id,
+                        research_run_id=command.research_run_id,
+                        hypothesis_id=hypothesis_id,
+                        role=ModelRole.FALSIFIER,
+                        generated=falsifier_result,
+                        structured_output=dict(
+                            falsifier_structured or falsifier_result.structured_output
+                        ),
+                        fingerprint=context.fingerprint,
+                        correlation_id=command.correlation_id,
+                        created_at=now,
+                    )
+                )
+            uow.research_admissions.insert(
+                ResearchAdmissionRecord(
+                    admission_record_id=admission_record_id,
                     research_run_id=command.research_run_id,
-                    hypothesis_id=hypothesis_id,
-                    role=ModelRole.FALSIFIER,
-                    generated=challenged.model_result,
-                    structured_output=challenge.to_mapping(),
-                    fingerprint=context.fingerprint,
-                    correlation_id=command.correlation_id,
+                    outcome=admission.outcome.value,
+                    reason=admission.reason,
+                    reason_code=admission.reason_code,
+                    context_fingerprint=context.fingerprint,
                     created_at=now,
+                    generator_reasoning_record_id=generator_reasoning_id,
+                    falsifier_reasoning_record_id=falsifier_reasoning_id,
+                    admitted_hypothesis_id=hypothesis_id,
                 )
             )
             uow.commit()
@@ -238,24 +375,7 @@ class ProposeResearchHypothesis:
             hypothesis_id=hypothesis_id,
             generator_reasoning_id=generator_reasoning_id,
             falsifier_reasoning_id=falsifier_reasoning_id,
-            generator_calls=generator_calls,
-            falsifier_calls=falsifier_calls,
-        )
-
-    def _empty_result(
-        self,
-        admission: AdmissionDecision,
-        context: ResearchContext,
-        generator_calls: int,
-        falsifier_calls: int,
-    ) -> ProposeResearchHypothesisResult:
-        return ProposeResearchHypothesisResult(
-            admission=admission,
-            context=context,
-            experiment_plan=None,
-            hypothesis_id=None,
-            generator_reasoning_id=None,
-            falsifier_reasoning_id=None,
+            admission_record_id=admission_record_id,
             generator_calls=generator_calls,
             falsifier_calls=falsifier_calls,
         )
@@ -265,9 +385,9 @@ class ProposeResearchHypothesis:
         *,
         reasoning_record_id: str,
         research_run_id: str,
-        hypothesis_id: str,
+        hypothesis_id: str | None,
         role: ModelRole,
-        generated,
+        generated: ModelCallResult,
         structured_output: dict[str, object],
         fingerprint: str,
         correlation_id: str,
@@ -287,3 +407,9 @@ class ProposeResearchHypothesis:
             model_id=generated.model_id,
             model_version=generated.model_version,
         )
+
+
+def _structured_or_raw(result: ModelCallResult | None) -> Mapping[str, Any] | None:
+    if result is None:
+        return None
+    return dict(result.structured_output)

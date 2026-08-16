@@ -8,7 +8,8 @@ Types:
 - `HypothesisProposal` / `HypothesisChallenge` — untrusted structured model output.
 - `HypothesisDraft` — human-seeded statement + origin. Not fact.
 - `ExperimentPlan` — proposed capability/action/target plus expected and disconfirming observations. Not authorization.
-- `ExperimentFeedback` — execution/observation references. Not a vulnerability verdict.
+- `ExperimentFeedback` — reconstructs what happened. Not a vulnerability verdict.
+- `HypothesisAssessment` — context-bound learning under one experiment. Not Hypothesis truth and not Evidence.
 
 Admission (`admit_hypothesis`) is Research-domain logic. Generator output is not a Hypothesis until admitted.
 
@@ -19,5 +20,8 @@ Research must not:
 - import a provider SDK
 - authorize itself
 - treat model output as Observation, Evidence, or Finding
+- treat a matching Observation as a verified security issue
 
-Application coordinates `ProposeResearchHypothesis` with Data ports and an injected ModelPort.
+Application coordinates `ProposeResearchHypothesis` and `EvaluateExperimentFeedback` with Data ports. Deterministic assessment for GATE 03 is `diagnostic.echo.v1` only.
+
+Provider-neutral research-behavior evaluation lives in `research_os.benchmark` and `benchmarks/research/` (Decisions 029–030). Research must not import the benchmark package. Benchmark reports are not Evidence, Finding, or SoR truth.

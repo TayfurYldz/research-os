@@ -19,7 +19,9 @@ research-os/
 │   ├── data/
 │   ├── tools/
 │   ├── platform/
-│   └── interface/
+│   ├── interface/
+│   └── benchmark/            # Evaluation harness (not SoR, not a provider)
+├── benchmarks/research/      # Versioned scenarios; hidden evaluation is not model-visible
 ├── contracts/                # Language-neutral contracts (not Python classes)
 ├── workers/                  # Side-effect runtimes (out of the control-plane package)
 │   └── python/
@@ -32,7 +34,8 @@ research-os/
 │   └── e2e/
 ├── scripts/
 ├── docs/
-└── var/artifacts/            # Local artifact *byte* adapter (Decision 006); not SoR
+├── var/artifacts/            # Local artifact *byte* adapter (Decision 006); not SoR
+└── var/benchmark-results/    # Optional generated reports; gitignored; not SoR
 ```
 
 Constitutional design docs stay at the **repository root**. Do not move them into `docs/`.
@@ -47,6 +50,8 @@ Constitutional design docs stay at the **repository root**. Do not move them int
 | `contracts/` | Language-neutral schemas/contracts so Workers/Integrations are not Python-locked |
 | `workers/` | Out-of-process execution (Decisions 005, 014). May be Python now; other languages later |
 | `integrations/` | Concrete adapters. Core and Research **must not** import these |
+| `benchmarks/research/` | Engineering evaluation fixtures (Decision 029). Not Domain SoR or Research Memory |
+| `src/research_os/benchmark/` | Provider-neutral harness (Decision 030). Imports Research. Must not import postgres/Application/Workers/provider SDKs |
 | `var/artifacts/` | First artifact **byte** store adapter (local filesystem). Identity/hash stay in PostgreSQL |
 
 Workers and Integrations are **not** subpackages of `research_os`. That keeps “do not import concrete Integrations from Core/Research” visible in the tree.
@@ -73,7 +78,7 @@ May depend on Core **contracts**, not on Interface or Application.
 
 ### `application`
 
-Use-case coordination (Decision 022). Use cases: Transition A ingestion (Decision 023); `ExecutePlannedExperiment` control-loop skeleton (Decision 024); `ProposeResearchHypothesis` bounded reasoning cycle (Decisions 025–026).
+Use-case coordination (Decision 022). Use cases: Transition A ingestion (Decision 023); `ExecutePlannedExperiment` control-loop skeleton (Decision 024); `ProposeResearchHypothesis` bounded reasoning cycle (Decisions 025–026); `PreparePlannedExperiment` / `EvaluateExperimentFeedback` closed learning cycle (Decisions 027–028).
 
 Must not: own Core policy, import `data.postgres` or `local_process_worker`, create Evidence/Finding. Must not hold a database transaction open while a Worker runs.
 
@@ -104,6 +109,12 @@ Must not: own policy, own Evidence/Finding, select Temporal/Redis/Vault/Docker h
 Operator/API/CLI/Human Review **surfaces**. Phase A: application/API boundary + minimal CLI + minimal Human Review (Decision 011). No framework chosen.
 
 Must not: own Approval semantics, bypass Core, write PostgreSQL authority directly, collapse AI recommendation into judgment.
+
+### `benchmark`
+
+Provider-neutral evaluation of Research Brain behavior (Decisions 029–030 / GATE 04A). Consumes `ModelPort`. Must not persist to PostgreSQL, import provider SDKs, or treat reports as Evidence/Finding.
+
+Core, Research, and Application must not import `benchmark`.
 
 ---
 
@@ -189,10 +200,11 @@ Packaging (`pyproject.toml`, `uv.lock`) and the PostgreSQL adapter (SQLAlchemy 2
 
 ## Import rules (enforced later by tests, not by this file)
 
-1. `core` does not import `research`, `application`, `interface`, `integrations`, or `workers`.
-2. `research` does not import `application`, `interface`, `integrations`, or `workers`.
-3. `application` does not import concrete Platform adapters or `data.postgres`.
+1. `core` does not import `research`, `application`, `interface`, `integrations`, `workers`, or `benchmark`.
+2. `research` does not import `application`, `interface`, `integrations`, `workers`, or `benchmark`.
+3. `application` does not import concrete Platform adapters, `data.postgres`, or `benchmark`.
 4. `core` and `research` do not import concrete Platform adapters.
 5. Secret **values**, provider SDKs, and Strix clients do not appear in `core` or `research`.
 6. Models are not authorization principals.
+7. `benchmark` does not import `data.postgres`, Application, Workers, or provider SDKs.
  

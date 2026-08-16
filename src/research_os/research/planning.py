@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import json
+
+from research_os.research.assessment import DIAGNOSTIC_ECHO_EVALUATION_STRATEGY
 from research_os.research.proposals import HypothesisChallenge, HypothesisProposal
-from research_os.research.types import ExperimentPlan, HypothesisDraft
+from research_os.research.types import ExperimentPlan, HypothesisDraft, ResearchInputError
 from research_os.tools.capabilities import DIAGNOSTIC_ECHO_ACTION, DIAGNOSTIC_ECHO_CAPABILITY
 
 HUMAN_ORIGIN = "human"
@@ -42,6 +45,7 @@ def plan_diagnostic_echo(
         requested_budget_id=budget_id,
         expected_observation=DIAGNOSTIC_EXPECTED_OBSERVATION,
         disconfirming_observation=DIAGNOSTIC_DISCONFIRMING_OBSERVATION,
+        evaluation_strategy=DIAGNOSTIC_ECHO_EVALUATION_STRATEGY,
     )
 
 
@@ -58,6 +62,11 @@ def plan_admitted_hypothesis(
     capability = proposal.suggested_capability
     action = DIAGNOSTIC_ECHO_ACTION if capability == DIAGNOSTIC_ECHO_CAPABILITY else capability
     arguments: dict[str, str] = {}
+    strategy = (
+        DIAGNOSTIC_ECHO_EVALUATION_STRATEGY
+        if capability == DIAGNOSTIC_ECHO_CAPABILITY
+        else capability
+    )
     if capability == DIAGNOSTIC_ECHO_CAPABILITY:
         arguments = {"message": message}
     return ExperimentPlan(
@@ -72,4 +81,26 @@ def plan_admitted_hypothesis(
         if capability == DIAGNOSTIC_ECHO_CAPABILITY
         else proposal.suggested_disconfirming_test,
         disconfirming_observation=challenge.proposed_disconfirming_observation,
+        evaluation_strategy=strategy,
     )
+
+
+def plan_canonical_identity(plan: ExperimentPlan) -> str:
+    """Deterministic identity of an executed plan. Not authorization."""
+    payload = {
+        "hypothesis_id": plan.hypothesis_id,
+        "required_capability": plan.required_capability,
+        "action": plan.action,
+        "target_reference": plan.target_reference,
+        "side_effect_level": plan.side_effect_level,
+        "arguments": plan.arguments,
+        "requested_budget_id": plan.requested_budget_id,
+        "expected_observation": plan.expected_observation,
+        "disconfirming_observation": plan.disconfirming_observation,
+        "evaluation_strategy": plan.evaluation_strategy,
+    }
+    return json.dumps(payload, sort_keys=True, separators=(",", ":"), default=str)
+
+
+def plans_equivalent(left: ExperimentPlan, right: ExperimentPlan) -> bool:
+    return plan_canonical_identity(left) == plan_canonical_identity(right)

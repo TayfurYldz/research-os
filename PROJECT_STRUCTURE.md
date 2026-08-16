@@ -142,7 +142,7 @@ Research produces proposals only. Agent decision and actual tool execution remai
 
 **Responsibility:** Coordinate Core public APIs, Research public APIs, Data ports/Unit of Work, and Platform ports. Map a successful infrastructure outcome into the next domain step. Fail closed.
 
-The first use cases are Transition A ingestion of a completed Worker invocation (Decision 023), `ExecutePlannedExperiment` (Decision 024 / A7-lite), and `ProposeResearchHypothesis` (Decisions 025–026 / A7 Research Brain v1). Application invokes Worker only through an injected `WorkerPort`, after durable ExecutionAttempt intent is committed. Application invokes models only through an injected `ModelPort`. It does not dispatch a Worker from hypothesis proposal.
+The first use cases are Transition A ingestion of a completed Worker invocation (Decision 023), `ExecutePlannedExperiment` (Decision 024 / A7-lite), `ProposeResearchHypothesis` (Decisions 025–026 / A7 Research Brain v1), `PreparePlannedExperiment`, and `EvaluateExperimentFeedback` (Decisions 027–028 / GATE 03). Application invokes Worker only through an injected `WorkerPort`, after durable ExecutionAttempt intent is committed. Application invokes models only through an injected `ModelPort`. It does not dispatch a Worker from hypothesis proposal. Assessment does not create Evidence.
 
 **Contains:**
 

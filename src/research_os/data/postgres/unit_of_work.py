@@ -9,11 +9,14 @@ from research_os.data.postgres.repositories import (
     PostgresAuditEventRepository,
     PostgresAuthorizationSourceRepository,
     PostgresExecutionAttemptRepository,
+    PostgresExperimentPlanRepository,
     PostgresExperimentRepository,
+    PostgresHypothesisAssessmentRepository,
     PostgresHypothesisRepository,
     PostgresIssuedBudgetRepository,
     PostgresObservationRepository,
     PostgresProgramRepository,
+    PostgresResearchAdmissionRepository,
     PostgresResearchReasoningRepository,
     PostgresResearchRunRepository,
     PostgresWorkerResultRepository,
@@ -36,6 +39,9 @@ class PostgresUnitOfWork:
         self.worker_results: PostgresWorkerResultRepository
         self.observations: PostgresObservationRepository
         self.research_reasoning: PostgresResearchReasoningRepository
+        self.research_admissions: PostgresResearchAdmissionRepository
+        self.experiment_plans: PostgresExperimentPlanRepository
+        self.hypothesis_assessments: PostgresHypothesisAssessmentRepository
         self.audit_events: PostgresAuditEventRepository
 
     def __enter__(self) -> PostgresUnitOfWork:
@@ -54,6 +60,11 @@ class PostgresUnitOfWork:
         self.worker_results = PostgresWorkerResultRepository(self._connection)
         self.observations = PostgresObservationRepository(self._connection)
         self.research_reasoning = PostgresResearchReasoningRepository(self._connection)
+        self.research_admissions = PostgresResearchAdmissionRepository(self._connection)
+        self.experiment_plans = PostgresExperimentPlanRepository(self._connection)
+        self.hypothesis_assessments = PostgresHypothesisAssessmentRepository(
+            self._connection
+        )
         self.audit_events = PostgresAuditEventRepository(self._connection)
         return self
 

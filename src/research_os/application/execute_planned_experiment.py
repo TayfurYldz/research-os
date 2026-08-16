@@ -21,6 +21,10 @@ from research_os.application.ingest_worker_invocation import (
     IngestionOutcome,
     IngestionStatus,
 )
+from research_os.application.plan_records import (
+    durable_plan_matches,
+    experiment_plan_record_for,
+)
 from research_os.application.ports import Clock, SystemClock, UnitOfWorkFactory
 from research_os.core.approval import ApprovalView
 from research_os.core.authorization import AuthorizationSourceView
@@ -172,6 +176,10 @@ class ExecutePlannedExperiment:
             if isinstance(loaded, ResearchLoopOutcome):
                 return loaded
             experiment, hypothesis_id, source, issued = loaded
+            plan_error = self._ensure_plan(uow, experiment, command.plan)
+            if plan_error is not None:
+                uow.rollback()
+                return plan_error
             existing_attempts = uow.execution_attempts.list_for_experiment(
                 experiment.experiment_id
             )
@@ -512,6 +520,27 @@ class ExecutePlannedExperiment:
             _authorization_view(source_record),
             issued,
         )
+
+    def _ensure_plan(
+        self,
+        uow: UnitOfWork,
+        experiment: ExperimentRecord,
+        plan,
+    ) -> ResearchLoopOutcome | None:
+        existing = uow.experiment_plans.get(experiment.experiment_id)
+        if existing is None:
+            uow.experiment_plans.insert(
+                experiment_plan_record_for(experiment, plan, created_at=self._clock.now())
+            )
+            return None
+        if not durable_plan_matches(existing, plan):
+            return ResearchLoopOutcome(
+                status=ResearchLoopStatus.INPUT_REJECTED,
+                hypothesis_id=experiment.hypothesis_id,
+                experiment_id=experiment.experiment_id,
+                experiment_execution_state=experiment.execution_state,
+            )
+        return None
 
     def _outcome_for_existing(
         self,

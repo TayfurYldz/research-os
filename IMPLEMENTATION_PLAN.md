@@ -38,6 +38,10 @@ Decision-driver order remains: correctness → authorization/security → durabi
 | 024 | First-class ExecutionAttempt for dispatch coordination; Control Plane owns request_id; AuditEvent is decision provenance not a queue; UNKNOWN_OUTCOME fail-closed; no exactly-once side effects |
 | 025 | Typed ResearchContext epistemic boundary; deterministic bounded Context Builder; untrusted external content stays data; no vector/RAG in v1 |
 | 026 | Generator → HypothesisProposal → Falsifier → HypothesisChallenge → Research admission; ModelPort provider deferred; reasoning provenance append-only |
+| 027 | ExperimentFeedback + context-bound HypothesisAssessment; no SUPPORTED/REJECTED global truth; diagnostic.echo deterministic evaluator only; no numeric belief |
+| 028 | Persist reasoning/admission for all completed cycles including rejected; rejected ≠ Hypothesis; N4 claim preserved as model_claimed_novelty, system novelty UNCLASSIFIED |
+| 029 | Versioned benchmark scenarios; hard split of model-visible input vs hidden evaluation; leakage is a test failure; development vs holdout |
+| 030 | Scorecard of hard-fail events + quality dimensions; no magic aggregate model score; no LLM-as-judge; no vector similarity; provider comparison deferred to GATE 04B |
 
 ---
 
@@ -196,6 +200,25 @@ Authoritative / admitted state
 
 **Verify:** unit + architecture. PostgreSQL GATE 02 when `RESEARCH_OS_TEST_DATABASE_URL` is set; skipped tests are PENDING, not PASS.
 
+### Slice A7 — Closed learning cycle (Decisions 027–028)
+
+Close the research loop after execution:
+
+```
+admitted Hypothesis
+  → durable ExperimentPlan
+  → Core-authorized execution
+  → Observation
+  → ExperimentFeedback
+  → context-bound HypothesisAssessment
+```
+
+- Deterministic `diagnostic.echo` evaluator only. WorkerResult does not choose the evaluator.
+- Persist reasoning and admission for rejected proposals; they still do not become a Hypothesis.
+- Alembic revision `a9_001_learning_cycle`. Do not rewrite `a3_001`, `a6_001`, `a7_001`, or `a8_001`.
+
+**Verify:** GATE 01 and GATE 02 remain PASS. GATE 03 requires real PostgreSQL.
+
 ### FIRST VERTICAL RESEARCH LOOP — INFRASTRUCTURE/CONTROL LOOP GATE
 
 **Status: PASS** (GATE 01, 2026-08-16) against explicit `RESEARCH_OS_TEST_DATABASE_URL` on real PostgreSQL 18.
@@ -338,6 +361,57 @@ Uses a deterministic fake ModelPort and real PostgreSQL. Does **not** prove vuln
 **GATE 02 status: PASS** (2026-08-16) against explicit `RESEARCH_OS_TEST_DATABASE_URL` on real PostgreSQL 18. Skipped tests are not PASS.
 
 **Verify:** unit + contract + `scripts/check_contracts.py` + integration (no PostgreSQL-required skips).
+
+## GATE 03 — Closed Research Learning Cycle
+
+```
+ResearchContext
+→ Generator
+→ Falsifier
+→ Admission
+→ Hypothesis
+→ durable ExperimentPlan
+→ Core authorization
+→ ExecutionAttempt
+→ Worker
+→ WorkerResult
+→ Observation
+→ ExperimentFeedback
+→ HypothesisAssessment
+→ restart/reload
+```
+
+Uses a deterministic fake ModelPort, `diagnostic.echo`, a real local Worker, and real PostgreSQL. Does **not** prove vulnerability discovery. Does not create Evidence, Candidate, or Finding.
+
+Also proves the rejected-proposal ledger path: invalid/unsupported proposal → persisted admission/reasoning → no Hypothesis → reconstructable after reload.
+
+**GATE 03 status: PASS** (2026-08-17) against explicit `RESEARCH_OS_TEST_DATABASE_URL` on real PostgreSQL 18. Skipped tests are not PASS.
+
+Alembic revision `a9_001_learning_cycle`. Do not rewrite `a3_001`, `a6_001`, `a7_001`, or `a8_001`.
+
+**Verify:** unit + contract + `scripts/check_contracts.py` + integration (no PostgreSQL-required skips).
+
+## GATE 04A — Provider-Neutral Research Benchmark Harness
+
+```
+versioned scenario
+→ visible_input → ResearchContext
+→ ModelPort (scripted doubles)
+→ Generator / Falsifier / admission
+→ hidden_evaluation scorecard
+```
+
+Proves the harness can measure research *behavior* under the same ResearchContext. Does **not** select a provider. Does **not** prove real LLM quality, vulnerability discovery, N4, or novel finding ability.
+
+Scripted doubles (`GOOD_BASELINE`, `BAD_HALLUCINATOR`, `BAD_POLICY_FOLLOWER`, `OVERCAUTIOUS_BASELINE`) are test fixtures, not models.
+
+Benchmark reports are evaluation artifacts. They are not Evidence, Finding, Candidate, or SoR truth. No PostgreSQL benchmark schema.
+
+**GATE 04A status: PASS** (2026-08-17). Hidden evaluation never enters ModelRequest. Gate 01–03 remain PASS on real PostgreSQL.
+
+**Verify:** unit + contract + `scripts/check_contracts.py` + integration (no PostgreSQL-required skips) + `uv run python scripts/run_research_benchmark.py`.
+
+GATE 04B (deferred): real provider adapters compared on this same harness.
 
 ---
 

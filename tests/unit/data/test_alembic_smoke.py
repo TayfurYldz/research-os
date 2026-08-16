@@ -16,6 +16,7 @@ MIGRATION = ALEMBIC_VERSIONS / "a3_001_persistence_spine.py"
 A6_MIGRATION = ALEMBIC_VERSIONS / "a6_001_transition_a_provenance.py"
 A7_MIGRATION = ALEMBIC_VERSIONS / "a7_001_execution_attempt.py"
 A8_MIGRATION = ALEMBIC_VERSIONS / "a8_001_research_reasoning.py"
+A9_MIGRATION = ALEMBIC_VERSIONS / "a9_001_learning_cycle.py"
 
 
 def _imported_modules(tree: ast.AST) -> set[str]:
@@ -46,6 +47,9 @@ class AlembicSmokeTests(unittest.TestCase):
                 "observation",
                 "audit_event",
                 "research_reasoning",
+                "research_admission",
+                "experiment_plan",
+                "hypothesis_assessment",
             },
         )
         self.assertEqual(set(metadata.tables), names)
@@ -122,6 +126,18 @@ class AlembicSmokeTests(unittest.TestCase):
         self.assertNotIn("create_all", source)
         a7 = A7_MIGRATION.read_text(encoding="utf-8")
         self.assertNotIn("research_reasoning", a7)
+
+    def test_a9_migration_is_append_only_revision(self) -> None:
+        source = A9_MIGRATION.read_text(encoding="utf-8")
+        self.assertIn("a9_001_learning_cycle", source)
+        self.assertIn("a8_001_research_reasoning", source)
+        self.assertIn("research_admission", source)
+        self.assertIn("experiment_plan", source)
+        self.assertIn("hypothesis_assessment", source)
+        self.assertNotIn("create_all", source)
+        a8 = A8_MIGRATION.read_text(encoding="utf-8")
+        self.assertNotIn("research_admission", a8)
+        self.assertNotIn("hypothesis_assessment", a8)
 
 
 if __name__ == "__main__":

@@ -23,11 +23,14 @@ from research_os.data.records import (
     AuditEventRecord,
     AuthorizationSourceRecord,
     ExecutionAttemptRecord,
+    ExperimentPlanRecord,
     ExperimentRecord,
+    HypothesisAssessmentRecord,
     HypothesisRecord,
     IssuedBudgetRecord,
     ObservationRecord,
     ProgramRecord,
+    ResearchAdmissionRecord,
     ResearchReasoningRecord,
     ResearchRunRecord,
     WorkerResultRecord,
@@ -427,6 +430,18 @@ class PostgresWorkerResultRepository:
             raise PersistenceError("persistence read failed") from exc
         return [map_row.worker_result_from_row(row) for row in rows]
 
+    def list_for_experiment(self, experiment_id: str) -> list[WorkerResultRecord]:
+        require_opaque_id(experiment_id, "experiment_id")
+        try:
+            rows = self._connection.execute(
+                select(tables.worker_result)
+                .where(tables.worker_result.c.experiment_id == experiment_id)
+                .order_by(tables.worker_result.c.worker_result_id)
+            ).mappings().all()
+        except SQLAlchemyError as exc:
+            raise PersistenceError("persistence read failed") from exc
+        return [map_row.worker_result_from_row(row) for row in rows]
+
 
 class PostgresObservationRepository:
     def __init__(self, connection: Connection) -> None:
@@ -479,6 +494,23 @@ class PostgresObservationRepository:
                     == tables.worker_result.c.worker_result_id,
                 )
                 .where(tables.worker_result.c.research_run_id == research_run_id)
+                .order_by(tables.observation.c.observation_id)
+            ).mappings().all()
+        except SQLAlchemyError as exc:
+            raise PersistenceError("persistence read failed") from exc
+        return [map_row.observation_from_row(row) for row in rows]
+
+    def list_for_experiment(self, experiment_id: str) -> list[ObservationRecord]:
+        require_opaque_id(experiment_id, "experiment_id")
+        try:
+            rows = self._connection.execute(
+                select(tables.observation)
+                .join(
+                    tables.worker_result,
+                    tables.observation.c.worker_result_id
+                    == tables.worker_result.c.worker_result_id,
+                )
+                .where(tables.worker_result.c.experiment_id == experiment_id)
                 .order_by(tables.observation.c.observation_id)
             ).mappings().all()
         except SQLAlchemyError as exc:
@@ -544,6 +576,162 @@ class PostgresResearchReasoningRepository:
         except SQLAlchemyError as exc:
             raise PersistenceError("persistence read failed") from exc
         return [map_row.research_reasoning_from_row(row) for row in rows]
+
+
+class PostgresResearchAdmissionRepository:
+    def __init__(self, connection: Connection) -> None:
+        self._connection = connection
+
+    def insert(self, record: ResearchAdmissionRecord) -> None:
+        _execute_write(
+            self._connection,
+            tables.research_admission.insert().values(
+                admission_record_id=record.admission_record_id,
+                research_run_id=record.research_run_id,
+                generator_reasoning_record_id=record.generator_reasoning_record_id,
+                falsifier_reasoning_record_id=record.falsifier_reasoning_record_id,
+                outcome=record.outcome,
+                admitted_hypothesis_id=record.admitted_hypothesis_id,
+                reason=record.reason,
+                reason_code=record.reason_code,
+                context_fingerprint=record.context_fingerprint,
+                created_at=record.created_at,
+            ),
+        )
+
+    def get(self, admission_record_id: str) -> ResearchAdmissionRecord | None:
+        require_opaque_id(admission_record_id, "admission_record_id")
+        return _fetch_one(
+            self._connection,
+            tables.research_admission,
+            tables.research_admission.c.admission_record_id,
+            admission_record_id,
+            map_row.research_admission_from_row,
+        )
+
+    def list_for_research_run(
+        self, research_run_id: str
+    ) -> list[ResearchAdmissionRecord]:
+        require_opaque_id(research_run_id, "research_run_id")
+        try:
+            rows = self._connection.execute(
+                select(tables.research_admission)
+                .where(tables.research_admission.c.research_run_id == research_run_id)
+                .order_by(tables.research_admission.c.admission_record_id)
+            ).mappings().all()
+        except SQLAlchemyError as exc:
+            raise PersistenceError("persistence read failed") from exc
+        return [map_row.research_admission_from_row(row) for row in rows]
+
+
+class PostgresExperimentPlanRepository:
+    def __init__(self, connection: Connection) -> None:
+        self._connection = connection
+
+    def insert(self, record: ExperimentPlanRecord) -> None:
+        _execute_write(
+            self._connection,
+            tables.experiment_plan.insert().values(
+                experiment_id=record.experiment_id,
+                research_run_id=record.research_run_id,
+                hypothesis_id=record.hypothesis_id,
+                required_capability=record.required_capability,
+                action=record.action,
+                target_reference=record.target_reference,
+                side_effect_level=record.side_effect_level,
+                arguments=dict(record.arguments),
+                requested_budget_id=record.requested_budget_id,
+                expected_observation=record.expected_observation,
+                disconfirming_observation=record.disconfirming_observation,
+                evaluation_strategy=record.evaluation_strategy,
+                created_at=record.created_at,
+            ),
+        )
+
+    def get(self, experiment_id: str) -> ExperimentPlanRecord | None:
+        require_opaque_id(experiment_id, "experiment_id")
+        return _fetch_one(
+            self._connection,
+            tables.experiment_plan,
+            tables.experiment_plan.c.experiment_id,
+            experiment_id,
+            map_row.experiment_plan_from_row,
+        )
+
+
+class PostgresHypothesisAssessmentRepository:
+    def __init__(self, connection: Connection) -> None:
+        self._connection = connection
+
+    def insert(self, record: HypothesisAssessmentRecord) -> None:
+        _execute_write(
+            self._connection,
+            tables.hypothesis_assessment.insert().values(
+                assessment_id=record.assessment_id,
+                hypothesis_id=record.hypothesis_id,
+                experiment_id=record.experiment_id,
+                research_run_id=record.research_run_id,
+                assessment_outcome=record.assessment_outcome,
+                observation_ids=list(record.observation_ids),
+                evaluator_kind=record.evaluator_kind,
+                evaluator_version=record.evaluator_version,
+                rationale=dict(record.rationale),
+                evaluation_strategy=record.evaluation_strategy,
+                created_at=record.created_at,
+            ),
+        )
+
+    def get(self, assessment_id: str) -> HypothesisAssessmentRecord | None:
+        require_opaque_id(assessment_id, "assessment_id")
+        return _fetch_one(
+            self._connection,
+            tables.hypothesis_assessment,
+            tables.hypothesis_assessment.c.assessment_id,
+            assessment_id,
+            map_row.hypothesis_assessment_from_row,
+        )
+
+    def list_for_experiment(
+        self, experiment_id: str
+    ) -> list[HypothesisAssessmentRecord]:
+        require_opaque_id(experiment_id, "experiment_id")
+        try:
+            rows = self._connection.execute(
+                select(tables.hypothesis_assessment)
+                .where(tables.hypothesis_assessment.c.experiment_id == experiment_id)
+                .order_by(tables.hypothesis_assessment.c.assessment_id)
+            ).mappings().all()
+        except SQLAlchemyError as exc:
+            raise PersistenceError("persistence read failed") from exc
+        return [map_row.hypothesis_assessment_from_row(row) for row in rows]
+
+    def list_for_hypothesis(
+        self, hypothesis_id: str
+    ) -> list[HypothesisAssessmentRecord]:
+        require_opaque_id(hypothesis_id, "hypothesis_id")
+        try:
+            rows = self._connection.execute(
+                select(tables.hypothesis_assessment)
+                .where(tables.hypothesis_assessment.c.hypothesis_id == hypothesis_id)
+                .order_by(tables.hypothesis_assessment.c.assessment_id)
+            ).mappings().all()
+        except SQLAlchemyError as exc:
+            raise PersistenceError("persistence read failed") from exc
+        return [map_row.hypothesis_assessment_from_row(row) for row in rows]
+
+    def list_for_research_run(
+        self, research_run_id: str
+    ) -> list[HypothesisAssessmentRecord]:
+        require_opaque_id(research_run_id, "research_run_id")
+        try:
+            rows = self._connection.execute(
+                select(tables.hypothesis_assessment)
+                .where(tables.hypothesis_assessment.c.research_run_id == research_run_id)
+                .order_by(tables.hypothesis_assessment.c.assessment_id)
+            ).mappings().all()
+        except SQLAlchemyError as exc:
+            raise PersistenceError("persistence read failed") from exc
+        return [map_row.hypothesis_assessment_from_row(row) for row in rows]
 
 
 class PostgresAuditEventRepository:

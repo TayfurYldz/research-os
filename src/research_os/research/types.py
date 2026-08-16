@@ -51,6 +51,7 @@ class ExperimentPlan:
     requested_budget_id: str
     expected_observation: str
     disconfirming_observation: str
+    evaluation_strategy: str
 
     def __post_init__(self) -> None:
         object.__setattr__(
@@ -84,6 +85,11 @@ class ExperimentPlan:
             self,
             "disconfirming_observation",
             _require_text(self.disconfirming_observation, "disconfirming_observation"),
+        )
+        object.__setattr__(
+            self,
+            "evaluation_strategy",
+            _require_text(self.evaluation_strategy, "evaluation_strategy"),
         )
         if not isinstance(self.arguments, Mapping):
             raise ResearchInputError("arguments must be a mapping")

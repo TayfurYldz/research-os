@@ -8,11 +8,14 @@ from research_os.data.ports import (
     AuditEventRepository,
     AuthorizationSourceRepository,
     ExecutionAttemptRepository,
+    ExperimentPlanRepository,
     ExperimentRepository,
+    HypothesisAssessmentRepository,
     HypothesisRepository,
     IssuedBudgetRepository,
     ObservationRepository,
     ProgramRepository,
+    ResearchAdmissionRepository,
     ResearchReasoningRepository,
     ResearchRunRepository,
     WorkerResultRepository,
@@ -32,6 +35,9 @@ class UnitOfWork(Protocol):
     worker_results: WorkerResultRepository
     observations: ObservationRepository
     research_reasoning: ResearchReasoningRepository
+    research_admissions: ResearchAdmissionRepository
+    experiment_plans: ExperimentPlanRepository
+    hypothesis_assessments: HypothesisAssessmentRepository
     audit_events: AuditEventRepository
 
     def commit(self) -> None: ...

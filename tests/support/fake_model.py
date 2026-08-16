@@ -71,13 +71,21 @@ class ScriptedModelPort:
         *,
         generator: GeneratorScript | Mapping[str, Any] | None = None,
         falsifier: FalsifierScript | Mapping[str, Any] | None = None,
+        error: Exception | None = None,
+        fail_role: ModelRole | None = None,
     ) -> None:
         self._generator = generator
         self._falsifier = falsifier
+        self._error = error
+        self._fail_role = fail_role
         self.calls: list[ModelCallRequest] = []
 
     def complete(self, request: ModelCallRequest) -> ModelCallResult:
         self.calls.append(request)
+        if self._error is not None and (
+            self._fail_role is None or request.role is self._fail_role
+        ):
+            raise self._error
         if request.role is ModelRole.GENERATOR:
             output = self._resolve(self._generator, request, default_generator_output)
         elif request.role is ModelRole.FALSIFIER:

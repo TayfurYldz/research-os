@@ -271,8 +271,8 @@ research_reasoning = Table(
     "research_reasoning",
     metadata,
     Column("reasoning_record_id", Text, primary_key=True),
-    Column("research_run_id", Text, nullable=False),
-    Column("hypothesis_id", Text, nullable=False),
+    Column("research_run_id", Text, ForeignKey("research_run.research_run_id"), nullable=False),
+    Column("hypothesis_id", Text, nullable=True),
     Column("role", Text, nullable=False),
     Column("adapter_identity", Text, nullable=False),
     Column("provider_adapter_identity", Text, nullable=False),
@@ -293,6 +293,121 @@ research_reasoning = Table(
     ),
 )
 
+research_admission = Table(
+    "research_admission",
+    metadata,
+    Column("admission_record_id", Text, primary_key=True),
+    Column("research_run_id", Text, ForeignKey("research_run.research_run_id"), nullable=False),
+    Column("generator_reasoning_record_id", Text, nullable=True),
+    Column("falsifier_reasoning_record_id", Text, nullable=True),
+    Column("outcome", Text, nullable=False),
+    Column("admitted_hypothesis_id", Text, nullable=True),
+    Column("reason", Text, nullable=False),
+    Column("reason_code", Text, nullable=False),
+    Column("context_fingerprint", Text, nullable=False),
+    Column("created_at", DateTime(timezone=True), nullable=False),
+    ForeignKeyConstraint(
+        ["generator_reasoning_record_id"],
+        ["research_reasoning.reasoning_record_id"],
+        name="fk_research_admission_generator_reasoning",
+    ),
+    ForeignKeyConstraint(
+        ["falsifier_reasoning_record_id"],
+        ["research_reasoning.reasoning_record_id"],
+        name="fk_research_admission_falsifier_reasoning",
+    ),
+    ForeignKeyConstraint(
+        ["admitted_hypothesis_id", "research_run_id"],
+        ["hypothesis.hypothesis_id", "hypothesis.research_run_id"],
+        name="fk_research_admission_hypothesis_same_run",
+    ),
+    CheckConstraint(
+        "outcome IN ("
+        "'ADMITTED', 'REJECTED_UNTESTABLE', 'REJECTED_UNSUPPORTED', "
+        "'REJECTED_POLICY_CONFLICT', 'NEEDS_MORE_CONTEXT', 'MODEL_INVOCATION_FAILED')",
+        name="ck_research_admission_outcome",
+    ),
+    CheckConstraint(
+        "(outcome = 'ADMITTED' AND admitted_hypothesis_id IS NOT NULL) OR "
+        "(outcome <> 'ADMITTED' AND admitted_hypothesis_id IS NULL)",
+        name="ck_research_admission_hypothesis_presence",
+    ),
+)
+
+experiment_plan = Table(
+    "experiment_plan",
+    metadata,
+    Column("experiment_id", Text, primary_key=True),
+    Column("research_run_id", Text, nullable=False),
+    Column("hypothesis_id", Text, nullable=False),
+    Column("required_capability", Text, nullable=False),
+    Column("action", Text, nullable=False),
+    Column("target_reference", Text, nullable=False),
+    Column("side_effect_level", Integer, nullable=False),
+    Column("arguments", JSONB, nullable=False),
+    Column("requested_budget_id", Text, nullable=False),
+    Column("expected_observation", Text, nullable=False),
+    Column("disconfirming_observation", Text, nullable=False),
+    Column("evaluation_strategy", Text, nullable=False),
+    Column("created_at", DateTime(timezone=True), nullable=False),
+    ForeignKeyConstraint(
+        ["experiment_id", "research_run_id"],
+        ["experiment.experiment_id", "experiment.research_run_id"],
+        name="fk_experiment_plan_experiment_same_run",
+    ),
+    ForeignKeyConstraint(
+        ["hypothesis_id", "research_run_id"],
+        ["hypothesis.hypothesis_id", "hypothesis.research_run_id"],
+        name="fk_experiment_plan_hypothesis_same_run",
+    ),
+    ForeignKeyConstraint(
+        ["requested_budget_id", "research_run_id"],
+        ["issued_budget.budget_id", "issued_budget.research_run_id"],
+        name="fk_experiment_plan_budget_same_run",
+    ),
+    UniqueConstraint("experiment_id", "research_run_id", name="uq_experiment_plan_id_run"),
+    CheckConstraint(
+        "side_effect_level IN (0, 1, 2, 3)",
+        name="ck_experiment_plan_side_effect_level",
+    ),
+)
+
+hypothesis_assessment = Table(
+    "hypothesis_assessment",
+    metadata,
+    Column("assessment_id", Text, primary_key=True),
+    Column("hypothesis_id", Text, nullable=False),
+    Column("experiment_id", Text, nullable=False),
+    Column("research_run_id", Text, nullable=False),
+    Column("assessment_outcome", Text, nullable=False),
+    Column("observation_ids", JSONB, nullable=False),
+    Column("evaluator_kind", Text, nullable=False),
+    Column("evaluator_version", Text, nullable=False),
+    Column("rationale", JSONB, nullable=False),
+    Column("evaluation_strategy", Text, nullable=False),
+    Column("created_at", DateTime(timezone=True), nullable=False),
+    ForeignKeyConstraint(
+        ["hypothesis_id", "research_run_id"],
+        ["hypothesis.hypothesis_id", "hypothesis.research_run_id"],
+        name="fk_hypothesis_assessment_hypothesis_same_run",
+    ),
+    ForeignKeyConstraint(
+        ["experiment_id", "research_run_id"],
+        ["experiment.experiment_id", "experiment.research_run_id"],
+        name="fk_hypothesis_assessment_experiment_same_run",
+    ),
+    CheckConstraint(
+        "assessment_outcome IN ("
+        "'CONSISTENT_WITH_PREDICTION', 'CONTRADICTS_PREDICTION', "
+        "'INCONCLUSIVE', 'EXECUTION_UNUSABLE', 'NEEDS_MORE_CONTEXT')",
+        name="ck_hypothesis_assessment_outcome",
+    ),
+    CheckConstraint(
+        "evaluator_kind IN ('DETERMINISTIC')",
+        name="ck_hypothesis_assessment_evaluator_kind",
+    ),
+)
+
 SPINE_TABLES = (
     program,
     authorization_source,
@@ -305,6 +420,16 @@ SPINE_TABLES = (
     observation,
     audit_event,
     research_reasoning,
+    research_admission,
+    experiment_plan,
+    hypothesis_assessment,
 )
 
-APPEND_ONLY_TABLES = ("issued_budget", "audit_event", "research_reasoning")
+APPEND_ONLY_TABLES = (
+    "issued_budget",
+    "audit_event",
+    "research_reasoning",
+    "research_admission",
+    "experiment_plan",
+    "hypothesis_assessment",
+)

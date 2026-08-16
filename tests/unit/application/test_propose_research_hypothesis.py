@@ -64,6 +64,11 @@ class ProposeResearchHypothesisTests(unittest.TestCase):
         self.assertEqual(len(store.research_reasoning), 2)
         self.assertEqual(result.experiment_plan.expected_observation, "echoed value matches input")
         self.assertFalse(hasattr(result.experiment_plan, "severity"))
+        self.assertIsNotNone(result.admission_record_id)
+        self.assertEqual(len(store.research_admissions), 1)
+        admission = next(iter(store.research_admissions.values()))
+        self.assertEqual(admission.outcome, "ADMITTED")
+        self.assertEqual(admission.admitted_hypothesis_id, result.hypothesis_id)
 
     def test_proposal_is_not_a_hypothesis_until_admitted(self) -> None:
         store = _Store()
@@ -72,10 +77,13 @@ class ProposeResearchHypothesisTests(unittest.TestCase):
         result = _use_case(store, model).execute(_command())
         self.assertNotEqual(result.outcome, AdmissionOutcome.ADMITTED)
         self.assertEqual(store.hypotheses, {})
-        self.assertEqual(store.research_reasoning, {})
+        self.assertEqual(len(store.research_reasoning), 1)
+        self.assertEqual(len(store.research_admissions), 1)
+        admission = next(iter(store.research_admissions.values()))
+        self.assertIsNone(admission.admitted_hypothesis_id)
         self.assertIsNone(result.experiment_plan)
 
-    def test_rejected_invented_source_does_not_persist(self) -> None:
+    def test_rejected_invented_source_persists_admission_not_hypothesis(self) -> None:
         store = _Store()
         seed_authorization_run(store)
 
@@ -89,7 +97,13 @@ class ProposeResearchHypothesisTests(unittest.TestCase):
         )
         self.assertEqual(result.outcome, AdmissionOutcome.NEEDS_MORE_CONTEXT)
         self.assertEqual(store.hypotheses, {})
-        self.assertEqual(store.research_reasoning, {})
+        self.assertEqual(len(store.research_reasoning), 2)
+        admission = next(iter(store.research_admissions.values()))
+        self.assertEqual(admission.reason_code, "HALLUCINATED_SOURCE")
+        self.assertIsNone(admission.admitted_hypothesis_id)
+        reasoning = next(iter(store.research_reasoning.values()))
+        self.assertNotIn("prompt", reasoning.structured_output)
+        self.assertNotIn("instructions", reasoning.structured_output)
 
     def test_authority_claim_does_not_persist(self) -> None:
         store = _Store()
@@ -106,6 +120,37 @@ class ProposeResearchHypothesisTests(unittest.TestCase):
         self.assertEqual(result.outcome, AdmissionOutcome.REJECTED_POLICY_CONFLICT)
         self.assertEqual(store.hypotheses, {})
 
+    def test_n4_claim_is_preserved_and_not_product_truth(self) -> None:
+        store = _Store()
+        seed_authorization_run(store)
+
+        def n4(request):
+            payload = dict(default_generator_output(request))
+            payload["novelty_basis"] = "N4_ZERO_DAY"
+            return payload
+
+        result = _use_case(store, ScriptedModelPort(generator=n4)).execute(_command())
+        self.assertEqual(result.outcome, AdmissionOutcome.ADMITTED)
+        reasoning = store.research_reasoning[result.generator_reasoning_id]
+        self.assertEqual(reasoning.structured_output["novelty_basis"], "UNCLASSIFIED")
+        self.assertEqual(reasoning.structured_output["model_claimed_novelty"], "N4_ZERO_DAY")
+        self.assertNotEqual(store.hypotheses[result.hypothesis_id].claim, "N4_ZERO_DAY")
+
+    def test_model_invocation_failure_persists_admission_without_hypothesis(self) -> None:
+        store = _Store()
+        seed_authorization_run(store)
+        from research_os.research.model_port import ModelPortError
+
+        result = _use_case(
+            store, ScriptedModelPort(error=ModelPortError("injected failure"))
+        ).execute(_command())
+        self.assertEqual(result.outcome, AdmissionOutcome.MODEL_INVOCATION_FAILED)
+        self.assertEqual(store.hypotheses, {})
+        self.assertEqual(store.research_reasoning, {})
+        admission = next(iter(store.research_admissions.values()))
+        self.assertIsNone(admission.admitted_hypothesis_id)
+        self.assertEqual(admission.reason_code, "MODEL_INVOCATION_FAILED")
+
     def test_transaction_failure_does_not_leave_partial_reasoning(self) -> None:
         store = _Store()
         seed_authorization_run(store)
@@ -113,6 +158,7 @@ class ProposeResearchHypothesisTests(unittest.TestCase):
             _use_case(store, fail_on="research_reasoning").execute(_command())
         self.assertEqual(store.hypotheses, {})
         self.assertEqual(store.research_reasoning, {})
+        self.assertEqual(store.research_admissions, {})
 
     def test_hostile_external_content_does_not_alter_admission(self) -> None:
         store = _Store()

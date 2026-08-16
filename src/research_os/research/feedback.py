@@ -1,4 +1,4 @@
-"""Research-facing experiment feedback. Not a vulnerability verdict."""
+"""Experiment feedback. Reconstructs what happened. Not a vulnerability verdict."""
 
 from __future__ import annotations
 
@@ -15,16 +15,43 @@ def _require_text(value: object, field_name: str) -> str:
 
 
 @dataclass(frozen=True)
+class ObservedFact:
+    """One Observation reference for assessment. Not Evidence."""
+
+    observation_id: str
+    observation_kind: str
+    payload: Mapping[str, Any]
+
+    def __post_init__(self) -> None:
+        object.__setattr__(
+            self, "observation_id", _require_text(self.observation_id, "observation_id")
+        )
+        object.__setattr__(
+            self,
+            "observation_kind",
+            _require_text(self.observation_kind, "observation_kind"),
+        )
+        if not isinstance(self.payload, Mapping):
+            raise ResearchInputError("payload must be a mapping")
+        object.__setattr__(self, "payload", dict(self.payload))
+
+
+@dataclass(frozen=True)
 class ExperimentFeedback:
-    """Structured outcome references for later belief update. Not Evidence."""
+    """Enough context to ask what happened. Not Hypothesis truth and not Evidence."""
 
     hypothesis_id: str
     experiment_id: str
-    execution_outcome: str
-    observation_ids: tuple[str, ...]
     research_run_id: str
-    context_fingerprint: str | None = None
-    notes: Mapping[str, Any] | None = None
+    expected_observation: str
+    disconfirming_observation: str
+    evaluation_strategy: str
+    execution_outcome: str
+    observations: tuple[ObservedFact, ...]
+    submitted_value: str | None = None
+    invocation_status: str | None = None
+    experiment_execution_state: str | None = None
+    attempt_state: str | None = None
 
     def __post_init__(self) -> None:
         object.__setattr__(
@@ -35,17 +62,32 @@ class ExperimentFeedback:
         )
         object.__setattr__(
             self,
-            "execution_outcome",
-            _require_text(self.execution_outcome, "execution_outcome"),
-        )
-        object.__setattr__(
-            self,
             "research_run_id",
             _require_text(self.research_run_id, "research_run_id"),
         )
-        if not isinstance(self.observation_ids, tuple):
-            raise ResearchInputError("observation_ids must be a tuple")
-        if self.notes is not None and not isinstance(self.notes, Mapping):
-            raise ResearchInputError("notes must be a mapping")
-        if self.notes is not None:
-            object.__setattr__(self, "notes", dict(self.notes))
+        object.__setattr__(
+            self,
+            "expected_observation",
+            _require_text(self.expected_observation, "expected_observation"),
+        )
+        object.__setattr__(
+            self,
+            "disconfirming_observation",
+            _require_text(self.disconfirming_observation, "disconfirming_observation"),
+        )
+        object.__setattr__(
+            self,
+            "evaluation_strategy",
+            _require_text(self.evaluation_strategy, "evaluation_strategy"),
+        )
+        object.__setattr__(
+            self,
+            "execution_outcome",
+            _require_text(self.execution_outcome, "execution_outcome"),
+        )
+        if not isinstance(self.observations, tuple):
+            raise ResearchInputError("observations must be a tuple")
+
+    @property
+    def observation_ids(self) -> tuple[str, ...]:
+        return tuple(item.observation_id for item in self.observations)

@@ -18,12 +18,14 @@ class AdmissionOutcome(Enum):
     REJECTED_UNSUPPORTED = "REJECTED_UNSUPPORTED"
     REJECTED_POLICY_CONFLICT = "REJECTED_POLICY_CONFLICT"
     NEEDS_MORE_CONTEXT = "NEEDS_MORE_CONTEXT"
+    MODEL_INVOCATION_FAILED = "MODEL_INVOCATION_FAILED"
 
 
 @dataclass(frozen=True)
 class AdmissionDecision:
     outcome: AdmissionOutcome
     reason: str
+    reason_code: str
     proposal: HypothesisProposal | None
     challenge: HypothesisChallenge | None
 
@@ -54,6 +56,7 @@ def admit_hypothesis(
         return AdmissionDecision(
             outcome=AdmissionOutcome.REJECTED_UNTESTABLE,
             reason="no validated HypothesisProposal",
+            reason_code="NO_VALIDATED_PROPOSAL",
             proposal=None,
             challenge=challenge,
         )
@@ -61,6 +64,7 @@ def admit_hypothesis(
         return AdmissionDecision(
             outcome=AdmissionOutcome.REJECTED_UNTESTABLE,
             reason="Falsifier challenge is required before admission",
+            reason_code="CHALLENGE_REQUIRED",
             proposal=proposal,
             challenge=None,
         )
@@ -70,6 +74,7 @@ def admit_hypothesis(
         return AdmissionDecision(
             outcome=AdmissionOutcome.REJECTED_UNTESTABLE,
             reason="proposed_claim is empty",
+            reason_code="EMPTY_CLAIM",
             proposal=proposal,
             challenge=challenge,
         )
@@ -79,6 +84,7 @@ def admit_hypothesis(
         return AdmissionDecision(
             outcome=AdmissionOutcome.REJECTED_POLICY_CONFLICT,
             reason="proposal attempts to set policy, Evidence, or Finding semantics",
+            reason_code="POLICY_CONFLICT",
             proposal=proposal,
             challenge=challenge,
         )
@@ -87,6 +93,7 @@ def admit_hypothesis(
         return AdmissionDecision(
             outcome=AdmissionOutcome.REJECTED_UNSUPPORTED,
             reason="proposal has no source references",
+            reason_code="NO_SOURCE_REFERENCES",
             proposal=proposal,
             challenge=challenge,
         )
@@ -97,6 +104,7 @@ def admit_hypothesis(
         return AdmissionDecision(
             outcome=AdmissionOutcome.NEEDS_MORE_CONTEXT,
             reason=f"source references are not in the assembled context: {missing}",
+            reason_code="HALLUCINATED_SOURCE",
             proposal=proposal,
             challenge=challenge,
         )
@@ -112,6 +120,7 @@ def admit_hypothesis(
         return AdmissionDecision(
             outcome=AdmissionOutcome.REJECTED_UNSUPPORTED,
             reason="proposal is not supported by an allowed context item",
+            reason_code="UNSUPPORTED_CONTEXT",
             proposal=proposal,
             challenge=challenge,
         )
@@ -120,6 +129,7 @@ def admit_hypothesis(
         return AdmissionDecision(
             outcome=AdmissionOutcome.REJECTED_UNTESTABLE,
             reason="proposal has no suggested disconfirming test",
+            reason_code="MISSING_DISCONFIRMING_TEST",
             proposal=proposal,
             challenge=challenge,
         )
@@ -127,6 +137,7 @@ def admit_hypothesis(
         return AdmissionDecision(
             outcome=AdmissionOutcome.REJECTED_UNTESTABLE,
             reason="proposal has no suggested capability",
+            reason_code="MISSING_CAPABILITY",
             proposal=proposal,
             challenge=challenge,
         )
@@ -134,6 +145,7 @@ def admit_hypothesis(
         return AdmissionDecision(
             outcome=AdmissionOutcome.REJECTED_UNTESTABLE,
             reason="challenge has no proposed disconfirming observation",
+            reason_code="MISSING_DISCONFIRMING_OBSERVATION",
             proposal=proposal,
             challenge=challenge,
         )
@@ -141,6 +153,7 @@ def admit_hypothesis(
         return AdmissionDecision(
             outcome=AdmissionOutcome.REJECTED_UNTESTABLE,
             reason="challenge must retain at least one alternative explanation",
+            reason_code="MISSING_ALTERNATIVE_EXPLANATION",
             proposal=proposal,
             challenge=challenge,
         )
@@ -148,6 +161,7 @@ def admit_hypothesis(
     return AdmissionDecision(
         outcome=AdmissionOutcome.ADMITTED,
         reason="proposal is testable, sourced, and independently challenged",
+        reason_code="ADMITTED",
         proposal=proposal,
         challenge=challenge,
     )

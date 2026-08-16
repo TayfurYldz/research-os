@@ -1,0 +1,213 @@
+"""Bounded Generator/Falsifier/admission cycle for evaluation. No persistence."""
+
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from typing import Any, Mapping
+
+from research_os.research.admission import AdmissionDecision, AdmissionOutcome, admit_hypothesis
+from research_os.research.context import ResearchContext
+from research_os.research.cycle import generate_challenge, generate_proposal
+from research_os.research.model_port import (
+    ModelCallRequest,
+    ModelCallResult,
+    ModelPort,
+    ModelPortError,
+    ModelRole,
+)
+from research_os.research.proposals import (
+    HypothesisChallenge,
+    HypothesisProposal,
+    ProposalAuthorityError,
+)
+from research_os.research.types import ResearchInputError
+
+
+@dataclass
+class RecordingModelPort:
+    """Records ModelCallRequest envelopes. Does not alter structured output."""
+
+    inner: ModelPort
+    requests: list[ModelCallRequest] = field(default_factory=list)
+
+    def complete(self, request: ModelCallRequest) -> ModelCallResult:
+        self.requests.append(request)
+        return self.inner.complete(request)
+
+
+@dataclass(frozen=True)
+class BoundedCycleTrace:
+    context: ResearchContext
+    admission: AdmissionDecision
+    generator_calls: int
+    falsifier_calls: int
+    requests: tuple[ModelCallRequest, ...]
+    proposal: HypothesisProposal | None = None
+    challenge: HypothesisChallenge | None = None
+    generator_output: Mapping[str, Any] | None = None
+    falsifier_output: Mapping[str, Any] | None = None
+    parse_error: str | None = None
+
+
+def run_bounded_cycle(
+    context: ResearchContext,
+    model: ModelPort,
+    *,
+    correlation_id: str,
+) -> BoundedCycleTrace:
+    recorder = RecordingModelPort(model)
+    proposal: HypothesisProposal | None = None
+    challenge: HypothesisChallenge | None = None
+    generator_output: Mapping[str, Any] | None = None
+    falsifier_output: Mapping[str, Any] | None = None
+    parse_error: str | None = None
+
+    try:
+        generated = generate_proposal(
+            context, recorder, correlation_id=correlation_id
+        )
+        generator_output = dict(generated.model_result.structured_output)
+        proposal = generated.proposal
+    except ModelPortError as exc:
+        admission = AdmissionDecision(
+            outcome=AdmissionOutcome.MODEL_INVOCATION_FAILED,
+            reason=str(exc),
+            reason_code="MODEL_INVOCATION_FAILED",
+            proposal=None,
+            challenge=None,
+        )
+        return BoundedCycleTrace(
+            context=context,
+            admission=admission,
+            generator_calls=_role_calls(recorder, ModelRole.GENERATOR),
+            falsifier_calls=0,
+            requests=tuple(recorder.requests),
+            parse_error=str(exc),
+        )
+    except ProposalAuthorityError as exc:
+        generator_output = _output_from_exc(exc)
+        admission = AdmissionDecision(
+            outcome=AdmissionOutcome.REJECTED_POLICY_CONFLICT,
+            reason=str(exc),
+            reason_code="POLICY_CONFLICT",
+            proposal=None,
+            challenge=None,
+        )
+        return BoundedCycleTrace(
+            context=context,
+            admission=admission,
+            generator_calls=_role_calls(recorder, ModelRole.GENERATOR),
+            falsifier_calls=0,
+            requests=tuple(recorder.requests),
+            generator_output=generator_output,
+            parse_error=str(exc),
+        )
+    except ResearchInputError as exc:
+        generator_output = _output_from_exc(exc)
+        admission = AdmissionDecision(
+            outcome=AdmissionOutcome.REJECTED_UNTESTABLE,
+            reason=str(exc),
+            reason_code="INVALID_STRUCTURED_OUTPUT",
+            proposal=None,
+            challenge=None,
+        )
+        return BoundedCycleTrace(
+            context=context,
+            admission=admission,
+            generator_calls=_role_calls(recorder, ModelRole.GENERATOR),
+            falsifier_calls=0,
+            requests=tuple(recorder.requests),
+            generator_output=generator_output,
+            parse_error=str(exc),
+        )
+
+    try:
+        challenged = generate_challenge(
+            context, proposal, recorder, correlation_id=correlation_id
+        )
+        falsifier_output = dict(challenged.model_result.structured_output)
+        challenge = challenged.challenge
+    except ModelPortError as exc:
+        admission = AdmissionDecision(
+            outcome=AdmissionOutcome.MODEL_INVOCATION_FAILED,
+            reason=str(exc),
+            reason_code="MODEL_INVOCATION_FAILED",
+            proposal=proposal,
+            challenge=None,
+        )
+        return BoundedCycleTrace(
+            context=context,
+            admission=admission,
+            generator_calls=_role_calls(recorder, ModelRole.GENERATOR),
+            falsifier_calls=_role_calls(recorder, ModelRole.FALSIFIER),
+            requests=tuple(recorder.requests),
+            proposal=proposal,
+            generator_output=generator_output,
+            parse_error=str(exc),
+        )
+    except ProposalAuthorityError as exc:
+        falsifier_output = _output_from_exc(exc)
+        parse_error = str(exc)
+        admission = AdmissionDecision(
+            outcome=AdmissionOutcome.REJECTED_POLICY_CONFLICT,
+            reason=str(exc),
+            reason_code="POLICY_CONFLICT",
+            proposal=proposal,
+            challenge=None,
+        )
+        return BoundedCycleTrace(
+            context=context,
+            admission=admission,
+            generator_calls=_role_calls(recorder, ModelRole.GENERATOR),
+            falsifier_calls=_role_calls(recorder, ModelRole.FALSIFIER),
+            requests=tuple(recorder.requests),
+            proposal=proposal,
+            generator_output=generator_output,
+            falsifier_output=falsifier_output,
+            parse_error=parse_error,
+        )
+    except ResearchInputError as exc:
+        falsifier_output = _output_from_exc(exc)
+        parse_error = str(exc)
+        admission = AdmissionDecision(
+            outcome=AdmissionOutcome.REJECTED_UNTESTABLE,
+            reason=str(exc),
+            reason_code="INVALID_STRUCTURED_OUTPUT",
+            proposal=proposal,
+            challenge=None,
+        )
+        return BoundedCycleTrace(
+            context=context,
+            admission=admission,
+            generator_calls=_role_calls(recorder, ModelRole.GENERATOR),
+            falsifier_calls=_role_calls(recorder, ModelRole.FALSIFIER),
+            requests=tuple(recorder.requests),
+            proposal=proposal,
+            generator_output=generator_output,
+            falsifier_output=falsifier_output,
+            parse_error=parse_error,
+        )
+
+    admission = admit_hypothesis(context, proposal, challenge)
+    return BoundedCycleTrace(
+        context=context,
+        admission=admission,
+        generator_calls=_role_calls(recorder, ModelRole.GENERATOR),
+        falsifier_calls=_role_calls(recorder, ModelRole.FALSIFIER),
+        requests=tuple(recorder.requests),
+        proposal=proposal,
+        challenge=challenge,
+        generator_output=generator_output,
+        falsifier_output=falsifier_output,
+    )
+
+
+def _role_calls(recorder: RecordingModelPort, role: ModelRole) -> int:
+    return sum(1 for request in recorder.requests if request.role is role)
+
+
+def _output_from_exc(exc: BaseException) -> Mapping[str, Any] | None:
+    result = getattr(exc, "model_result", None)
+    if result is None:
+        return None
+    return dict(result.structured_output)

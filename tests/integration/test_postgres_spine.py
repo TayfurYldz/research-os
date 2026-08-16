@@ -664,11 +664,14 @@ class PostgresSpineTests(unittest.TestCase):
                     )
                 )
             }
-        self.assertEqual(version, "a8_001_research_reasoning")
+        self.assertEqual(version, "a9_001_learning_cycle")
         self.assertIn("execution_attempt", tables)
         self.assertIn("worker_result", tables)
         self.assertIn("audit_event", tables)
         self.assertIn("research_reasoning", tables)
+        self.assertIn("research_admission", tables)
+        self.assertIn("experiment_plan", tables)
+        self.assertIn("hypothesis_assessment", tables)
 
 
 if __name__ == "__main__":

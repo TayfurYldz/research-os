@@ -139,10 +139,15 @@ def generate_proposal(
     )
     result = model.complete(request)
     if result.role is not ModelRole.GENERATOR:
-        raise ResearchInputError("Generator result role mismatch")
+        error = ResearchInputError("Generator result role mismatch")
+        error.model_result = result
+        error.request = request
+        raise error
     try:
         proposal = parse_hypothesis_proposal(result.structured_output)
-    except ProposalAuthorityError:
+    except (ProposalAuthorityError, ResearchInputError) as exc:
+        exc.model_result = result
+        exc.request = request
         raise
     return GeneratedProposal(proposal=proposal, model_result=result, request=request)
 
@@ -163,8 +168,16 @@ def generate_challenge(
     )
     result = model.complete(request)
     if result.role is not ModelRole.FALSIFIER:
-        raise ResearchInputError("Falsifier result role mismatch")
-    challenge = parse_hypothesis_challenge(result.structured_output)
+        error = ResearchInputError("Falsifier result role mismatch")
+        error.model_result = result
+        error.request = request
+        raise error
+    try:
+        challenge = parse_hypothesis_challenge(result.structured_output)
+    except (ProposalAuthorityError, ResearchInputError) as exc:
+        exc.model_result = result
+        exc.request = request
+        raise
     return GeneratedChallenge(challenge=challenge, model_result=result, request=request)
 
 

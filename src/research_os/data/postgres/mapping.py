@@ -8,11 +8,14 @@ from research_os.data.records import (
     AuditEventRecord,
     AuthorizationSourceRecord,
     ExecutionAttemptRecord,
+    ExperimentPlanRecord,
     ExperimentRecord,
+    HypothesisAssessmentRecord,
     HypothesisRecord,
     IssuedBudgetRecord,
     ObservationRecord,
     ProgramRecord,
+    ResearchAdmissionRecord,
     ResearchReasoningRecord,
     ResearchRunRecord,
     WorkerResultRecord,
@@ -185,4 +188,63 @@ def research_reasoning_from_row(row: Mapping[str, Any]) -> ResearchReasoningReco
         created_at=data["created_at"],
         model_id=data.get("model_id"),
         model_version=data.get("model_version"),
+    )
+
+
+def research_admission_from_row(row: Mapping[str, Any]) -> ResearchAdmissionRecord:
+    data = _mapping(row)
+    return ResearchAdmissionRecord(
+        admission_record_id=data["admission_record_id"],
+        research_run_id=data["research_run_id"],
+        outcome=data["outcome"],
+        reason=data["reason"],
+        reason_code=data["reason_code"],
+        context_fingerprint=data["context_fingerprint"],
+        created_at=data["created_at"],
+        generator_reasoning_record_id=data.get("generator_reasoning_record_id"),
+        falsifier_reasoning_record_id=data.get("falsifier_reasoning_record_id"),
+        admitted_hypothesis_id=data.get("admitted_hypothesis_id"),
+    )
+
+
+def experiment_plan_from_row(row: Mapping[str, Any]) -> ExperimentPlanRecord:
+    data = _mapping(row)
+    return ExperimentPlanRecord(
+        experiment_id=data["experiment_id"],
+        research_run_id=data["research_run_id"],
+        hypothesis_id=data["hypothesis_id"],
+        required_capability=data["required_capability"],
+        action=data["action"],
+        target_reference=data["target_reference"],
+        side_effect_level=data["side_effect_level"],
+        arguments=data["arguments"],
+        requested_budget_id=data["requested_budget_id"],
+        expected_observation=data["expected_observation"],
+        disconfirming_observation=data["disconfirming_observation"],
+        evaluation_strategy=data["evaluation_strategy"],
+        created_at=data["created_at"],
+    )
+
+
+def hypothesis_assessment_from_row(row: Mapping[str, Any]) -> HypothesisAssessmentRecord:
+    data = _mapping(row)
+    observation_ids = data["observation_ids"]
+    if isinstance(observation_ids, tuple):
+        ids = observation_ids
+    elif isinstance(observation_ids, list):
+        ids = tuple(observation_ids)
+    else:
+        ids = ()
+    return HypothesisAssessmentRecord(
+        assessment_id=data["assessment_id"],
+        hypothesis_id=data["hypothesis_id"],
+        experiment_id=data["experiment_id"],
+        research_run_id=data["research_run_id"],
+        assessment_outcome=data["assessment_outcome"],
+        observation_ids=ids,
+        evaluator_kind=data["evaluator_kind"],
+        evaluator_version=data["evaluator_version"],
+        rationale=data["rationale"],
+        evaluation_strategy=data["evaluation_strategy"],
+        created_at=data["created_at"],
     )

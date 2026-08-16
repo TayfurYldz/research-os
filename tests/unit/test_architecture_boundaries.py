@@ -9,6 +9,7 @@ SRC_ROOT = REPO_ROOT / "src" / "research_os"
 CORE_DIR = SRC_ROOT / "core"
 RESEARCH_DIR = SRC_ROOT / "research"
 APPLICATION_DIR = SRC_ROOT / "application"
+BENCHMARK_DIR = SRC_ROOT / "benchmark"
 PLATFORM_DIR = SRC_ROOT / "platform"
 WORKERS_DIR = REPO_ROOT / "workers"
 
@@ -78,6 +79,7 @@ class ArchitectureBoundaryTests(unittest.TestCase):
                     "research_os.platform.local_process_worker",
                     "research_os.application",
                     "research_os.research",
+                    "research_os.benchmark",
                 ),
             ),
             [],
@@ -96,6 +98,7 @@ class ArchitectureBoundaryTests(unittest.TestCase):
                     "research_os.workers",
                     "research_os.platform",
                     "research_os.application",
+                    "research_os.benchmark",
                     "google.generativeai",
                 ),
             ),
@@ -106,12 +109,35 @@ class ArchitectureBoundaryTests(unittest.TestCase):
         self.assertEqual(
             _violations(
                 APPLICATION_DIR,
-                forbidden_roots=EXECUTION_ROOTS + PERSISTENCE_LIBS,
+                forbidden_roots=EXECUTION_ROOTS
+                + PERSISTENCE_LIBS
+                + ("openai", "anthropic", "langchain"),
                 forbidden_prefixes=(
                     "research_os.data.postgres",
                     "research_os.platform.local_process_worker",
                     "research_os.workers",
+                    "research_os.benchmark",
                     "integrations",
+                    "google.generativeai",
+                ),
+            ),
+            [],
+        )
+
+    def test_benchmark_does_not_import_sor_providers_or_workers(self) -> None:
+        self.assertEqual(
+            _violations(
+                BENCHMARK_DIR,
+                forbidden_roots=EXECUTION_ROOTS
+                + PERSISTENCE_LIBS
+                + SCHEMA_LIBS
+                + ("openai", "anthropic", "langchain", "llama_index", "litellm"),
+                forbidden_prefixes=(
+                    "research_os.data",
+                    "research_os.application",
+                    "research_os.workers",
+                    "research_os.platform",
+                    "google.generativeai",
                 ),
             ),
             [],

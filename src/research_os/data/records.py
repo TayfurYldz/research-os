@@ -80,12 +80,41 @@ ALLOWED_EXECUTION_ATTEMPT_STATES = frozenset(
 )
 
 ALLOWED_REASONING_ROLES = frozenset({"GENERATOR", "FALSIFIER"})
+ALLOWED_ADMISSION_OUTCOMES = frozenset(
+    {
+        "ADMITTED",
+        "REJECTED_UNTESTABLE",
+        "REJECTED_UNSUPPORTED",
+        "REJECTED_POLICY_CONFLICT",
+        "NEEDS_MORE_CONTEXT",
+        "MODEL_INVOCATION_FAILED",
+    }
+)
+ALLOWED_ASSESSMENT_OUTCOMES = frozenset(
+    {
+        "CONSISTENT_WITH_PREDICTION",
+        "CONTRADICTS_PREDICTION",
+        "INCONCLUSIVE",
+        "EXECUTION_UNUSABLE",
+        "NEEDS_MORE_CONTEXT",
+    }
+)
+ALLOWED_EVALUATOR_KINDS = frozenset({"DETERMINISTIC"})
+ASSESSMENT_RATIONALE_FORBIDDEN_KEYS = frozenset(
+    {"severity", "evidence", "finding", "confidence", "candidate"}
+)
 
 
 def require_opaque_id(value: str, field_name: str) -> str:
     if not isinstance(value, str) or not value.strip():
         raise PersistenceInputError(f"{field_name} must be a non-empty opaque id")
     return value
+
+
+def require_optional_opaque_id(value: str | None, field_name: str) -> str | None:
+    if value is None:
+        return None
+    return require_opaque_id(value, field_name)
 
 
 def require_aware_datetime(value: datetime, field_name: str) -> datetime:
@@ -240,7 +269,7 @@ class ResearchReasoningRecord:
 
     reasoning_record_id: str
     research_run_id: str
-    hypothesis_id: str
+    hypothesis_id: str | None
     role: str
     adapter_identity: str
     provider_adapter_identity: str
@@ -254,7 +283,7 @@ class ResearchReasoningRecord:
     def __post_init__(self) -> None:
         require_opaque_id(self.reasoning_record_id, "reasoning_record_id")
         require_opaque_id(self.research_run_id, "research_run_id")
-        require_opaque_id(self.hypothesis_id, "hypothesis_id")
+        require_optional_opaque_id(self.hypothesis_id, "hypothesis_id")
         require_opaque_id(self.adapter_identity, "adapter_identity")
         require_opaque_id(self.provider_adapter_identity, "provider_adapter_identity")
         require_opaque_id(self.correlation_id, "correlation_id")
@@ -272,6 +301,137 @@ class ResearchReasoningRecord:
         if self.model_version is not None:
             if not isinstance(self.model_version, str) or not self.model_version.strip():
                 raise PersistenceInputError("model_version must be a non-empty string when set")
+
+
+@dataclass(frozen=True)
+class ResearchAdmissionRecord:
+    """Append-only research-process admission history. Not Hypothesis truth or Evidence."""
+
+    admission_record_id: str
+    research_run_id: str
+    outcome: str
+    reason: str
+    reason_code: str
+    context_fingerprint: str
+    created_at: datetime
+    generator_reasoning_record_id: str | None = None
+    falsifier_reasoning_record_id: str | None = None
+    admitted_hypothesis_id: str | None = None
+
+    def __post_init__(self) -> None:
+        require_opaque_id(self.admission_record_id, "admission_record_id")
+        require_opaque_id(self.research_run_id, "research_run_id")
+        require_aware_datetime(self.created_at, "created_at")
+        if self.outcome not in ALLOWED_ADMISSION_OUTCOMES:
+            raise PersistenceInputError("outcome is not a Research admission outcome")
+        if not isinstance(self.reason, str) or not self.reason.strip():
+            raise PersistenceInputError("reason must be a non-empty string")
+        if not isinstance(self.reason_code, str) or not self.reason_code.strip():
+            raise PersistenceInputError("reason_code must be a non-empty string")
+        if not isinstance(self.context_fingerprint, str) or not self.context_fingerprint.strip():
+            raise PersistenceInputError("context_fingerprint must be a non-empty string")
+        require_optional_opaque_id(
+            self.generator_reasoning_record_id, "generator_reasoning_record_id"
+        )
+        require_optional_opaque_id(
+            self.falsifier_reasoning_record_id, "falsifier_reasoning_record_id"
+        )
+        require_optional_opaque_id(self.admitted_hypothesis_id, "admitted_hypothesis_id")
+        if self.outcome == "ADMITTED" and self.admitted_hypothesis_id is None:
+            raise PersistenceInputError("ADMITTED admission requires admitted_hypothesis_id")
+        if self.outcome != "ADMITTED" and self.admitted_hypothesis_id is not None:
+            raise PersistenceInputError("rejected admission must not carry admitted_hypothesis_id")
+
+
+@dataclass(frozen=True)
+class ExperimentPlanRecord:
+    """Immutable executed-plan specification. Not Experiment lifecycle and not authorization."""
+
+    experiment_id: str
+    research_run_id: str
+    hypothesis_id: str
+    required_capability: str
+    action: str
+    target_reference: str
+    side_effect_level: int
+    arguments: Mapping[str, Any]
+    requested_budget_id: str
+    expected_observation: str
+    disconfirming_observation: str
+    evaluation_strategy: str
+    created_at: datetime
+
+    def __post_init__(self) -> None:
+        require_opaque_id(self.experiment_id, "experiment_id")
+        require_opaque_id(self.research_run_id, "research_run_id")
+        require_opaque_id(self.hypothesis_id, "hypothesis_id")
+        require_opaque_id(self.required_capability, "required_capability")
+        require_opaque_id(self.action, "action")
+        require_opaque_id(self.target_reference, "target_reference")
+        require_opaque_id(self.requested_budget_id, "requested_budget_id")
+        require_aware_datetime(self.created_at, "created_at")
+        if self.side_effect_level not in (0, 1, 2, 3):
+            raise PersistenceInputError("side_effect_level must be 0, 1, 2, or 3")
+        if not isinstance(self.expected_observation, str) or not self.expected_observation.strip():
+            raise PersistenceInputError("expected_observation must be a non-empty string")
+        if (
+            not isinstance(self.disconfirming_observation, str)
+            or not self.disconfirming_observation.strip()
+        ):
+            raise PersistenceInputError("disconfirming_observation must be a non-empty string")
+        if not isinstance(self.evaluation_strategy, str) or not self.evaluation_strategy.strip():
+            raise PersistenceInputError("evaluation_strategy must be a non-empty string")
+        if not isinstance(self.arguments, Mapping):
+            raise PersistenceInputError("arguments must be a mapping")
+        _reject_secret_keys(self.arguments, "arguments")
+        object.__setattr__(self, "arguments", dict(self.arguments))
+
+
+@dataclass(frozen=True)
+class HypothesisAssessmentRecord:
+    """Append-only context-bound assessment. Not Evidence, Candidate, or Finding."""
+
+    assessment_id: str
+    hypothesis_id: str
+    experiment_id: str
+    research_run_id: str
+    assessment_outcome: str
+    observation_ids: tuple[str, ...]
+    evaluator_kind: str
+    evaluator_version: str
+    rationale: Mapping[str, Any]
+    evaluation_strategy: str
+    created_at: datetime
+
+    def __post_init__(self) -> None:
+        require_opaque_id(self.assessment_id, "assessment_id")
+        require_opaque_id(self.hypothesis_id, "hypothesis_id")
+        require_opaque_id(self.experiment_id, "experiment_id")
+        require_opaque_id(self.research_run_id, "research_run_id")
+        require_aware_datetime(self.created_at, "created_at")
+        if self.assessment_outcome not in ALLOWED_ASSESSMENT_OUTCOMES:
+            raise PersistenceInputError("assessment_outcome is not a HypothesisAssessment outcome")
+        if self.evaluator_kind not in ALLOWED_EVALUATOR_KINDS:
+            raise PersistenceInputError("evaluator_kind is not a supported evaluator kind")
+        if not isinstance(self.evaluator_version, str) or not self.evaluator_version.strip():
+            raise PersistenceInputError("evaluator_version must be a non-empty string")
+        if not isinstance(self.evaluation_strategy, str) or not self.evaluation_strategy.strip():
+            raise PersistenceInputError("evaluation_strategy must be a non-empty string")
+        if not isinstance(self.observation_ids, tuple):
+            raise PersistenceInputError("observation_ids must be a tuple")
+        cleaned_ids: list[str] = []
+        for index, item in enumerate(self.observation_ids):
+            cleaned_ids.append(require_opaque_id(item, f"observation_ids[{index}]"))
+        object.__setattr__(self, "observation_ids", tuple(cleaned_ids))
+        if not isinstance(self.rationale, Mapping):
+            raise PersistenceInputError("rationale must be a mapping")
+        found = ASSESSMENT_RATIONALE_FORBIDDEN_KEYS.intersection(self.rationale.keys())
+        if found:
+            raise PersistenceInputError(
+                f"assessment rationale must not contain {sorted(found)}"
+            )
+        _reject_secret_keys(self.rationale, "rationale")
+        object.__setattr__(self, "rationale", dict(self.rationale))
 
 
 @dataclass(frozen=True)

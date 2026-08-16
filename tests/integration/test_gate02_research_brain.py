@@ -178,6 +178,10 @@ class Gate02ResearchBrainTests(unittest.TestCase):
             self.assertEqual(records[0].context_fingerprint, result.context.fingerprint)
             self.assertEqual(records[0].adapter_identity, "fake-test")
             self.assertIsNone(records[0].model_id)
+            admissions = reload.research_admissions.list_for_research_run("run-1")
+            self.assertEqual(len(admissions), 1)
+            self.assertEqual(admissions[0].outcome, "ADMITTED")
+            self.assertEqual(admissions[0].admitted_hypothesis_id, result.hypothesis_id)
             reload.commit()
 
     def test_rejected_proposal_does_not_create_hypothesis(self) -> None:
@@ -198,7 +202,13 @@ class Gate02ResearchBrainTests(unittest.TestCase):
         self.assertEqual(result.outcome, AdmissionOutcome.NEEDS_MORE_CONTEXT)
         with factory.open() as reload:
             self.assertEqual(reload.hypotheses.list_for_research_run("run-1"), [])
-            self.assertEqual(reload.research_reasoning.list_for_research_run("run-1"), [])
+            reasoning = reload.research_reasoning.list_for_research_run("run-1")
+            self.assertEqual(len(reasoning), 2)
+            admissions = reload.research_admissions.list_for_research_run("run-1")
+            self.assertEqual(len(admissions), 1)
+            self.assertEqual(admissions[0].outcome, "NEEDS_MORE_CONTEXT")
+            self.assertIsNone(admissions[0].admitted_hypothesis_id)
+            self.assertEqual(admissions[0].reason_code, "HALLUCINATED_SOURCE")
             reload.commit()
 
     def test_transaction_failure_does_not_create_partial_reasoning_state(self) -> None:
@@ -239,6 +249,7 @@ class Gate02ResearchBrainTests(unittest.TestCase):
         with factory.open() as reload:
             self.assertEqual(reload.hypotheses.list_for_research_run("run-1"), [])
             self.assertEqual(reload.research_reasoning.list_for_research_run("run-1"), [])
+            self.assertEqual(reload.research_admissions.list_for_research_run("run-1"), [])
             reload.commit()
 
 
