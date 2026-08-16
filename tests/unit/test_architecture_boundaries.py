@@ -77,6 +77,7 @@ class ArchitectureBoundaryTests(unittest.TestCase):
                     "research_os.workers",
                     "research_os.platform.local_process_worker",
                     "research_os.application",
+                    "research_os.research",
                 ),
             ),
             [],
@@ -86,12 +87,16 @@ class ArchitectureBoundaryTests(unittest.TestCase):
         self.assertEqual(
             _violations(
                 RESEARCH_DIR,
-                forbidden_roots=EXECUTION_ROOTS + PERSISTENCE_LIBS + SCHEMA_LIBS,
+                forbidden_roots=EXECUTION_ROOTS
+                + PERSISTENCE_LIBS
+                + SCHEMA_LIBS
+                + ("openai", "anthropic", "langchain", "llama_index", "litellm"),
                 forbidden_prefixes=(
                     "research_os.data",
                     "research_os.workers",
                     "research_os.platform",
                     "research_os.application",
+                    "google.generativeai",
                 ),
             ),
             [],

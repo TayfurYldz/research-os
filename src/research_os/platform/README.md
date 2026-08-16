@@ -18,6 +18,14 @@ This adapter is **not** architecture. Remote Workers may use another transport w
 
 Core and Research must not import `local_process_worker` or `subprocess`.
 
+## ModelPort
+
+The provider-neutral completion protocol currently lives in Research (`research_os.research.model_port.ModelPort`) because Research is the consumer. Concrete adapters belong in Integrations. No provider SDK is selected. Tests use a deterministic fake that returns structured mappings, not natural-language magic.
+
+Core must not call ModelPort. Research must not import provider SDKs.
+
+## Invocation vs WorkerResult
+
 Development defaults (configurable): stdout protocol payload 1 MiB; stderr diagnostics 64 KiB; timeout 30s. Overflow of stdout is a protocol failure, not a truncated WorkerResult.
 
 Cancellation: first implementation is local process termination (timeout/kill). Distributed cancellation is a later runtime slice, not a protocol product now.

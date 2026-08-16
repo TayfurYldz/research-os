@@ -73,7 +73,7 @@ May depend on Core **contracts**, not on Interface or Application.
 
 ### `application`
 
-Use-case coordination (Decision 022). Use cases: Transition A ingestion (Decision 023); `ExecutePlannedExperiment` control-loop skeleton (Decision 024).
+Use-case coordination (Decision 022). Use cases: Transition A ingestion (Decision 023); `ExecutePlannedExperiment` control-loop skeleton (Decision 024); `ProposeResearchHypothesis` bounded reasoning cycle (Decisions 025–026).
 
 Must not: own Core policy, import `data.postgres` or `local_process_worker`, create Evidence/Finding. Must not hold a database transaction open while a Worker runs.
 
@@ -94,6 +94,8 @@ Capability **contracts** (HTTP, browser, shell, recon, …). No side effects. No
 Ports for orchestration coordination (Decision 004), secrets (013), observability (012), artifact bytes (006), isolation primitives (014).
 
 A4 adds the first **local process Worker adapter** (`local_process_worker`) behind `WorkerPort`. That adapter is not architecture. Core and Research must not import it or `subprocess`.
+
+The ModelPort **protocol** currently lives in Research (`research_os.research.model_port`). Concrete adapters belong in Integrations (or a later Platform adapter). No provider is selected.
 
 Must not: own policy, own Evidence/Finding, select Temporal/Redis/Vault/Docker here.
 

@@ -14,6 +14,7 @@ from research_os.data.postgres.repositories import (
     PostgresIssuedBudgetRepository,
     PostgresObservationRepository,
     PostgresProgramRepository,
+    PostgresResearchReasoningRepository,
     PostgresResearchRunRepository,
     PostgresWorkerResultRepository,
 )
@@ -34,6 +35,7 @@ class PostgresUnitOfWork:
         self.execution_attempts: PostgresExecutionAttemptRepository
         self.worker_results: PostgresWorkerResultRepository
         self.observations: PostgresObservationRepository
+        self.research_reasoning: PostgresResearchReasoningRepository
         self.audit_events: PostgresAuditEventRepository
 
     def __enter__(self) -> PostgresUnitOfWork:
@@ -51,6 +53,7 @@ class PostgresUnitOfWork:
         self.execution_attempts = PostgresExecutionAttemptRepository(self._connection)
         self.worker_results = PostgresWorkerResultRepository(self._connection)
         self.observations = PostgresObservationRepository(self._connection)
+        self.research_reasoning = PostgresResearchReasoningRepository(self._connection)
         self.audit_events = PostgresAuditEventRepository(self._connection)
         return self
 

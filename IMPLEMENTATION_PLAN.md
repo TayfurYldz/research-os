@@ -36,6 +36,8 @@ Decision-driver order remains: correctness → authorization/security → durabi
 | 022 | Explicit Application layer owns use-case coordination; not authority; no concrete adapters |
 | 023 | Transition A: COMPLETED+valid WorkerResult only; trusted-request normalizer registry; request_id idempotency; WorkerResult+Observation+AuditEvent one UoW |
 | 024 | First-class ExecutionAttempt for dispatch coordination; Control Plane owns request_id; AuditEvent is decision provenance not a queue; UNKNOWN_OUTCOME fail-closed; no exactly-once side effects |
+| 025 | Typed ResearchContext epistemic boundary; deterministic bounded Context Builder; untrusted external content stays data; no vector/RAG in v1 |
+| 026 | Generator → HypothesisProposal → Falsifier → HypothesisChallenge → Research admission; ModelPort provider deferred; reasoning provenance append-only |
 
 ---
 
@@ -173,6 +175,27 @@ Human-seeded Hypothesis
 
 **Verify:** unit + architecture. PostgreSQL integration when `RESEARCH_OS_TEST_DATABASE_URL` is set; otherwise PENDING.
 
+### Slice A7 — Research Brain v1 foundation (Decisions 025–026)
+
+Prove one bounded reasoning cycle, not autonomous bug bounty:
+
+```
+Authoritative / admitted state
+  → typed ResearchContext
+  → Generator HypothesisProposal (untrusted)
+  → Falsifier HypothesisChallenge
+  → Research admission
+  → persisted Hypothesis + ResearchReasoningRecord
+  → ExperimentPlan (no Worker dispatch)
+```
+
+- No provider SDK. Tests use a deterministic fake ModelPort.
+- No Evidence, Candidate, Finding, Strix, vector retrieval, chain engine, or autonomous loop.
+- Generator output is not a Hypothesis until Research admission.
+- Alembic revision `a8_001_research_reasoning`. Do not rewrite `a3_001`, `a6_001`, or `a7_001`.
+
+**Verify:** unit + architecture. PostgreSQL GATE 02 when `RESEARCH_OS_TEST_DATABASE_URL` is set; skipped tests are PENDING, not PASS.
+
 ### FIRST VERTICAL RESEARCH LOOP — INFRASTRUCTURE/CONTROL LOOP GATE
 
 **Status: PASS** (GATE 01, 2026-08-16) against explicit `RESEARCH_OS_TEST_DATABASE_URL` on real PostgreSQL 18.
@@ -299,13 +322,30 @@ This gate does **not** claim vulnerability discovery. It proves the research con
 
 **GATE 01 status: PASS** on real PostgreSQL via explicit `RESEARCH_OS_TEST_DATABASE_URL`. Skipped tests are not PASS.
 
+## GATE 02 — Bounded Research Reasoning Cycle
+
+```
+structured ResearchContext
+→ Generator proposal
+→ Falsifier challenge
+→ Research admission
+→ persisted Hypothesis
+→ ExperimentPlan
+```
+
+Uses a deterministic fake ModelPort and real PostgreSQL. Does **not** prove vulnerability discovery.
+
+**GATE 02 status: PASS** (2026-08-16) against explicit `RESEARCH_OS_TEST_DATABASE_URL` on real PostgreSQL 18. Skipped tests are not PASS.
+
+**Verify:** unit + contract + `scripts/check_contracts.py` + integration (no PostgreSQL-required skips).
+
 ---
 
-## Research Brain (future Research capability — not Core)
+## Research Brain (Research capability — not Core)
 
-Not a Phase A slice. Not a Core module. Not a graph/database product. Not required to declare the first working implementation done.
+A7 v1 delivers the bounded reasoning cycle (Decisions 025–026). It is not a graph/database product and not required to declare the first working implementation (Human Review loop) done.
 
-When Research Brain is designed, it must be architecturally capable of:
+Later Research Brain work remains architecturally capable of:
 
 - persistent target / state model (capability, not a schema in this plan)
 - invariant hypotheses (hypothesis ≠ fact)

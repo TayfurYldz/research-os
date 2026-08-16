@@ -650,7 +650,7 @@ class PostgresSpineTests(unittest.TestCase):
         assert result.raw_result is not None
         self.assertEqual(result.raw_result["nested"]["n"], 1)
 
-    def test_migration_chain_reaches_a7_head(self) -> None:
+    def test_migration_chain_reaches_current_head(self) -> None:
         assert self.engine is not None
         with self.engine.connect() as connection:
             version = connection.execute(
@@ -664,10 +664,11 @@ class PostgresSpineTests(unittest.TestCase):
                     )
                 )
             }
-        self.assertEqual(version, "a7_001_execution_attempt")
+        self.assertEqual(version, "a8_001_research_reasoning")
         self.assertIn("execution_attempt", tables)
         self.assertIn("worker_result", tables)
         self.assertIn("audit_event", tables)
+        self.assertIn("research_reasoning", tables)
 
 
 if __name__ == "__main__":

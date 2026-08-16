@@ -5608,4 +5608,185 @@ Those are not ingestion duplicates. They are incomplete execution coordination.
 
 **FINAL STATUS: PASS**
 
+---
+
+# Decision 025 — Epistemic Research Context / Model Input Boundary
+
+Status: **accepted with constraints** (A7 Research Brain v1)
+
+Date: 2026-08-16
+
+Does not rewrite Decisions 001–024. Decision 008 remains the ModelPort/provider lock. Decision 009 remains: no vector product in v1.
+
+## Candidates evaluated
+
+| Option | Verdict |
+|---|---|
+| A. Flatten all SoR/read-model text into one prompt blob | Rejected. Collapses Observation, Hypothesis, and untrusted target text into undifferentiated “the system knows…”. |
+| B. Generic RAG / embedding retrieval as the context layer | Rejected for v1 (Decision 009). Premature, non-deterministic in tests, and not SoR. |
+| C. Typed `ResearchContext` with explicit epistemic classes and a deterministic bounded builder | **Accepted.** |
+
+## Strategy
+
+Research Brain consumes a typed **ResearchContext**, not a concatenated prompt.
+
+Categories stay separate: `authoritative_facts`, `observations`, `deterministic_derivations`, `prior_hypotheses`, `negative_evidence`, `procedural_context`, `unresolved_questions`, `untrusted_external_content`.
+
+The Context Builder is deterministic, has no LLM, and has no embeddings. Selection is bounded. Omission/truncation is explicit metadata. Absence from context is not absence from SoR.
+
+## Epistemic model
+
+Practical classes (not a philosophical ontology):
+
+`AUTHORITATIVE_FACT` | `OBSERVATION` | `DERIVED_FACT` | `HYPOTHESIS` | `NEGATIVE_EVIDENCE` | `PROCEDURAL` | `UNTRUSTED_EXTERNAL` | `UNKNOWN`
+
+Epistemic class ≠ authority. A model cannot relabel `HYPOTHESIS` as fact. Model output cannot create an authoritative Observation.
+
+Every item keeps source references. `supported_by` does not make a claim true.
+
+## Context selection
+
+v1 assembles context for one ResearchRun + one research question, plus related Observations, prior Hypotheses, Experiments, and contextual negative results.
+
+Limits are configuration, not a token-optimization algorithm: max observation items, max prior hypothesis items, max negative-evidence items, max external-content characters.
+
+A context fingerprint hashes canonical identifiers / class / omission metadata — not raw untrusted blobs and not secrets. It is provenance, not semantic deduplication.
+
+## External-content handling
+
+Web/API/document/tool text remains **DATA**.
+
+It is labelled `UNTRUSTED_EXTERNAL` (or an Observation payload marked untrusted-as-instruction), size-bounded, and sourced. It must not appear in the instructions channel.
+
+Prompt labels are not sufficient architecture. Downstream validation still rejects unstructured or authority-claiming model output. This is containment, not a claim that prompt injection is “solved”.
+
+## Provenance
+
+Context items carry source ids. Reasoning invocations carry `context_fingerprint` and ModelPort adapter identity. Fake/test adapters use an explicit fake identity and must not fabricate model version or cost.
+
+## Confidence
+
+**HIGH** that undifferentiated prompt blobs and vector RAG are the wrong v1 boundary.
+
+**MEDIUM** for the exact class list (`AUTHORITATIVE_FACT` added as SoR identity, not in the original seven-name sketch) and for fingerprinting identifiers rather than statements.
+
+## Why
+
+Flattening memory into prose would let a prior Hypothesis poison future reasoning as if it were an Observation, and would let target content issue instructions.
+
+## Constraints
+
+1. Do not flatten ResearchContext into one prompt blob.
+2. Do not put an LLM or embeddings inside the Context Builder.
+3. Do not dump every record in a ResearchRun.
+4. Do not silently truncate; record omission.
+5. Do not treat prior Hypothesis as fact.
+6. Do not let untrusted content set policy, tools, scope, Evidence, or Finding.
+7. Do not select a model provider here (Decision 008).
+8. Do not persist a target causal graph in this slice.
+
+## Revisit triggers
+
+- Need for typed actor/resource/state views inside ResearchContext (still not a generic graph bag)
+- Measured need for retrieval beyond deterministic bounded selection (Decision 009 still governs vectors)
+- Fingerprint collisions or missing statement coverage in audits
+- A real ModelPort adapter that requires additional routing-ready request fields
+
+---
+
+# Decision 026 — Hypothesis Generation / Falsification / Admission
+
+Status: **accepted with constraints** (A7 Research Brain v1)
+
+Date: 2026-08-16
+
+Does not rewrite Decisions 001–025. Does not create Evidence, Candidate, Finding, or an autonomous loop.
+
+## Candidates evaluated
+
+| Option | Verdict |
+|---|---|
+| A. Generator output is a durable Hypothesis | Rejected. Model output is UNTRUSTED STRUCTURED PROPOSAL (Decision 008). |
+| B. Multi-agent / multi-vendor framework for independence | Rejected for v1. Premature. |
+| C. Generator → `HypothesisProposal` → Falsifier → `HypothesisChallenge` → Research admission | **Accepted.** Independence = separate invocation, role, and structured output. |
+
+## Strategy
+
+```
+Generator → HypothesisProposal
+Falsifier → HypothesisChallenge
+Research admission → persisted Hypothesis or explicit rejection
+```
+
+The model proposes. Research domain logic decides whether the proposal becomes a durable Hypothesis. Core still owns execution authorization. Application coordinates persistence. ExperimentPlan is produced after admission and does not dispatch a Worker.
+
+## Generator
+
+Internal `HypothesisProposal`: testable claim, rationale, source references, assumptions, unresolved questions, suggested disconfirming test, suggested capability, optional expected security relevance, advisory `novelty_basis`.
+
+Not included: severity-as-truth, exploitability-as-truth, Finding/Evidence status, authorization, numeric confidence.
+
+Novelty basis is advisory only: `KNOWN_PATTERN_INSTANCE` | `POSSIBLE_COMBINATION` | `TARGET_SPECIFIC_BEHAVIOR` | `UNCLASSIFIED`. `N4_ZERO_DAY` is coerced to `UNCLASSIFIED` and is not a product claim. No novelty score.
+
+## Falsifier
+
+Internal `HypothesisChallenge`: alternative explanations, missing preconditions, contradictory sources, required negative controls, ambiguity, reasons not to test, proposed disconfirming observation.
+
+The Falsifier does not decide Finding truth. Admission requires a produced challenge. One supporting Observation does not bypass it. Generator cannot edit the challenge.
+
+The same ModelPort implementation may serve both roles later. v1 does not require two vendors.
+
+## Admission
+
+Research-domain outcomes:
+
+`ADMITTED` | `REJECTED_UNTESTABLE` | `REJECTED_UNSUPPORTED` | `REJECTED_POLICY_CONFLICT` | `NEEDS_MORE_CONTEXT`
+
+This is proposal admission, not Candidate lifecycle. Rejected proposal ≠ a security hypothesis rejected by testing.
+
+Minimum invariants (not a score engine): non-empty testable claim; source references resolve to assembled context; no authority/Evidence/Finding/scope-bypass claim; challenge produced with at least one alternative explanation; a plausible experiment direction.
+
+Hallucinated source ids → `NEEDS_MORE_CONTEXT`. Empty sources → `REJECTED_UNSUPPORTED`.
+
+## Persistence
+
+Hypothesis identity/claim stays clean. Provenance is a dedicated append-only `ResearchReasoningRecord` (Alembic `a8_001_research_reasoning`): role `GENERATOR`/`FALSIFIER`, adapter identity, optional model id/version (unset for fakes), structured validated output, context fingerprint, correlation id.
+
+Rejected proposals do not create a Hypothesis or reasoning rows. Hypothesis + both reasoning records commit in one Unit of Work.
+
+Semantic/vector hypothesis dedup is **deferred**. Exact claim merge across different actor/state/context is unsafe.
+
+## Confidence
+
+**HIGH** that Generator must not auto-persist Hypothesis and that Falsifier must be a separate invocation.
+
+**MEDIUM** for persisting reasoning only on `ADMITTED` (rejected attempts are not durable) and for coercing N4 rather than hard-failing the proposal parse.
+
+## Why
+
+`LLM → tool → LLM` and “give me 10 vulnerabilities” skip falsification, admission, and Core authorization. Research OS requires an untrusted proposal, an independent challenge, and domain admission before anything durable exists.
+
+## Constraints
+
+1. Do not persist a Hypothesis from Generator output alone.
+2. Do not let Falsifier create Evidence or Finding.
+3. Do not let one model call self-validate.
+4. Do not invent numeric confidence or novelty scores.
+5. Do not select or install a provider SDK.
+6. Do not execute a Worker from this cycle.
+7. Do not add 20 nullable columns to Hypothesis.
+8. Do not create JSON Schema for these internal Research types unless they become a cross-language contract.
+9. Do not start an autonomous `while True` generation loop.
+10. Do not edit Alembic `a3_001`, `a6_001`, or `a7_001`.
+
+## Revisit triggers
+
+- First real ModelPort adapter (provider still a later product decision)
+- Durable storage of rejected proposals for audit
+- Belief update from `ExperimentFeedback`
+- Semantic duplicate handling with explicit actor/state/context identity
+- Independent verifier model (still not required to be a second vendor)
+
+**FINAL STATUS: PASS**
+
 

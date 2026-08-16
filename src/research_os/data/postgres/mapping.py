@@ -13,6 +13,7 @@ from research_os.data.records import (
     IssuedBudgetRecord,
     ObservationRecord,
     ProgramRecord,
+    ResearchReasoningRecord,
     ResearchRunRecord,
     WorkerResultRecord,
 )
@@ -166,4 +167,22 @@ def audit_event_from_row(row: Mapping[str, Any]) -> AuditEventRecord:
         subject_id=data["subject_id"],
         payload=data["payload"],
         correlation_id=data.get("correlation_id"),
+    )
+
+
+def research_reasoning_from_row(row: Mapping[str, Any]) -> ResearchReasoningRecord:
+    data = _mapping(row)
+    return ResearchReasoningRecord(
+        reasoning_record_id=data["reasoning_record_id"],
+        research_run_id=data["research_run_id"],
+        hypothesis_id=data["hypothesis_id"],
+        role=data["role"],
+        adapter_identity=data["adapter_identity"],
+        provider_adapter_identity=data["provider_adapter_identity"],
+        correlation_id=data["correlation_id"],
+        context_fingerprint=data["context_fingerprint"],
+        structured_output=data["structured_output"],
+        created_at=data["created_at"],
+        model_id=data.get("model_id"),
+        model_version=data.get("model_version"),
     )

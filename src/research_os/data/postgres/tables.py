@@ -1,4 +1,4 @@
-"""SQLAlchemy Core metadata for the A3 persistence spine. Adapter-only."""
+"""SQLAlchemy Core metadata for the persistence spine. Adapter-only."""
 
 from sqlalchemy import (
     CheckConstraint,
@@ -267,6 +267,32 @@ audit_event = Table(
     ),
 )
 
+research_reasoning = Table(
+    "research_reasoning",
+    metadata,
+    Column("reasoning_record_id", Text, primary_key=True),
+    Column("research_run_id", Text, nullable=False),
+    Column("hypothesis_id", Text, nullable=False),
+    Column("role", Text, nullable=False),
+    Column("adapter_identity", Text, nullable=False),
+    Column("provider_adapter_identity", Text, nullable=False),
+    Column("correlation_id", Text, nullable=False),
+    Column("context_fingerprint", Text, nullable=False),
+    Column("structured_output", JSONB, nullable=False),
+    Column("created_at", DateTime(timezone=True), nullable=False),
+    Column("model_id", Text, nullable=True),
+    Column("model_version", Text, nullable=True),
+    ForeignKeyConstraint(
+        ["hypothesis_id", "research_run_id"],
+        ["hypothesis.hypothesis_id", "hypothesis.research_run_id"],
+        name="fk_research_reasoning_hypothesis_same_run",
+    ),
+    CheckConstraint(
+        "role IN ('GENERATOR', 'FALSIFIER')",
+        name="ck_research_reasoning_role",
+    ),
+)
+
 SPINE_TABLES = (
     program,
     authorization_source,
@@ -278,6 +304,7 @@ SPINE_TABLES = (
     worker_result,
     observation,
     audit_event,
+    research_reasoning,
 )
 
-APPEND_ONLY_TABLES = ("issued_budget", "audit_event")
+APPEND_ONLY_TABLES = ("issued_budget", "audit_event", "research_reasoning")

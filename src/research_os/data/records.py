@@ -79,6 +79,8 @@ ALLOWED_EXECUTION_ATTEMPT_STATES = frozenset(
     item.value for item in ExecutionAttemptState
 )
 
+ALLOWED_REASONING_ROLES = frozenset({"GENERATOR", "FALSIFIER"})
+
 
 def require_opaque_id(value: str, field_name: str) -> str:
     if not isinstance(value, str) or not value.strip():
@@ -230,6 +232,46 @@ class HypothesisRecord:
             raise PersistenceInputError("claim must be a non-empty string")
         if self.origin_reference is not None:
             require_opaque_id(self.origin_reference, "origin_reference")
+
+
+@dataclass(frozen=True)
+class ResearchReasoningRecord:
+    """Append-only untrusted reasoning provenance. Not Observation, Evidence, or Hypothesis truth."""
+
+    reasoning_record_id: str
+    research_run_id: str
+    hypothesis_id: str
+    role: str
+    adapter_identity: str
+    provider_adapter_identity: str
+    correlation_id: str
+    context_fingerprint: str
+    structured_output: Mapping[str, Any]
+    created_at: datetime
+    model_id: str | None = None
+    model_version: str | None = None
+
+    def __post_init__(self) -> None:
+        require_opaque_id(self.reasoning_record_id, "reasoning_record_id")
+        require_opaque_id(self.research_run_id, "research_run_id")
+        require_opaque_id(self.hypothesis_id, "hypothesis_id")
+        require_opaque_id(self.adapter_identity, "adapter_identity")
+        require_opaque_id(self.provider_adapter_identity, "provider_adapter_identity")
+        require_opaque_id(self.correlation_id, "correlation_id")
+        require_aware_datetime(self.created_at, "created_at")
+        if self.role not in ALLOWED_REASONING_ROLES:
+            raise PersistenceInputError("role is not a Research reasoning role")
+        if not isinstance(self.context_fingerprint, str) or not self.context_fingerprint.strip():
+            raise PersistenceInputError("context_fingerprint must be a non-empty string")
+        if not isinstance(self.structured_output, Mapping):
+            raise PersistenceInputError("structured_output must be a mapping")
+        _reject_secret_keys(self.structured_output, "structured_output")
+        object.__setattr__(self, "structured_output", dict(self.structured_output))
+        if self.model_id is not None:
+            require_opaque_id(self.model_id, "model_id")
+        if self.model_version is not None:
+            if not isinstance(self.model_version, str) or not self.model_version.strip():
+                raise PersistenceInputError("model_version must be a non-empty string when set")
 
 
 @dataclass(frozen=True)

@@ -1,4 +1,4 @@
-"""Minimal Research-layer types for A7-lite. Not Worker wire contracts.
+"""Research-layer types. Not Worker wire contracts.
 
 Hypothesis is not fact. ExperimentPlan is not authorization. Observation is not
 Evidence. These types must not grow severity, confidence, or Finding fields.
@@ -49,6 +49,8 @@ class ExperimentPlan:
     side_effect_level: int
     arguments: Mapping[str, Any]
     requested_budget_id: str
+    expected_observation: str
+    disconfirming_observation: str
 
     def __post_init__(self) -> None:
         object.__setattr__(
@@ -72,6 +74,16 @@ class ExperimentPlan:
         )
         object.__setattr__(
             self, "side_effect_level", _require_side_effect_level(self.side_effect_level)
+        )
+        object.__setattr__(
+            self,
+            "expected_observation",
+            _require_text(self.expected_observation, "expected_observation"),
+        )
+        object.__setattr__(
+            self,
+            "disconfirming_observation",
+            _require_text(self.disconfirming_observation, "disconfirming_observation"),
         )
         if not isinstance(self.arguments, Mapping):
             raise ResearchInputError("arguments must be a mapping")

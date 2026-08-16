@@ -1,12 +1,16 @@
-"""Human-seeded planning helpers. No model. No Worker. No persistence."""
+"""Planning helpers. No Worker. No persistence. No authorization."""
 
 from __future__ import annotations
 
+from research_os.research.proposals import HypothesisChallenge, HypothesisProposal
 from research_os.research.types import ExperimentPlan, HypothesisDraft
 from research_os.tools.capabilities import DIAGNOSTIC_ECHO_ACTION, DIAGNOSTIC_ECHO_CAPABILITY
 
 HUMAN_ORIGIN = "human"
 DIAGNOSTIC_LOOP_STATEMENT = "diagnostic runtime returns the provided echo value"
+DIAGNOSTIC_CLAIM = "The diagnostic capability returns the submitted value."
+DIAGNOSTIC_EXPECTED_OBSERVATION = "echoed value matches input"
+DIAGNOSTIC_DISCONFIRMING_OBSERVATION = "no result or mismatched value"
 
 
 def human_seeded_hypothesis(
@@ -36,4 +40,36 @@ def plan_diagnostic_echo(
         side_effect_level=0,
         arguments={"message": message},
         requested_budget_id=budget_id,
+        expected_observation=DIAGNOSTIC_EXPECTED_OBSERVATION,
+        disconfirming_observation=DIAGNOSTIC_DISCONFIRMING_OBSERVATION,
+    )
+
+
+def plan_admitted_hypothesis(
+    hypothesis_id: str,
+    proposal: HypothesisProposal,
+    challenge: HypothesisChallenge,
+    *,
+    budget_id: str,
+    target_reference: str,
+    message: str = "ping",
+) -> ExperimentPlan:
+    """Convert an admitted Hypothesis into a testable ExperimentPlan. Does not dispatch."""
+    capability = proposal.suggested_capability
+    action = DIAGNOSTIC_ECHO_ACTION if capability == DIAGNOSTIC_ECHO_CAPABILITY else capability
+    arguments: dict[str, str] = {}
+    if capability == DIAGNOSTIC_ECHO_CAPABILITY:
+        arguments = {"message": message}
+    return ExperimentPlan(
+        hypothesis_id=hypothesis_id,
+        required_capability=capability,
+        action=action,
+        target_reference=target_reference,
+        side_effect_level=0,
+        arguments=arguments,
+        requested_budget_id=budget_id,
+        expected_observation=DIAGNOSTIC_EXPECTED_OBSERVATION
+        if capability == DIAGNOSTIC_ECHO_CAPABILITY
+        else proposal.suggested_disconfirming_test,
+        disconfirming_observation=challenge.proposed_disconfirming_observation,
     )

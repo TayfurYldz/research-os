@@ -7,8 +7,10 @@ import pathsetup  # noqa: F401
 from research_os.research.planning import (
     DIAGNOSTIC_LOOP_STATEMENT,
     human_seeded_hypothesis,
+    plan_admitted_hypothesis,
     plan_diagnostic_echo,
 )
+from research_os.research.proposals import parse_hypothesis_challenge, parse_hypothesis_proposal
 from research_os.research.types import ExperimentPlan, ResearchInputError
 
 
@@ -29,13 +31,41 @@ class ResearchPlanningTests(unittest.TestCase):
             message="ping",
         )
         self.assertEqual(plan.required_capability, "diagnostic.echo")
-        self.assertEqual(plan.side_effect_level, 0)
+        self.assertEqual(plan.expected_observation, "echoed value matches input")
+        self.assertEqual(plan.disconfirming_observation, "no result or mismatched value")
         self.assertFalse(hasattr(plan, "exploitability"))
         self.assertFalse(hasattr(plan, "novelty_score"))
 
     def test_empty_statement_rejected(self) -> None:
         with self.assertRaises(ResearchInputError):
             human_seeded_hypothesis("  ")
+
+    def test_admitted_hypothesis_plan_is_not_authorization(self) -> None:
+        proposal = parse_hypothesis_proposal(
+            {
+                "proposed_claim": "The diagnostic capability returns the submitted value.",
+                "rationale": "round-trip",
+                "source_references": ["proc:research-question"],
+                "suggested_disconfirming_test": "mismatch",
+                "suggested_capability": "diagnostic.echo",
+            }
+        )
+        challenge = parse_hypothesis_challenge(
+            {
+                "alternative_explanations": ["runtime mismatch"],
+                "proposed_disconfirming_observation": "no result or mismatched value",
+            }
+        )
+        plan = plan_admitted_hypothesis(
+            "hyp-new",
+            proposal,
+            challenge,
+            budget_id="budget-1",
+            target_reference="target-1",
+        )
+        self.assertEqual(plan.expected_observation, "echoed value matches input")
+        self.assertEqual(plan.disconfirming_observation, "no result or mismatched value")
+        self.assertFalse(hasattr(plan, "authorized"))
 
     def test_invalid_side_effect_rejected(self) -> None:
         with self.assertRaises(ResearchInputError):
@@ -47,6 +77,8 @@ class ResearchPlanningTests(unittest.TestCase):
                 side_effect_level=9,
                 arguments={},
                 requested_budget_id="budget-1",
+                expected_observation="echoed value matches input",
+                disconfirming_observation="no result or mismatched value",
             )
 
 
