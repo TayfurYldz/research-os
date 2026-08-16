@@ -3808,3 +3808,170 @@ Identity classes and authn≠authz are required by Core, Approval, and Decision 
 
 **FINAL STATUS: PASS**
 
+---
+
+# Decision 016 — Contract Representation / Versioning Strategy
+
+**Status:** ACCEPT WITH CONSTRAINTS  
+**Date:** 2026-08-16  
+**Depends on:** Decision 001 (language-neutral contracts; Python classes are not architectural truth); Decision 005 (Worker contract; transport replaceable); Decision 013 (SecretReference); Decision 014 (side-effect levels)
+
+This decision selects the **canonical representation** of cross-boundary contracts and the **versioning layout**.
+
+It does **not** select:
+
+- HTTP, gRPC, or any transport
+- a queue/broker
+- a JSON Schema **validator library**
+- a Protobuf runtime, compiler, or codegen toolchain
+- OpenAPI as Worker-contract truth
+- ORM / database types (including UUID)
+
+**Canonical contract representation ≠ transport protocol.**
+
+---
+
+## Decision
+
+**STRATEGY: ACCEPT WITH CONSTRAINTS**
+
+**Canonical representation: JSON Schema Draft 2020-12** (`https://json-schema.org/draft/2020-12/schema`).
+
+**Versioning:** major contract generations live under `contracts/v1/`, `contracts/v2/`, … Messages carry an explicit `contract_version`. Breaking semantic/schema change ⇒ new major directory. Backward-compatible additive fields may stay in the same major. Field removal or meaning change is breaking.
+
+Python classes, PostgreSQL types, OpenAPI documents, and Protobuf encodings are **not** the architectural contract truth. They may later **project** or **carry** these schemas.
+
+**PRODUCT / RUNTIME: DEFER** — no validator or codegen dependency in this decision.
+
+---
+
+## Why this decision exists
+
+Decision 001: contracts are language-neutral; Python types are not architectural contracts. Decision 005: local IPC now, remote transport later, same Worker contract. A1 must exist as files Workers in Python/Go/Rust can validate without importing `research_os`.
+
+Python classes as canonical truth would lock Workers to the control-plane package. OpenAPI as canonical truth would lock the Worker boundary to HTTP (Interface may use OpenAPI later; that is a different surface). Protobuf as **canonical** truth is a capable IDL but couples identity, codegen, and a binary encoding before any remote Worker exists. Avro pulls schema-registry/broker gravity. Hybrid dual-canonical (Schema + proto both “truth”) splits the SoR of the contract itself.
+
+JSON Schema is validation-focused, inspectable, codegen-optional, and transport-independent: the same schema can describe a JSON object over a pipe today and over a later request/response without becoming that transport.
+
+---
+
+## Stage 1 — Mandatory gates
+
+| Gate | Meaning |
+|---|---|
+| Language-neutral | Go/Rust Workers are not blocked |
+| Independent of Core/Research classes | No `research_os` import required to know the shape |
+| Machine-validatable | Schema files parse; later a validator may be chosen |
+| Transport-neutral | Not HTTP, not a broker, not Postgres |
+| Versionable | Explicit major + in-message version |
+| Secret-safe | Values cannot appear as required secret fields |
+
+### Candidate results
+
+| Candidate | Stage 1 | Note |
+|---|---|---|
+| **1. Python classes as canonical** | **Fail** | Violates Decision 001. Not language-neutral |
+| **2. JSON Schema** | **Pass** | Selected. Semantics without transport or codegen |
+| **3. Protocol Buffers as canonical** | **Pass as a later encoding** | Strong IDL. Canonical use forces protoc/runtime coupling now; user forbade installing that runtime this round. Not rejected as incapable |
+| **4. OpenAPI as canonical Worker truth** | **Fail as Worker canonical** | HTTP-specific Interface description. May later describe Decision 011 API as a **projection** |
+| **5. Avro-like** | **Pass weakly** | Extra ecosystem; broker/registry gravity. Not needed |
+| **6. Dual canonical hybrid** | **Fail clarity** | Two truths. Allowed later: JSON Schema canonical + other encodings as projections |
+
+---
+
+## Candidate evaluations
+
+**Python classes** — convenient for the control plane; forbidden as architecture. Implementation DTOs may exist later **derived from** schemas, not the reverse.
+
+**JSON Schema Draft 2020-12** — selected. `$id` is the contract id. `$schema` pins the dialect. Top-level `additionalProperties: false` keeps unknown authority-bearing fields from being silently accepted. Extensibility is confined to named bags (`arguments`, `raw_result`, `diagnostics`, `discovery_context`, `control_signal`). Those bags **must not** carry policy, authorization, Evidence, Finding, Approval, or budget truth.
+
+Trade-offs accepted: no native types; no binary framing; evolution still needs discipline. None of those choose a transport.
+
+**Protobuf** — best-in-class for multi-language **encoding** and evolution if remote Workers appear. Not canonical now: installing runtime/codegen would make protobuf the architecture. A later decision may add `.proto` **projections** of v1 JSON Schema without replacing canonical files.
+
+**OpenAPI** — Worker execution is not an HTTP resource. Interface Phase A may publish OpenAPI later; it must `$ref` or duplicate these Worker schemas, not become their parent.
+
+**Avro** — similar to protobuf with more Kafka-shaped ops. Rejected for v1.
+
+---
+
+## Versioning rules
+
+```
+contracts/
+  v1/          # current major
+  v2/          # next breaking generation, if needed
+```
+
+- `contract_version` on Worker-facing messages is `"v1"` for this generation.
+- Additive optional fields: same major, documented.
+- Remove/rename/change meaning: new major (`v2/`).
+- **Transport version ≠ domain lifecycle version ≠ this contract major.** Experiment status and HTTP API versions are different axes.
+- Producer/consumer compatibility is **testable** (contract tests later). No SemVer tooling product is selected.
+
+---
+
+## Constraints
+
+1. **JSON Schema Draft 2020-12 is canonical.** Other formats are projections or transports.
+2. **Python class ≠ contract truth.**
+3. **Transport ≠ contract semantics.** IPC/HTTP/gRPC/queue unchosen.
+4. **No UUID or PostgreSQL type in contracts.** Identifiers are opaque strings.
+5. **No Protobuf/OpenAPI/Avro runtime or codegen in this decision.**
+6. **No JSON Schema Python library required** to store or lint files with the stdlib.
+7. **Secret values forbidden** in schemas (Decision 013).
+8. **WorkerResult ≠ Observation/Artifact/Evidence/Candidate/Finding.**
+9. **ReauthorizationRequest is not an authorization decision.**
+10. **Side-effect level is not policy.** Level 3 is representable and **denied by default** in Core (Decision 014).
+11. **Workers cannot mint authorization or raise budget** via payload.
+12. **`additionalProperties: false`** on authority-bearing objects. Extensibility only on listed bags.
+
+---
+
+## Revisit triggers
+
+- Remote Workers need a binary encoding (consider Protobuf **projection**, not a silent canonical swap)
+- Interface needs HTTP description (OpenAPI **projection** of these schemas)
+- Schema dialect or `$id` policy becomes operationally painful
+- Compatibility tests fail because silent additional properties were allowed on authority objects
+
+---
+
+## Open questions
+
+- JSON Schema validator library (later)
+- Whether `.proto` projections are generated
+- Exact additive-field process inside `v1`
+
+---
+
+## Confidence
+
+**MEDIUM**
+
+JSON Schema is the only candidate that is language-neutral, transport-neutral, and codegen-free for A1 without contradicting Decision 001. Confidence is not HIGH because Protobuf remains a strong **encoding** alternative if Workers go remote, and Draft 2020-12 still needs human evolution discipline.
+
+---
+
+## Self-audit (Decision 016)
+
+| Forbidden reading | Status |
+|---|---|
+| Python class is canonical truth | **No** |
+| Contract is PostgreSQL-specific | **No** |
+| UUID forced as DB type | **No**; opaque strings |
+| HTTP selected | **No** |
+| Queue/broker selected | **No** |
+| JSON Schema library/product lock-in | **Dialect chosen; runtime deferred** |
+| Protobuf canonical lock-in | **Not selected as canonical** |
+| WorkerResult is Observation/Evidence | **Forbidden in A1 docs/schemas** |
+| Raw payload is authority | **Forbidden**; extensible bags only |
+| Secret values in contract | **Forbidden** |
+| Worker produces authorization | **No** |
+| Worker changes budget | **Budget is Core-issued; result has no budget authority** |
+| Reauthorization = authorization | **No** |
+| Side-effect level replaces policy | **No**; Core still DEFAULT DENY; level 3 denied by default |
+| Go/Rust Workers blocked | **No** |
+
+**FINAL STATUS: PASS**
+

@@ -27,6 +27,7 @@ Decision-driver order remains: correctness → authorization/security → durabi
 | 013 | SecretPort; values never in Domain/prompts/AuditEvent; product **deferred** |
 | 014 | Process/OS boundary; in-process = fakes; containers **not** required |
 | 015 | Identity classes; operator id for audit/Approval; authn ≠ authz; no IAM product |
+| 016 | JSON Schema Draft 2020-12 canonical contracts; Python classes are not contract truth |
 
 ---
 
@@ -49,24 +50,30 @@ Matches Decision 010 Phase A and Decision 011 Phase A.
 
 Repository tree, package boundaries, empty ports. **Done when this layout exists.** No runtime.
 
-### Slice A1 — Contracts
+### Slice A1 — Worker execution contracts
 
-Add language-neutral contract **files** under `contracts/` (format still unchosen).
+Canonical JSON Schema Draft 2020-12 files under `contracts/v1/` (Decision 016).
 
-Minimum conceptual messages:
+**A1 wire contracts (Worker execution boundary only):**
 
-- authorization request / decision
-- issued budget limits (immutable)
-- Worker job / WorkerResult
-- SecretReference (no values)
-- Artifact identity + opaque locator + hash
-- correlation ids (run / experiment / worker / model)
+- CorrelationContext
+- ExecutionBudget
+- SecretReference
+- WorkerRequest
+- WorkerResult
+- ReauthorizationRequest
 
-**Verify:** Core/Research can be specified against these without importing Workers. No serialization product mandated beyond “contracts live here.”
+This slice does **not** define authorization request/decision wire contracts. Those belong in Core (A2) as domain/authority model; a cross-process/wire contract is added later only if that boundary is actually needed.
+
+This slice does **not** define Artifact identity/reference/hash wire contracts. Artifact domain metadata is designed in A3 (Data) and/or A4 (artifact byte port) once that boundary is clear.
+
+**Verify:** `python scripts/check_contracts.py` (contract lint / structural checks, not a Draft 2020-12 semantic validator). `$ref` values are canonical URNs, not filesystem paths. No extra wire contracts “because the old roadmap listed them.”
 
 ### Slice A2 — Core (no I/O)
 
 Authorization, scope, budget **policy**, Approval **semantics**, Finding promotion **contract**. In-memory tests only.
+
+Authorization request/decision remain Core domain/authority model in this slice. They become separate `contracts/` wire schemas only if a real cross-process boundary requires them.
 
 **Verify:** missing AuthorizationSource or ambiguous scope → DENY or REQUIRE_HUMAN_REVIEW. LLM-shaped input cannot authorize. No subprocess, no SDKs.
 
@@ -74,11 +81,13 @@ Authorization, scope, budget **policy**, Approval **semantics**, Finding promoti
 
 Persist Program, AuthorizationSource, ScopeRule, ResearchRun, Budget, and AuditEvent first. Then Observation/Artifact **metadata**, WorkerResult **record**, Evidence, Candidate, FindingProposal, Finding, Approval.
 
+Artifact identity/reference/hash as a **wire** contract is not part of A1. Decide that boundary here and/or in A4 (byte port) when the cross-process need is real.
+
 **Verify:** Approval + Finding in one transaction; Evidence/AuditEvent/Approval not updated in place; JSON/flexible fields not used for authority. **ORM and migration tool still unchosen** — pick them in a later recorded decision before this slice’s implementation, not silently.
 
 ### Slice A4 — Tools + Platform ports
 
-Tool **capability** types. Platform ports: orchestration coordination (thin, not Temporal), SecretPort, ObservabilityPort (structured logs), artifact byte port (local `var/artifacts/`).
+Tool **capability** types. Platform ports: orchestration coordination (thin, not Temporal), SecretPort, ObservabilityPort (structured logs), artifact byte port (local `var/artifacts/`). Artifact identity/hash **wire** schema is added only if this port is a real cross-process boundary; it is not an A1 leftover.
 
 **Verify:** Core/Research still import only ports. No Redis, Vault, OTel vendor, Docker.
 
