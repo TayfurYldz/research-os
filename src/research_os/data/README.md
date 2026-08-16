@@ -40,7 +40,9 @@ This is **not** a database copy of DOMAIN_MODEL.md.
 - ORM / SQLModel are not used. Table objects are not Domain entities.
 - `metadata.create_all()` is not application startup.
 - WorkerResult is UNTRUSTED EXECUTION OUTPUT. Inserting it does not create Observation or Evidence.
+- Transition A (Application) is the only path that may persist Observation from a completed Worker invocation.
 - Observation is not a vulnerability.
+- WorkerResult stores first-class request-envelope provenance (`request_id`, correlation, capability/action, authorization decision reference, budget reference). `request_id` is unique (idempotency). Correlation is not JSON-only.
 - IssuedBudget is immutable after insert (0 = no allowance).
 - AuditEvent is append-only reconstructive history, not Evidence and not a log substitute.
 - JSONB is only for untrusted/extensible WorkerResult bags and typed Observation/Audit payloads. It is not scope, authorization, Approval, Evidence, Finding, or budget authority.

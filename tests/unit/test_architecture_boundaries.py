@@ -8,9 +8,12 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 SRC_ROOT = REPO_ROOT / "src" / "research_os"
 CORE_DIR = SRC_ROOT / "core"
 RESEARCH_DIR = SRC_ROOT / "research"
+APPLICATION_DIR = SRC_ROOT / "application"
+PLATFORM_DIR = SRC_ROOT / "platform"
 WORKERS_DIR = REPO_ROOT / "workers"
 
 PERSISTENCE_LIBS = ("sqlalchemy", "psycopg", "alembic")
+SCHEMA_LIBS = ("jsonschema", "referencing")
 EXECUTION_ROOTS = (
     "workers",
     "integrations",
@@ -68,10 +71,12 @@ class ArchitectureBoundaryTests(unittest.TestCase):
         self.assertEqual(
             _violations(
                 CORE_DIR,
-                forbidden_roots=EXECUTION_ROOTS + PERSISTENCE_LIBS,
+                forbidden_roots=EXECUTION_ROOTS + PERSISTENCE_LIBS + SCHEMA_LIBS,
                 forbidden_prefixes=(
                     "research_os.data",
                     "research_os.workers",
+                    "research_os.platform.local_process_worker",
+                    "research_os.application",
                 ),
             ),
             [],
@@ -81,24 +86,80 @@ class ArchitectureBoundaryTests(unittest.TestCase):
         self.assertEqual(
             _violations(
                 RESEARCH_DIR,
-                forbidden_roots=EXECUTION_ROOTS + PERSISTENCE_LIBS,
+                forbidden_roots=EXECUTION_ROOTS + PERSISTENCE_LIBS + SCHEMA_LIBS,
                 forbidden_prefixes=(
                     "research_os.data.postgres",
                     "research_os.workers",
+                    "research_os.platform.local_process_worker",
+                    "research_os.application",
                 ),
             ),
             [],
         )
 
-    def test_workers_do_not_import_data_or_postgres(self) -> None:
+    def test_application_does_not_import_concrete_adapters(self) -> None:
         self.assertEqual(
             _violations(
-                WORKERS_DIR,
-                forbidden_roots=PERSISTENCE_LIBS + ("research_os",),
-                forbidden_prefixes=("research_os.data",),
+                APPLICATION_DIR,
+                forbidden_roots=EXECUTION_ROOTS + PERSISTENCE_LIBS,
+                forbidden_prefixes=(
+                    "research_os.data.postgres",
+                    "research_os.platform.local_process_worker",
+                    "research_os.workers",
+                    "integrations",
+                ),
             ),
             [],
         )
+
+    def test_platform_does_not_import_application(self) -> None:
+        self.assertEqual(
+            _violations(
+                PLATFORM_DIR,
+                forbidden_roots=(),
+                forbidden_prefixes=("research_os.application",),
+            ),
+            [],
+        )
+
+    def test_workers_do_not_import_application(self) -> None:
+        self.assertEqual(
+            _violations(
+                WORKERS_DIR,
+                forbidden_roots=PERSISTENCE_LIBS + SCHEMA_LIBS + ("research_os",),
+                forbidden_prefixes=("research_os.data", "research_os.application"),
+            ),
+            [],
+        )
+
+    def test_local_process_adapter_does_not_use_shell_or_data(self) -> None:
+        path = SRC_ROOT / "platform" / "local_process_worker.py"
+        text = path.read_text(encoding="utf-8")
+        self.assertIn("shell=False", text)
+        self.assertNotIn("shell=True", text)
+        tree = ast.parse(text, filename=str(path))
+        found = []
+        for name in _imported_modules(tree):
+            root = name.split(".", 1)[0]
+            if root in PERSISTENCE_LIBS or name.startswith("research_os.data") or name.startswith(
+                "research_os.core"
+            ) or name.startswith("research_os.research"):
+                found.append(name)
+        self.assertEqual(found, [])
+
+    def test_platform_ports_do_not_import_subprocess(self) -> None:
+        port_files = [
+            SRC_ROOT / "platform" / "worker.py",
+            SRC_ROOT / "platform" / "contract_validation.py",
+            SRC_ROOT / "platform" / "__init__.py",
+        ]
+        found = []
+        for path in port_files:
+            tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+            for name in _imported_modules(tree):
+                if name.split(".", 1)[0] == "subprocess":
+                    found.append(f"{path.name} imports {name}")
+        self.assertEqual(found, [])
 
 
 if __name__ == "__main__":

@@ -1,0 +1,25 @@
+{
+  "contract_version": "v1",
+  "correlation": {
+    "correlation_id": "corr-example",
+    "research_run_id": "run-example",
+    "experiment_id": "exp-example",
+    "request_id": "req-example"
+  },
+  "worker_capability": "diagnostic.echo",
+  "action": "echo",
+  "target_reference": "target-example",
+  "authorization_decision_reference": "authz-example",
+  "execution_budget": {
+    "budget_id": "budget-example",
+    "max_requests": 1,
+    "max_tool_calls": 1,
+    "max_runtime_ms": 5000,
+    "max_concurrency": 1
+  },
+  "side_effect_level": 0,
+  "secret_references": [],
+  "arguments": {
+    "message": "canonical-example"
+  }
+}

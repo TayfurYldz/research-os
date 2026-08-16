@@ -121,6 +121,7 @@ experiment = Table(
         ["issued_budget.budget_id", "issued_budget.research_run_id"],
         name="fk_experiment_budget_same_run",
     ),
+    UniqueConstraint("experiment_id", "research_run_id", name="uq_experiment_id_run"),
     CheckConstraint(
         "execution_state IN ("
         "'PLANNED', 'AUTHORIZATION_CHECK', 'READY', 'RUNNING', "
@@ -134,11 +135,19 @@ worker_result = Table(
     "worker_result",
     metadata,
     Column("worker_result_id", Text, primary_key=True),
-    Column("experiment_id", Text, ForeignKey("experiment.experiment_id"), nullable=False),
+    Column("experiment_id", Text, nullable=False),
+    Column("research_run_id", Text, nullable=False),
+    Column("request_id", Text, nullable=False),
+    Column("correlation_id", Text, nullable=False),
+    Column("parent_request_id", Text, nullable=True),
+    Column("worker_capability", Text, nullable=False),
+    Column("action", Text, nullable=False),
+    Column("authorization_decision_reference", Text, nullable=False),
+    Column("budget_id", Text, nullable=False),
+    Column("side_effect_level", Integer, nullable=False),
     Column("contract_version", Text, nullable=False),
     Column("worker_id", Text, nullable=False),
     Column("status", Text, nullable=False),
-    Column("correlation_id", Text, nullable=True),
     Column("started_at", DateTime(timezone=True), nullable=True),
     Column("completed_at", DateTime(timezone=True), nullable=True),
     Column("received_at", DateTime(timezone=True), nullable=False),
@@ -146,11 +155,26 @@ worker_result = Table(
     Column("raw_artifact_descriptors", JSONB, nullable=True),
     Column("diagnostics", JSONB, nullable=True),
     Column("control_signal", JSONB, nullable=True),
+    ForeignKeyConstraint(
+        ["experiment_id", "research_run_id"],
+        ["experiment.experiment_id", "experiment.research_run_id"],
+        name="fk_worker_result_experiment_same_run",
+    ),
+    ForeignKeyConstraint(
+        ["budget_id", "research_run_id"],
+        ["issued_budget.budget_id", "issued_budget.research_run_id"],
+        name="fk_worker_result_budget_same_run",
+    ),
+    UniqueConstraint("request_id", name="uq_worker_result_request_id"),
     CheckConstraint(
         "status IN ("
         "'SUCCEEDED', 'EXECUTION_FAILED', 'BLOCKED', 'CANCELLED', "
         "'TIMED_OUT', 'BUDGET_EXHAUSTED', 'REAUTHORIZATION_REQUIRED')",
         name="ck_worker_result_status",
+    ),
+    CheckConstraint(
+        "side_effect_level IN (0, 1, 2, 3)",
+        name="ck_worker_result_side_effect_level",
     ),
 )
 
@@ -169,6 +193,12 @@ observation = Table(
     Column("normalization_version", Text, nullable=False),
     Column("observed_at", DateTime(timezone=True), nullable=False),
     Column("created_at", DateTime(timezone=True), nullable=False),
+    UniqueConstraint(
+        "worker_result_id",
+        "observation_kind",
+        "normalization_version",
+        name="uq_observation_result_kind_version",
+    ),
 )
 
 audit_event = Table(

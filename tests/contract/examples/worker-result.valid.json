@@ -1,0 +1,17 @@
+{
+  "contract_version": "v1",
+  "correlation": {
+    "correlation_id": "corr-example",
+    "research_run_id": "run-example",
+    "experiment_id": "exp-example",
+    "request_id": "req-example"
+  },
+  "worker_id": "local-python-diagnostic",
+  "status": "SUCCEEDED",
+  "started_at": "2026-08-16T20:00:00Z",
+  "completed_at": "2026-08-16T20:00:01Z",
+  "raw_result": {
+    "echoed": "canonical-example",
+    "capability": "diagnostic.echo"
+  }
+}

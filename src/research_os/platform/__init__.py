@@ -1,4 +1,19 @@
-"""Platform: ports for orchestration, secrets, observability, artifact bytes, isolation.
+"""Platform: ports and first adapters. Core/Research import ports, not subprocess adapters."""
 
-Core and Research depend on contracts here, not on concrete adapters or vendors.
-"""
+from research_os.platform.contract_validation import (
+    ContractValidationError,
+    ContractValidator,
+)
+from research_os.platform.worker import (
+    InvocationStatus,
+    WorkerInvocationOutcome,
+    WorkerPort,
+)
+
+__all__ = [
+    "ContractValidationError",
+    "ContractValidator",
+    "InvocationStatus",
+    "WorkerInvocationOutcome",
+    "WorkerPort",
+]

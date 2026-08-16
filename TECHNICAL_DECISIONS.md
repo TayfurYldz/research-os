@@ -5039,3 +5039,423 @@ SQLAlchemy Core + Alembic + psycopg + sync Engine matches the SoR, the A2 purity
 
 **FINAL STATUS: PASS**
 
+---
+
+# Decision 021 — Local Worker Runtime Protocol / Contract Validation
+
+**Status:** ACCEPT WITH CONSTRAINTS  
+**Date:** 2026-08-16  
+**Depends on:** Decision 005 (mixed topology; local IPC/subprocess first; no mandatory broker); Decision 014 (side-effect Workers out-of-process); Decision 016 (JSON Schema Draft 2020-12 canonical; Python classes are not contract truth); Decision 013 (secret values not in Worker env/logs)
+
+This decision selects the **first local Worker transport**, the **one-shot process lifecycle**, and **runtime JSON Schema validation** for WorkerRequest / WorkerResult.
+
+It does **not** select:
+
+- HTTP, gRPC, or any remote RPC product
+- a broker / queue
+- a persistent Worker pool
+- Kali/WSL as architecture (still the first *tool* environment, not this protocol)
+- a security scanner, crawler, or Strix
+- Transition A / Observation ingestion
+
+**Canonical JSON Schema ≠ transport.** WorkerRequest / WorkerResult semantics stay in `contracts/`. stdin/stdout is a **first local adapter**.
+
+---
+
+## Decision
+
+**STRATEGY: ACCEPT WITH CONSTRAINTS**
+
+| Piece | v1 |
+|---|---|
+| **Canonical semantics** | Existing `contracts/v1` JSON Schema Draft 2020-12 |
+| **First local transport** | JSON over **stdin/stdout**, **stderr** diagnostics only |
+| **Process lifecycle** | **One-request-per-process** (spawn → one request → one result → exit) |
+| **Runtime validation** | **jsonschema** Draft 2020-12, local `$id` URN registry, **no network fetch** |
+| **Invocation vs result** | Control Plane `WorkerInvocationOutcome` is **not** `WorkerResult` |
+
+**PRODUCTS:** jsonschema is a replaceable validator library, not contract truth. One-shot stdin/stdout is the **first implementation**, not permanent topology.
+
+---
+
+## Why this decision exists
+
+Decision 005 locked mixed topology and local IPC/subprocess without choosing a wire protocol. A1 lint is structural only. A4 must actually spawn a process and round-trip canonical messages.
+
+HTTP-localhost, sockets, brokers, and RPC frameworks would make **transport** look like architecture and add session/port/product surface before a remote Worker exists. A persistent stdin/stdout daemon would share memory across requests and complicate crash/timeout isolation.
+
+One-shot JSON stdio matches Phase A: deterministic lifecycle, easy timeout, crash containment, no hidden session, replaceable later by Go/Rust Workers using the **same schemas**.
+
+A1 cannot validate instances. Hand-rolling Draft 2020-12 would be a false validator. jsonschema is justified because it evaluates the **canonical files**, resolves `$ref` locally, and can be swapped without rewriting `contracts/`.
+
+---
+
+## Stage 1 — Mandatory gates
+
+| Gate | Meaning |
+|---|---|
+| Contract remains schema files | No Python models as WorkerRequest/WorkerResult truth |
+| Transport ≠ semantics | Remote may change transport later |
+| Out-of-process | Side-effect Worker is a child process (Decision 014) |
+| Crash containment | Worker crash does not kill Control Plane and does not mint a fake WorkerResult |
+| No broker/HTTP required | Decision 005 |
+| Local schema resolution | URN `$id` only; no network `$ref` / `$schema` fetch |
+| Invocation ≠ WorkerResult | Transport/protocol failure is not `WorkerResult.status` |
+| Secrets | Child env is constructed; DB/model secrets not forwarded (Decision 013) |
+
+### Transport candidates
+
+| Candidate | Stage 1 | Note |
+|---|---|---|
+| **1. HTTP localhost service** | **Fail as first impl** | Server, port, extra protocol. Transport gravity |
+| **2. Local socket** | **Fail as first impl** | Session framing without a remote Worker need |
+| **3. Persistent stdin/stdout process** | **Pass later** | Pooling/session Workers later. Cross-request memory now |
+| **4. One-request-per-process stdin/stdout** | **Pass** | Selected for Phase A |
+| **5. Broker** | **Fail** | Decision 005: no mandatory broker |
+| **6. RPC framework** | **Fail as first impl** | Product lock-in; transport becomes architecture |
+
+### Validator candidates
+
+| Candidate | Stage 1 | Note |
+|---|---|---|
+| **Keep A1 lint only** | **Fail runtime** | Does not evaluate instances |
+| **Hand-written Draft 2020-12** | **Fail** | Fake validator |
+| **jsonschema + local Registry** | **Pass** | Selected. Replaceable |
+| **Network-fetching `$ref`** | **Fail** | Contracts must not leave the repo |
+
+---
+
+## Process lifecycle (first implementation)
+
+```
+Control Plane
+  → spawn Worker (argv, no shell)
+  → write exactly one JSON WorkerRequest to stdin
+  → Worker performs exactly one capability invocation
+  → read exactly one JSON WorkerResult from stdout
+  → process exits
+```
+
+stderr is bounded diagnostics, not protocol, not truth.
+
+This lifecycle is **not** the standing topology. Persistent Workers, pools, streaming, and remote transports are revisit items. Domain/Core contracts do not change when they appear.
+
+---
+
+## Invocation vs WorkerResult
+
+Control Plane records a **WorkerInvocationOutcome**.
+
+Conceptual `invocation_status` values:
+
+- `COMPLETED` — valid canonical WorkerResult received; expected process completion
+- `START_FAILED` — process could not start
+- `TIMED_OUT` — timeout before a valid WorkerResult
+- `CANCELLED` — local process terminated by caller (first implementation: kill the child)
+- `PROCESS_FAILED` — crash / unexpected exit **without** a valid WorkerResult
+- `PROTOCOL_ERROR` — invalid JSON, extra stdout, oversized stdout, conflicting exit+result
+- `CONTRACT_INVALID` — schema-invalid request/result, unsupported version, correlation mismatch
+
+A process crash is **not** `WorkerResult.status = EXECUTION_FAILED`. That status exists only on a **valid** WorkerResult document.
+
+Timeout is **not** negative Evidence. A completed diagnostic WorkerResult is **not** Observation or Evidence.
+
+---
+
+## Protocol rules (stdio adapter)
+
+- stdin: exactly one JSON WorkerRequest
+- stdout: exactly one JSON WorkerResult; no logs, banners, or debug text
+- stderr: bounded diagnostics; not secrets; not truth
+- v1: no NDJSON, no multi-message stream, no network protocol
+- `shell=False`; argv execution; request is stdin data, not command-line syntax
+- Worker executable/module path is configuration, not model output
+
+---
+
+## Runtime validation
+
+- Load canonical files from `contracts/v1/`
+- Index by `$id` URN
+- Resolve `$ref` only to known local URNs
+- Unknown URN / network retrieve → fail closed
+- Validate WorkerRequest **before** spawn
+- Validate WorkerResult **after** receive
+- `contract_version` other than `v1` → fail closed (schema `const` + explicit check)
+- Correlation (`correlation_id`, `research_run_id`, `experiment_id`, `request_id`) must match the dispatched request; **do not rewrite** Worker fields
+- `scripts/check_contracts.py` remains structural lint, not this validator
+
+---
+
+## Constraints
+
+1. **jsonschema does not replace `contracts/`.**
+2. **One-shot stdio is first local transport, not architecture.**
+3. **Core and Research must not import subprocess** or the concrete local adapter.
+4. **Workers must not import `research_os.core` / Data / PostgreSQL.**
+5. **Workers must not receive DB/model secrets** in the child environment.
+6. **Workers must not write the SoR.** A4 does not persist WorkerResult.
+7. **Do not fabricate WorkerResult** on crash, timeout, or protocol failure.
+8. **stdout size is bounded**; overflow is PROTOCOL_ERROR, not a truncated WorkerResult.
+9. **stderr size is bounded**; overflow may truncate diagnostics and mark them truncated.
+10. **Valid result + unexpected non-zero exit → fail closed** (do not accept the result).
+11. **PID is not Worker identity.** Configured opaque `worker_id` is.
+12. **Same-machine ≠ authority.** Worker identity does not authorize.
+13. **diagnostic.echo is not a security capability.**
+14. **No HTTP/broker/RPC in this slice.**
+15. **Distributed cancellation is deferred**; local cancel is process termination.
+16. **A3 PostgreSQL integration tests remaining skipped is PENDING, not PASS.**
+
+---
+
+## Revisit triggers
+
+- Measured process-startup overhead / high concurrency (consider persistent Workers or a pool **behind the same contract**)
+- Persistent browser/session Workers
+- Remote authenticated Workers (new transport adapter; same schemas)
+- Streaming / NDJSON / artifact-byte transfer needs
+- WSL transport friction
+- jsonschema dialect/registry pain (replace the library, not the schemas)
+
+Revisit does **not** mean: WorkerResult is Observation, transport is Domain, or crash equals EXECUTION_FAILED.
+
+---
+
+## Open questions
+
+- Exact pool/persistent lifecycle when revisit fires
+- WSL launch wrapper (still not architecture)
+- Whether Worker gets its own packaging/venv (deferred until required)
+
+---
+
+## Confidence
+
+**MEDIUM**
+
+One-shot JSON stdio is the only candidate that is out-of-process, broker-free, and session-free for Phase A. jsonschema is the justified runtime evaluator of canonical files. Confidence is not HIGH because one-shot is explicitly temporary under load, and host/WSL spawn behavior will only be proven when a tool Worker exists.
+
+---
+
+## Self-audit (Decision 021)
+
+| Forbidden reading | Status |
+|---|---|
+| Python models are Worker contract truth | **No** |
+| Transport is architecture | **No**; first adapter |
+| HTTP/broker/RPC selected | **No** |
+| Persistent process required now | **No** |
+| Crash fabricates WorkerResult | **Forbidden** |
+| Validator fetches network schemas | **Forbidden** |
+| One-shot described as permanent | **No** |
+| jsonschema replaces contracts/ | **No** |
+
+**FINAL STATUS: PASS**
+
+---
+
+# Decision 022 — Application / Use-Case Coordination Layer
+
+**Status:** ACCEPT WITH CONSTRAINTS  
+**Date:** 2026-08-16  
+**Depends on:** PROJECT_STRUCTURE layer boundaries; Decision 004 (orchestration product deferred); Decision 014 (Workers execute); Decision 020 (Data UoW)
+
+This decision names the missing owner of:
+
+```
+Core decision → WorkerPort → WorkerInvocationOutcome → Data UoW → Transition A → persistence
+```
+
+It does **not** select an orchestration engine, API framework, or make Application into authority.
+
+---
+
+## Decision
+
+**STRATEGY: ACCEPT WITH CONSTRAINTS**
+
+An explicit `src/research_os/application/` layer owns **use-case coordination**.
+
+| Alternative | Stage 1 | Note |
+|---|---|---|
+| **1. Interface** | **Fail** | Interface must not own business logic or transactions (PROJECT_STRUCTURE) |
+| **2. Research** | **Fail** | Research proposes; it must not execute or persist WorkerResults |
+| **3. Core** | **Fail** | Core is authority without I/O; it must not import Worker adapters or UoW |
+| **4. Platform** | **Fail** | Platform is infrastructure; it must not own Observation admission |
+| **5. Explicit Application layer** | **Pass** | Selected. Coordinates ports; does not become authority |
+
+**Ownership:** sequencing, port coordination, transaction intent, mapping a successful infrastructure outcome into the next domain step, fail-closed workflow behavior.
+
+**Not owned:** authorization/scope/budget semantics, Evidence truth, Finding acceptance, hypothesis semantics, PostgreSQL, subprocess.
+
+---
+
+## Dependency direction
+
+```
+Interface
+  → Application
+    → Core / Research (public APIs/types)
+    → Data ports / UnitOfWork
+    → Platform ports (WorkerPort, contract validator)
+```
+
+Concrete adapters (PostgreSQL, LocalProcessWorkerAdapter, Integrations) are injected from below.
+
+Rules:
+
+- Application coordinates authority; it **asks Core**. It cannot convert DENY or REQUIRE_HUMAN_REVIEW into ALLOW.
+- Core must not import Application.
+- Research must not import Application.
+- Platform must not import Application.
+- Workers must not import Application.
+- No cycle.
+
+---
+
+## Confidence
+
+**HIGH** for the layer existing. **MEDIUM** for its eventual width (more use cases will appear). The first use case is intentionally narrow: ingest a completed Worker invocation.
+
+---
+
+## Why
+
+No existing layer can own Worker invocation → Transition A → persistence without violating invariants. Interface owning UoW would bury business flow in CLI/API. Research owning it would execute. Core owning it would take I/O. Platform owning it would admit domain Observations.
+
+---
+
+## Constraints
+
+1. Application is not a new authority.
+2. Application must not import `research_os.data.postgres`, SQLAlchemy, psycopg, Alembic, subprocess, or `LocalProcessWorkerAdapter`.
+3. Application must not execute Workers.
+4. Application must not create Evidence, Candidate, or Finding.
+5. Orchestration **product** remains deferred (Decision 004).
+
+## Revisit triggers
+
+- Distributed saga/outbox needs beyond one UoW
+- Multiple competing Application packages
+- Interface-only scripts that must not depend on Application (keep fakes at composition root)
+
+**FINAL STATUS: PASS**
+
+---
+
+# Decision 023 — Transition A Admission / Deterministic Normalization
+
+**Status:** ACCEPT WITH CONSTRAINTS  
+**Date:** 2026-08-16  
+**Depends on:** DOMAIN_MODEL Transition A; Decision 017 (false-positive discipline); Decision 021 (invocation ≠ WorkerResult); Decision 022 (Application coordinates)
+
+Locked semantic:
+
+```
+valid COMPLETED invocation
+  → canonical WorkerResult
+  → schema/integrity checks
+  → deterministic normalizer (trusted capability/action)
+  → ObservationDraft(s)
+  → one Data transaction: WorkerResult + Observation(s) + AuditEvent(s)
+```
+
+---
+
+## Decision
+
+**STRATEGY: ACCEPT WITH CONSTRAINTS**
+
+### Admission gate
+
+Only `WorkerInvocationOutcome.invocation_status = COMPLETED` with a valid canonical WorkerResult may enter ingestion.
+
+`START_FAILED`, `TIMED_OUT`, `PROCESS_FAILED`, `PROTOCOL_ERROR`, `CONTRACT_INVALID` do **not** mint a WorkerResult row. They may be logged; they are not Observations of target behavior.
+
+A COMPLETED invocation may still have `WorkerResult.status` other than SUCCEEDED. Those statuses are durably recorded as WorkerResult when a normalizer exists; they do not automatically become Observations.
+
+### Normalizer model
+
+`NormalizerRegistry` keyed by trusted `(capability, action)` from the **dispatched WorkerRequest**, plus `normalizer_version`. Worker `raw_result` must not select the normalizer.
+
+Normalizers are pure/deterministic: no DB, network, subprocess, model, or secret resolution.
+
+Output: zero or more `ObservationDraft` values. Not persisted Observation. No severity, confidence, vulnerability type, impact, Evidence, or Finding fields.
+
+First normalizer: `diagnostic.echo` / `echo` / `diagnostic.echo.v1`. Proves Transition A. Not a scanner.
+
+### Provenance (no WorkerRequest table, no ExecutionAttempt table)
+
+A separate WorkerRequest SoR table and a separate ExecutionAttempt table were **rejected for this slice**.
+
+Reason: this use case only admits COMPLETED invocations that already have a canonical WorkerResult. Infrastructure failures are not WorkerResult rows (Decision 021). A WorkerRequest table would duplicate the wire envelope without a query need. An ExecutionAttempt table would split invocation from result before any consumer exists.
+
+Minimum provenance is first-class columns on `worker_result`:
+
+- `request_id` (idempotency identity)
+- `correlation_id`, `research_run_id`, `parent_request_id`
+- `worker_capability`, `action`
+- `authorization_decision_reference` (reference, not the decision)
+- `budget_id`, `side_effect_level`
+
+Experiment remains the authoritative parent. Correlation is not JSON-only.
+
+`worker_result_id` is derived as `wr:{request_id}` so replay is stable without a second identity generator.
+
+### Idempotency
+
+Identity is **`request_id`** (authorized request identity), unique in PostgreSQL.
+
+Not payload hash. Two independent requests with equal diagnostic payloads produce two Observations.
+
+Replay of the same `request_id` returns `ALREADY_INGESTED` and does not insert a second Observation. This is execution/idempotency duplicate, not duplicate vulnerability.
+
+Retry after crash-before-commit: insert proceeds. Retry after commit-ack loss: unique `request_id` → `ALREADY_INGESTED`.
+
+Observation uniqueness `(worker_result_id, observation_kind, normalization_version)` is a second belt.
+
+### Transaction model
+
+WorkerResult + Observation(s) + AuditEvent(s) (`WORKER_RESULT_INGESTED`, `OBSERVATION_ADMITTED`) are one Unit of Work. Explicit commit; otherwise rollback.
+
+Never: Observation without source WorkerResult. Never: WorkerResult marked ingested with a half-written Observation/Audit chain.
+
+Evidence admission is **not** in this transaction.
+
+`observed_at` comes from WorkerResult `completed_at` (else `started_at`). `created_at` is persistence admission time.
+
+`normalization_version` is persisted. Do not silently reinterpret old rows when normalizer code changes. No replay engine in this slice.
+
+---
+
+## Confidence
+
+**HIGH** for admission gate, invocation≠result, and request_id idempotency. **MEDIUM** for envelope-on-WorkerResult vs a later ExecutionAttempt table if incomplete invocations must be durable.
+
+---
+
+## Why
+
+Decision 021 made transport failure distinct from WorkerResult. Transition A must not collapse that distinction, must not let Workers declare Observations, and must not use an LLM to “understand” a result.
+
+---
+
+## Constraints
+
+1. Transition A is non-LLM and non-judgmental.
+2. Observation ≠ Evidence ≠ Finding.
+3. Do not fabricate WorkerResult for infrastructure failure.
+4. Do not globally deduplicate equal payloads.
+5. Do not edit `a3_001_persistence_spine.py`; schema change is a new Alembic revision.
+6. Do not mix Transition B / Evidence into this transaction.
+7. A3 PostgreSQL integration remaining skipped is **PENDING**, not PASS.
+
+## Revisit triggers
+
+- Need to persist incomplete invocations (START_FAILED / TIMED_OUT) as first-class operational records
+- Artifact byte admission alongside Observation
+- Additional capability normalizers
+- Reprocessing WorkerResults under a new `normalization_version`
+
+**FINAL STATUS: PASS**
+

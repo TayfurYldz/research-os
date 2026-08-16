@@ -240,13 +240,21 @@ class WorkerResultRecord:
 
     worker_result_id: str
     experiment_id: str
+    research_run_id: str
+    request_id: str
+    correlation_id: str
+    worker_capability: str
+    action: str
+    authorization_decision_reference: str
+    budget_id: str
+    side_effect_level: int
     contract_version: str
     worker_id: str
     status: str
     received_at: datetime
     started_at: datetime | None = None
     completed_at: datetime | None = None
-    correlation_id: str | None = None
+    parent_request_id: str | None = None
     raw_result: Mapping[str, Any] | None = None
     raw_artifact_descriptors: list[Mapping[str, Any]] | None = None
     diagnostics: Mapping[str, Any] | None = None
@@ -255,18 +263,29 @@ class WorkerResultRecord:
     def __post_init__(self) -> None:
         require_opaque_id(self.worker_result_id, "worker_result_id")
         require_opaque_id(self.experiment_id, "experiment_id")
+        require_opaque_id(self.research_run_id, "research_run_id")
+        require_opaque_id(self.request_id, "request_id")
+        require_opaque_id(self.correlation_id, "correlation_id")
+        require_opaque_id(self.worker_capability, "worker_capability")
+        require_opaque_id(self.action, "action")
+        require_opaque_id(
+            self.authorization_decision_reference, "authorization_decision_reference"
+        )
+        require_opaque_id(self.budget_id, "budget_id")
         require_opaque_id(self.worker_id, "worker_id")
         require_aware_datetime(self.received_at, "received_at")
         if not isinstance(self.contract_version, str) or not self.contract_version.strip():
             raise PersistenceInputError("contract_version must be a non-empty string")
         if self.status not in ALLOWED_WORKER_RESULT_STATUSES:
             raise PersistenceInputError("status is not a WorkerResult execution status")
+        if self.side_effect_level not in (0, 1, 2, 3):
+            raise PersistenceInputError("side_effect_level must be 0, 1, 2, or 3")
         if self.started_at is not None:
             require_aware_datetime(self.started_at, "started_at")
         if self.completed_at is not None:
             require_aware_datetime(self.completed_at, "completed_at")
-        if self.correlation_id is not None:
-            require_opaque_id(self.correlation_id, "correlation_id")
+        if self.parent_request_id is not None:
+            require_opaque_id(self.parent_request_id, "parent_request_id")
         object.__setattr__(
             self, "raw_result", _optional_mapping(self.raw_result, "raw_result")
         )

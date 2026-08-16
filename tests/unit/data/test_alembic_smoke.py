@@ -11,9 +11,9 @@ from research_os.data.postgres.tables import SPINE_TABLES, metadata
 REPO_ROOT = Path(__file__).resolve().parents[3]
 DATA_DIR = REPO_ROOT / "src" / "research_os" / "data"
 ALEMBIC_ENV = REPO_ROOT / "alembic" / "env.py"
-MIGRATION = (
-    REPO_ROOT / "alembic" / "versions" / "a3_001_persistence_spine.py"
-)
+ALEMBIC_VERSIONS = REPO_ROOT / "alembic" / "versions"
+MIGRATION = ALEMBIC_VERSIONS / "a3_001_persistence_spine.py"
+A6_MIGRATION = ALEMBIC_VERSIONS / "a6_001_transition_a_provenance.py"
 
 
 def _imported_modules(tree: ast.AST) -> set[str]:
@@ -89,6 +89,15 @@ class AlembicSmokeTests(unittest.TestCase):
         self.assertIn("a3_001_persistence_spine", source)
         self.assertIn("research_os_reject_mutation", source)
         self.assertNotIn("create_all", source)
+
+    def test_a6_migration_is_append_only_revision(self) -> None:
+        source = A6_MIGRATION.read_text(encoding="utf-8")
+        self.assertIn("a6_001_transition_a_provenance", source)
+        self.assertIn("a3_001_persistence_spine", source)
+        self.assertIn("uq_worker_result_request_id", source)
+        self.assertNotIn("create_all", source)
+        a3 = MIGRATION.read_text(encoding="utf-8")
+        self.assertNotIn("uq_worker_result_request_id", a3)
 
 
 if __name__ == "__main__":

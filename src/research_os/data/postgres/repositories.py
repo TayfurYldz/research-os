@@ -9,7 +9,11 @@ from sqlalchemy import select, update
 from sqlalchemy.engine import Connection
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 
-from research_os.data.errors import PersistenceError, PersistenceInputError
+from research_os.data.errors import (
+    PersistenceConflictError,
+    PersistenceError,
+    PersistenceInputError,
+)
 from research_os.data.postgres import mapping as map_row
 from research_os.data.postgres import tables
 from research_os.data.records import (
@@ -30,6 +34,12 @@ T = TypeVar("T")
 
 
 def _raise_integrity(exc: IntegrityError) -> None:
+    orig = getattr(exc, "orig", None)
+    sqlstate = getattr(orig, "sqlstate", None)
+    if sqlstate == "23505":
+        raise PersistenceConflictError(
+            "persistence unique constraint failed"
+        ) from exc
     raise PersistenceError("persistence integrity constraint failed") from exc
 
 
@@ -248,10 +258,18 @@ class PostgresWorkerResultRepository:
             tables.worker_result.insert().values(
                 worker_result_id=record.worker_result_id,
                 experiment_id=record.experiment_id,
+                research_run_id=record.research_run_id,
+                request_id=record.request_id,
+                correlation_id=record.correlation_id,
+                parent_request_id=record.parent_request_id,
+                worker_capability=record.worker_capability,
+                action=record.action,
+                authorization_decision_reference=record.authorization_decision_reference,
+                budget_id=record.budget_id,
+                side_effect_level=record.side_effect_level,
                 contract_version=record.contract_version,
                 worker_id=record.worker_id,
                 status=record.status,
-                correlation_id=record.correlation_id,
                 started_at=record.started_at,
                 completed_at=record.completed_at,
                 received_at=record.received_at,
@@ -269,6 +287,16 @@ class PostgresWorkerResultRepository:
             tables.worker_result,
             tables.worker_result.c.worker_result_id,
             worker_result_id,
+            map_row.worker_result_from_row,
+        )
+
+    def get_by_request_id(self, request_id: str) -> WorkerResultRecord | None:
+        require_opaque_id(request_id, "request_id")
+        return _fetch_one(
+            self._connection,
+            tables.worker_result,
+            tables.worker_result.c.request_id,
+            request_id,
             map_row.worker_result_from_row,
         )
 
@@ -300,6 +328,18 @@ class PostgresObservationRepository:
             observation_id,
             map_row.observation_from_row,
         )
+
+    def list_for_worker_result(self, worker_result_id: str) -> list[ObservationRecord]:
+        require_opaque_id(worker_result_id, "worker_result_id")
+        try:
+            rows = self._connection.execute(
+                select(tables.observation).where(
+                    tables.observation.c.worker_result_id == worker_result_id
+                )
+            ).mappings().all()
+        except SQLAlchemyError as exc:
+            raise PersistenceError("persistence read failed") from exc
+        return [map_row.observation_from_row(row) for row in rows]
 
 
 class PostgresAuditEventRepository:

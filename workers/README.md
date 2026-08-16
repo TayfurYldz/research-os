@@ -4,6 +4,15 @@ Out-of-process **execution** runtimes. This is the only layer allowed to perform
 
 Not part of the `research_os` Python package. Core and Research must not import this tree.
 
+## First local runtime (A4 / Decision 021)
+
+`python/` is a **one-shot** JSON-over-stdin/stdout Worker. That lifecycle is the first implementation, not permanent topology.
+
+- stdout is the protocol document.
+- stderr is diagnostics, not truth.
+- `WorkerInvocationOutcome` (Control Plane) ≠ `WorkerResult`.
+- WorkerResult remains untrusted until Transition A.
+
 ## Rules
 
 - Produce `WorkerResult` only. Do not write PostgreSQL SoR.
@@ -12,5 +21,6 @@ Not part of the `research_os` Python package. Core and Research must not import 
 - In-process Workers are test doubles only.
 - First tool-execution environment may be Kali/WSL; that is not architecture.
 - Correlation id, timeout, cancellation, and duplicate/retry awareness belong on the Worker contract (`contracts/`).
+- PID is diagnostic metadata, not Worker identity.
 
 `python/` is the first runtime slot. Other languages may be added later without changing Core/Research.

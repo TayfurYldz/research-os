@@ -15,6 +15,7 @@ research-os/
 ├── src/research_os/          # Python control-plane package (Decision 001)
 │   ├── core/
 │   ├── research/
+│   ├── application/
 │   ├── data/
 │   ├── tools/
 │   ├── platform/
@@ -42,7 +43,7 @@ Constitutional design docs stay at the **repository root**. Do not move them int
 
 | Location | Why |
 |---|---|
-| `src/research_os/` | Control plane in Python: Core, Research, Data access, Tools contracts, Platform **ports**, Interface |
+| `src/research_os/` | Control plane in Python: Core, Research, Application, Data access, Tools contracts, Platform **ports**, Interface |
 | `contracts/` | Language-neutral schemas/contracts so Workers/Integrations are not Python-locked |
 | `workers/` | Out-of-process execution (Decisions 005, 014). May be Python now; other languages later |
 | `integrations/` | Concrete adapters. Core and Research **must not** import these |
@@ -68,7 +69,13 @@ Proposals only: Hypothesis, Experiment plans, Evidence **proposals**, Candidate/
 
 Must not: execute, change Core decisions, import Integrations or concrete Platform adapters, treat model output as fact/Evidence/Finding.
 
-May depend on Core **contracts**, not on Interface.
+May depend on Core **contracts**, not on Interface or Application.
+
+### `application`
+
+Use-case coordination (Decision 022). First use case: Transition A ingestion (Decision 023).
+
+Must not: own Core policy, import `data.postgres` or `local_process_worker`, create Evidence/Finding.
 
 ### `data`
 
@@ -84,11 +91,11 @@ Capability **contracts** (HTTP, browser, shell, recon, …). No side effects. No
 
 ### `platform`
 
-**Ports** only for this slice: orchestration coordination (Decision 004), secrets (013), observability (012), artifact bytes (006), isolation primitives (014).
+Ports for orchestration coordination (Decision 004), secrets (013), observability (012), artifact bytes (006), isolation primitives (014).
+
+A4 adds the first **local process Worker adapter** (`local_process_worker`) behind `WorkerPort`. That adapter is not architecture. Core and Research must not import it or `subprocess`.
 
 Must not: own policy, own Evidence/Finding, select Temporal/Redis/Vault/Docker here.
-
-Concrete adapters, when written later, still must not be imported by Core/Research.
 
 ### `interface`
 
@@ -101,7 +108,7 @@ Must not: own Approval semantics, bypass Core, write PostgreSQL authority direct
 ## Allowed dependency direction
 
 ```
-interface → research → core → (tools | data | platform) *contracts*
+interface → application → research → core → (tools | data | platform) *contracts*
 ```
 
 Concrete implementations:
@@ -110,7 +117,7 @@ Concrete implementations:
 - `integrations/`
 - later Platform adapters
 
-These implement contracts; they are not imported by `core` or `research`.
+These implement contracts; they are not imported by `core`, `research`, or `application`.
 
 Trust (not the same as imports): Core > Research > Interface/orchestration callers. Workers and Integrations are lower trust. Model output and WorkerResult remain untrusted until the documented transitions.
 
@@ -118,7 +125,7 @@ Trust (not the same as imports): Core > Research > Interface/orchestration calle
 
 ## `contracts/`
 
-Language-neutral. Serialization/validation strategy is still an open technical question (`TECHNICAL_REQUIREMENTS.md`).
+Language-neutral. Canonical schemas are JSON Schema Draft 2020-12 (Decision 016). Runtime instance validation is Control Plane `jsonschema` over a local URN registry (Decision 021). Structural lint (`scripts/check_contracts.py`) is not that validator.
 
 Intended contents later: Worker job/result, ModelPort, SecretReference, authorization request/decision, Artifact locator (opaque), observability correlation fields.
 
@@ -180,8 +187,10 @@ Packaging (`pyproject.toml`, `uv.lock`) and the PostgreSQL adapter (SQLAlchemy 2
 
 ## Import rules (enforced later by tests, not by this file)
 
-1. `core` does not import `research`, `interface`, `integrations`, or `workers`.
-2. `research` does not import `interface`, `integrations`, or `workers`.
-3. `core` and `research` do not import concrete Platform adapters.
-4. Secret **values**, provider SDKs, and Strix clients do not appear in `core` or `research`.
-5. Models are not authorization principals.
+1. `core` does not import `research`, `application`, `interface`, `integrations`, or `workers`.
+2. `research` does not import `application`, `interface`, `integrations`, or `workers`.
+3. `application` does not import concrete Platform adapters or `data.postgres`.
+4. `core` and `research` do not import concrete Platform adapters.
+5. Secret **values**, provider SDKs, and Strix clients do not appear in `core` or `research`.
+6. Models are not authorization principals.
+ 

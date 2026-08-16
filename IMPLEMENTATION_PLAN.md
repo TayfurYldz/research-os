@@ -32,6 +32,9 @@ Decision-driver order remains: correctness → authorization/security → durabi
 | 018 | Realistic novelty N1/N2/growing N3; N4 not promised; Research Brain in Research, not Core |
 | 019 | PEP 621 pyproject.toml; Hatchling; uv installer/lock (replaceable); Python >=3.11 |
 | 020 | SQLAlchemy 2 Core + psycopg 3 + Alembic; sync Data adapter; no ORM; no SQLite-as-Postgres |
+| 021 | Canonical schemas stay `contracts/`; first local transport = one-shot JSON stdin/stdout; jsonschema runtime validation (local URN, no network); `WorkerInvocationOutcome` ≠ `WorkerResult` |
+| 022 | Explicit Application layer owns use-case coordination; not authority; no concrete adapters |
+| 023 | Transition A: COMPLETED+valid WorkerResult only; trusted-request normalizer registry; request_id idempotency; WorkerResult+Observation+AuditEvent one UoW |
 
 ---
 
@@ -101,17 +104,61 @@ Artifact identity/reference/hash as a **wire** contract is not part of A1. Decid
 
 **Verify:** Alembic upgrade is the schema path (`create_all` is not startup). Core/Research import no SQLAlchemy/psycopg/Alembic. WorkerResult insert does not create Observation or Evidence. IssuedBudget is immutable after insert; 0 is no allowance. AuditEvent is append-only. Integration tests run only when `RESEARCH_OS_TEST_DATABASE_URL` is set.
 
-### Slice A4 — Tools + Platform ports
+**A3 PostgreSQL validation debt:** skipped integration tests are **PENDING, not PASS**. Before the first E2E vertical research loop is accepted, `tests/integration` against a real PostgreSQL URL **must** pass. Do not install Docker automatically. If `RESEARCH_OS_TEST_DATABASE_URL` is absent, report PENDING.
 
-Tool **capability** types. Platform ports: orchestration coordination (thin, not Temporal), SecretPort, ObservabilityPort (structured logs), artifact byte port (local `var/artifacts/`). Artifact identity/hash **wire** schema is added only if this port is a real cross-process boundary; it is not an A1 leftover.
+### Slice A4 — Minimal out-of-process Worker runtime (Decision 021)
 
-**Verify:** Core/Research still import only ports. No Redis, Vault, OTel vendor, Docker.
+Prove the execution boundary, not a scanner:
+
+```
+canonical WorkerRequest
+  → WorkerPort
+  → LocalProcessWorkerAdapter (argv, no shell)
+  → one-shot child process
+  → isolated diagnostic Worker
+  → WorkerInvocationOutcome (optional canonical WorkerResult)
+```
+
+- First local transport: JSON over stdin/stdout; stderr diagnostics. **Not** architecture. Not HTTP/broker/RPC.
+- One-request-per-process is the **first implementation**, not permanent topology.
+- Runtime Draft 2020-12 validation via `jsonschema` over local URN `$id`. No network schema fetch. `scripts/check_contracts.py` remains structural lint.
+- `WorkerInvocationOutcome` ≠ `WorkerResult`. Crash/timeout/invalid JSON do not fabricate a WorkerResult.
+- Production capability: `diagnostic.echo` only. Test-only failure modes live in fixture programs, not the production registry.
+- Worker lives in `workers/python/`. It does not import Core/Data/PostgreSQL and does not write the SoR.
+- This slice does **not** persist WorkerResult, run Transition A, or produce Observation/Evidence/Candidate/Finding.
+
+Original roadmap items that remain later Platform work (not this A4): SecretPort product, ObservabilityPort vendor, artifact byte adapter, orchestration engine.
+
+**Verify:** unit + `tests/contract` + `scripts/check_contracts.py`. Core/Research import neither `subprocess` nor `local_process_worker`. Worker imports neither `research_os` nor SQLAlchemy/psycopg. Correlation mismatch is fail-closed. Bounded stdout/stderr.
+
+### Slice A6-lite — Transition-A spine (Decisions 022–023)
+
+valid COMPLETED Worker invocation → Application `IngestCompletedWorkerInvocation` → deterministic `diagnostic.echo` normalizer → Observation persistence.
+
+- Application layer owns the use case. Core/Research/Platform/Interface do not.
+- Only COMPLETED + valid WorkerResult may ingest. Transport failures are not WorkerResult rows.
+- BLOCKED/EXECUTION_FAILED diagnostic results may persist WorkerResult with `NO_OBSERVATION`.
+- Idempotency identity is `request_id` (unique). Payload-equal distinct requests are not collapsed.
+- Alembic revision `a6_001_transition_a_provenance` adds envelope columns. Do not rewrite `a3_001`.
+- No Evidence, Candidate, Finding, scanner, or Research Brain.
+
+**Verify:** unit + contract + architecture. PostgreSQL integration when `RESEARCH_OS_TEST_DATABASE_URL` is set; otherwise PENDING.
+
+### Next planned slices (not implemented here)
+
+### Slice A7-lite — Hypothesis / Experiment feedback
+
+One minimal Hypothesis → Experiment → authorized Worker → ingested Observation feedback cycle.
+
+### FIRST VERTICAL RESEARCH LOOP GATE
+
+Requires A3 PostgreSQL integration tests **actually passing**, plus A4 runtime + A6-lite + A7-lite. Proves the control loop, not vulnerability discovery.
 
 ### Slice A5 — Research (proposals)
 
 Hypothesis / Experiment **plan** / Evidence **proposal** / Candidate / FindingProposal. ModelPort **fake** adapter in tests.
 
-**Verify:** Research cannot create Finding. Model output stays UNTRUSTED STRUCTURED PROPOSAL.
+**Verify:** Research cannot create Finding. Model output stays UNTRUSTED STRUCTURED PROPOSAL. Full A5 does not block proving the minimal control loop.
 
 ### Slice A6 — Interface Phase A
 
@@ -119,17 +166,17 @@ Application/API **boundary** (no API framework chosen until a later decision) + 
 
 **Verify:** UI/CLI cannot write Findings into PostgreSQL. Operator identity on Approval (Decision 015).
 
-### Slice A7 — Worker process + Kali/WSL adapter slot
+### Slice A7 — Kali/WSL tool-Worker adapter slot (after A4)
 
-`workers/python/` child-process (or WSL) runtime implementing the Worker contract. Fake/recon-capable **stub** first; no vendor tool required.
+First **local diagnostic** Worker runtime is delivered in A4. Remaining A7 work is the Kali/WSL **tool** environment adapter when a real (still replaceable) tool Worker is justified — not a recon framework, not Strix-as-architecture.
 
 **Verify:** out-of-process; crash does not kill Core; no SoR writes from Worker; redirect → stop → Core re-eval; correlation id present.
 
-### Slice A8 — Transition A then B
+### Slice A8 — Transition B (after A6-lite Observation ingest)
 
-Deterministic ingest WorkerResult → Observation/Artifact metadata (+ bytes via port). Separate Evidence admission.
+A6-lite persists Observation. Remaining: Artifact metadata/bytes via port, then **separate** Evidence admission (Transition B).
 
-**Verify:** no Evidence at ingest. Artifact attachment ≠ Evidence.
+**Verify:** no Evidence at Observation ingest. Artifact attachment ≠ Evidence.
 
 ### Slice A9 — First Human Review loop
 
@@ -213,7 +260,9 @@ Program
 → Research feedback
 ```
 
-This gate does **not** claim vulnerability discovery. It proves the research control loop. It is **not** implemented in A3.
+This gate does **not** claim vulnerability discovery. It proves the research control loop. It is **not** implemented in A3 or A4.
+
+**Hard prerequisite:** A3 PostgreSQL integration tests must PASS against `RESEARCH_OS_TEST_DATABASE_URL`. Skipped tests are PENDING.
 
 ---
 

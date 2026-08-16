@@ -14,7 +14,7 @@ Canonical representation: **JSON Schema Draft 2020-12** (Decision 016).
 
 `canonical representation ≠ transport protocol.` A message that validates against these schemas may later move over local IPC or a remote transport without changing contract semantics.
 
-`scripts/check_contracts.py` performs **contract lint / structural checks** only. It is **not** a Draft 2020-12 semantic validator. A real validator library remains a later decision. The script does not fetch `$schema` or `$ref` over the network.
+`scripts/check_contracts.py` performs **contract lint / structural checks** only. It is **not** a Draft 2020-12 semantic validator. Runtime instance validation is Decision 021 (`jsonschema`, local URN registry, no network fetch) in the Control Plane Worker adapter. The lint script does not fetch `$schema` or `$ref` over the network.
 
 ---
 
@@ -32,7 +32,7 @@ Worker **execution** boundary only:
 Not in A1 (do not invent extra wire contracts for the old roadmap):
 
 - authorization request/decision — Core A2 domain/authority model; wire contract later only if a real cross-process boundary appears
-- Artifact identity/reference/hash — A3 Data and/or A4 artifact byte port when that boundary is clear
+- Artifact identity/reference/hash — A3 Data and/or a later artifact byte port when that boundary is clear
 
 ---
 
@@ -66,7 +66,7 @@ Allowed `$ref` values:
 
 Filesystem-relative refs (`../common/...`) and network/external refs are not allowed.
 
-This repo does not yet implement a validator `$id` registry. Lint only checks that `$ref` URNs match local `$id` values.
+This repo implements a runtime validator `$id` registry in the Control Plane (`research_os.platform.contract_validation`). Lint still only checks that `$ref` URNs match local `$id` values. Structural lint ≠ runtime semantic validation.
 
 ---
 
@@ -76,7 +76,7 @@ This repo does not yet implement a validator `$id` registry. Lint only checks th
 - Backward-compatible additive fields may stay in `v1`.
 - Field removal or meaning change is breaking.
 - Transport version, HTTP API version, and domain lifecycle version are **not** this contract major.
-- Producer/consumer compatibility is intended to be testable under `tests/contract/` later. No SemVer product is selected.
+- Producer/consumer compatibility is tested under `tests/contract/` against the runtime validator and local Worker. No SemVer product is selected.
 
 ---
 
@@ -99,7 +99,7 @@ Workers cannot raise these limits.
 
 `started_at` / `completed_at` are transport-neutral strings with RFC 3339 / ISO 8601 **timezone-aware** timestamp semantics.
 
-Schemas may set `"format": "date-time"`. **Format enforcement depends on a later real JSON Schema validator.** This lint script does not enforce `format`. These fields are not PostgreSQL `timestamptz` (or any other database type).
+Schemas may set `"format": "date-time"`. `scripts/check_contracts.py` still does **not** enforce `format`. Control Plane runtime validation (Decision 021, `jsonschema` format checker) does. These fields are not PostgreSQL `timestamptz` (or any other database type).
 
 ---
 

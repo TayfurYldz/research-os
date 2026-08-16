@@ -4,7 +4,11 @@ Python records/ports here are not language-neutral contracts.
 SQLAlchemy/psycopg live only in `research_os.data.postgres`.
 """
 
-from research_os.data.errors import PersistenceError, PersistenceInputError
+from research_os.data.errors import (
+    PersistenceConflictError,
+    PersistenceError,
+    PersistenceInputError,
+)
 from research_os.data.records import (
     AuditEventRecord,
     AuthorizationSourceRecord,
@@ -28,6 +32,7 @@ __all__ = [
     "HypothesisRecord",
     "IssuedBudgetRecord",
     "ObservationRecord",
+    "PersistenceConflictError",
     "PersistenceError",
     "PersistenceInputError",
     "ProgramRecord",

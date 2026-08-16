@@ -20,6 +20,7 @@ In this architecture, "Tools execute" means execution proceeds through the Tools
 Research OS
 ├── Core
 ├── Research
+├── Application
 ├── Data
 ├── Tools
 ├── Workers
@@ -132,6 +133,34 @@ Research
 - use LLM conversation history as durable system memory or authoritative persistent state
 
 Research produces proposals only. Agent decision and actual tool execution remain separate layers.
+
+---
+
+## Application
+
+**Purpose:** Own use-case coordination. Application sequences authorized work; it is not authority (Decision 022).
+
+**Responsibility:** Coordinate Core public APIs, Research public APIs, Data ports/Unit of Work, and Platform ports. Map a successful infrastructure outcome into the next domain step. Fail closed.
+
+The first use case is Transition A ingestion of a completed Worker invocation (Decision 023). Application does not execute the Worker.
+
+**Contains:**
+
+- use-case sequencing
+- port coordination
+- transaction intent (explicit commit / rollback)
+- Transition A normalizer registry and ObservationDraft production
+- mapping WorkerInvocationOutcome into persistence
+
+**Must not:**
+
+- own authorization, scope, budget, or Approval semantics
+- convert DENY or REQUIRE_HUMAN_REVIEW into ALLOW
+- import PostgreSQL adapters, SQLAlchemy, psycopg, subprocess, or LocalProcessWorkerAdapter
+- create Evidence, Candidate, or Finding
+- become a second Core
+
+Core and Research must not import Application.
 
 ---
 
@@ -377,6 +406,7 @@ Human Review gives final acceptance/judgment for FindingProposal. Finding is cre
 
 One rule, applied across layers:
 
+- **Application** coordinates use cases. It asks Core. It does not execute. It does not become authority.
 - **Research** produces proposals. It does not execute. It runs Candidate/Verification/FindingProposal/Evidence-proposal domain logic. It does not create Findings.
 - **Core** decides authorization, policy, scope, and budget, and owns approval semantics. It does not perform the side effect.
 - **Tools** define capability contracts. They do not perform side effects. They do not set policy.
@@ -431,6 +461,7 @@ Logical dependency direction:
 
 ```
 Interface
+→ Application
 → Research
 → Core
 → Tool / Data / Platform contracts
@@ -446,8 +477,10 @@ These implementations implement the contracts defined above them.
 
 Rules:
 
-- Core must not depend on Research.
-- Research may depend on Core contracts.
+- Core must not depend on Research or Application.
+- Research may depend on Core contracts and must not depend on Application.
+- Application may depend on Core, Research, Data ports, and Platform ports.
+- Application must not depend on concrete Integrations or concrete Platform/Data adapters.
 - Core and Research must not depend on concrete Integrations.
 - Core, Research, and Data must not depend on concrete Platform implementations.
 - Workers and Integrations implement contracts defined above them.
@@ -464,7 +497,7 @@ Rules:
 4. Workers execute authorized work; they do not determine authorization, scope, or budget policy.
 5. Integrations are replaceable adapters, not committed vendors.
 6. Data behaves as the truth layer and does not decide promotion.
-7. Interface does not own business logic or approval semantics.
+7. Interface does not own business logic or approval semantics. Application coordinates use cases without becoming authority.
 8. No layer may bypass Core security boundaries.
 9. Changing a model, provider, or tool must not break the domain architecture.
 10. Core must not depend on Research. No circular dependency.
