@@ -437,6 +437,32 @@ Does **not** select OpenAI, Anthropic, Gemini, or any other provider. Does not p
 
 Live GATE 04B (deferred): attach real provider adapters to this experiment protocol.
 
+## GATE 04B — Live Model Adapter / Empirical Benchmark
+
+Runs the GATE 04A/04B-PREP harness through replaceable ModelPort adapters under `integrations/models/`.
+
+- Research/Core/Application/benchmark do not import provider SDKs
+- OpenAI, Anthropic, and Gemini adapters exist; missing SDK/credential/model id = **UNAVAILABLE**
+- UNAVAILABLE is not a research-quality failure and not a fake PASS
+- Comparative PASS requires ≥2 real model configurations actually executed on the same comparable suite
+- Secrets stay in composition-root env references
+- Failure classes distinguish provider auth/rate-limit/timeout/runtime from research quality
+- No `WINNER` line; sealed holdout remains external or UNAVAILABLE
+
+**GATE 04B status: PENDING** (2026-08-17) for comparative live execution: adapters and harness are implemented, but this environment has no installed provider SDKs and no API keys, so 0 live configurations ran. Scripted baselines are not live providers. GATE 01–04A and GATE 04B-PREP remain PASS on real PostgreSQL. Transition B implementation is PASS.
+
+**Verify:** unit + contract + `scripts/check_contracts.py` + integration (0 skipped) + `uv run python scripts/run_research_benchmark.py --runs-per-scenario 1`. Live comparison requires `--adapter/--model` with credentials and ≥2 real configurations.
+
+## Transition B — Evidence admission foundation
+
+Observation/Artifact → Research evaluation → EvidenceProposal → auditable admission → Evidence.
+
+Research owns admission semantics. Application coordinates persistence. Data persists. Core remains authorization authority, not Evidence truth. The model cannot admit Evidence.
+
+First path is deterministic diagnostic.echo plumbing only. It is not vulnerability Evidence, Candidate, Finding, or Verification.
+
+**Verify:** unit + contract + `scripts/check_contracts.py` + integration on real PostgreSQL (0 skipped).
+
 ---
 
 ## Research Brain (Research capability — not Core)

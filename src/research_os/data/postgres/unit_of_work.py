@@ -8,6 +8,8 @@ from research_os.data.errors import PersistenceError
 from research_os.data.postgres.repositories import (
     PostgresAuditEventRepository,
     PostgresAuthorizationSourceRepository,
+    PostgresEvidenceAdmissionRepository,
+    PostgresEvidenceRepository,
     PostgresExecutionAttemptRepository,
     PostgresExperimentPlanRepository,
     PostgresExperimentRepository,
@@ -42,6 +44,8 @@ class PostgresUnitOfWork:
         self.research_admissions: PostgresResearchAdmissionRepository
         self.experiment_plans: PostgresExperimentPlanRepository
         self.hypothesis_assessments: PostgresHypothesisAssessmentRepository
+        self.evidence: PostgresEvidenceRepository
+        self.evidence_admissions: PostgresEvidenceAdmissionRepository
         self.audit_events: PostgresAuditEventRepository
 
     def __enter__(self) -> PostgresUnitOfWork:
@@ -65,6 +69,8 @@ class PostgresUnitOfWork:
         self.hypothesis_assessments = PostgresHypothesisAssessmentRepository(
             self._connection
         )
+        self.evidence = PostgresEvidenceRepository(self._connection)
+        self.evidence_admissions = PostgresEvidenceAdmissionRepository(self._connection)
         self.audit_events = PostgresAuditEventRepository(self._connection)
         return self
 

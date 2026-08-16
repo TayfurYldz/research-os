@@ -16,6 +16,12 @@ dependencies = [
     "referencing>=0.30.0,<1",
 ]
 
+[project.optional-dependencies]
+openai = ["openai>=1.40"]
+anthropic = ["anthropic>=0.49"]
+gemini = ["google-genai>=1.0"]
+models = ["openai>=1.40", "anthropic>=0.49", "google-genai>=1.0"]
+
 [tool.hatch.build.targets.wheel]
 packages = ["src/research_os"]
 

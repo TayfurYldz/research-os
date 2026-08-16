@@ -22,6 +22,8 @@ from research_os.data.records import (
     ALLOWED_EXPERIMENT_STATES,
     AuditEventRecord,
     AuthorizationSourceRecord,
+    EvidenceAdmissionRecord,
+    EvidenceRecord,
     ExecutionAttemptRecord,
     ExperimentPlanRecord,
     ExperimentRecord,
@@ -732,6 +734,116 @@ class PostgresHypothesisAssessmentRepository:
         except SQLAlchemyError as exc:
             raise PersistenceError("persistence read failed") from exc
         return [map_row.hypothesis_assessment_from_row(row) for row in rows]
+
+
+class PostgresEvidenceRepository:
+    def __init__(self, connection: Connection) -> None:
+        self._connection = connection
+
+    def insert(self, record: EvidenceRecord) -> None:
+        _execute_write(
+            self._connection,
+            tables.evidence.insert().values(
+                evidence_id=record.evidence_id,
+                research_run_id=record.research_run_id,
+                hypothesis_id=record.hypothesis_id,
+                experiment_id=record.experiment_id,
+                admission_record_id=record.admission_record_id,
+                polarity=record.polarity,
+                claim_scope=record.claim_scope,
+                observation_ids=list(record.observation_ids),
+                assessment_ids=list(record.assessment_ids),
+                created_at=record.created_at,
+            ),
+        )
+        for observation_id in record.observation_ids:
+            _execute_write(
+                self._connection,
+                tables.evidence_observation.insert().values(
+                    evidence_id=record.evidence_id,
+                    observation_id=observation_id,
+                ),
+            )
+
+    def get(self, evidence_id: str) -> EvidenceRecord | None:
+        require_opaque_id(evidence_id, "evidence_id")
+        return _fetch_one(
+            self._connection,
+            tables.evidence,
+            tables.evidence.c.evidence_id,
+            evidence_id,
+            map_row.evidence_from_row,
+        )
+
+    def list_for_research_run(self, research_run_id: str) -> list[EvidenceRecord]:
+        return self._list(tables.evidence.c.research_run_id, research_run_id, "research_run_id")
+
+    def list_for_hypothesis(self, hypothesis_id: str) -> list[EvidenceRecord]:
+        return self._list(tables.evidence.c.hypothesis_id, hypothesis_id, "hypothesis_id")
+
+    def list_for_experiment(self, experiment_id: str) -> list[EvidenceRecord]:
+        return self._list(tables.evidence.c.experiment_id, experiment_id, "experiment_id")
+
+    def _list(self, column, value: str, field_name: str) -> list[EvidenceRecord]:
+        require_opaque_id(value, field_name)
+        try:
+            rows = self._connection.execute(
+                select(tables.evidence)
+                .where(column == value)
+                .order_by(tables.evidence.c.evidence_id)
+            ).mappings().all()
+        except SQLAlchemyError as exc:
+            raise PersistenceError("persistence read failed") from exc
+        return [map_row.evidence_from_row(row) for row in rows]
+
+
+class PostgresEvidenceAdmissionRepository:
+    def __init__(self, connection: Connection) -> None:
+        self._connection = connection
+
+    def insert(self, record: EvidenceAdmissionRecord) -> None:
+        _execute_write(
+            self._connection,
+            tables.evidence_admission.insert().values(
+                admission_record_id=record.admission_record_id,
+                proposal_id=record.proposal_id,
+                research_run_id=record.research_run_id,
+                outcome=record.outcome,
+                reason_codes=list(record.reason_codes),
+                observation_ids=list(record.observation_ids),
+                assessment_ids=list(record.assessment_ids),
+                admission_policy_version=record.admission_policy_version,
+                evaluator_version=record.evaluator_version,
+                created_at=record.created_at,
+                admitted_evidence_id=record.admitted_evidence_id,
+                claim_scope=record.claim_scope,
+                polarity=record.polarity,
+            ),
+        )
+
+    def get(self, admission_record_id: str) -> EvidenceAdmissionRecord | None:
+        require_opaque_id(admission_record_id, "admission_record_id")
+        return _fetch_one(
+            self._connection,
+            tables.evidence_admission,
+            tables.evidence_admission.c.admission_record_id,
+            admission_record_id,
+            map_row.evidence_admission_from_row,
+        )
+
+    def list_for_research_run(
+        self, research_run_id: str
+    ) -> list[EvidenceAdmissionRecord]:
+        require_opaque_id(research_run_id, "research_run_id")
+        try:
+            rows = self._connection.execute(
+                select(tables.evidence_admission)
+                .where(tables.evidence_admission.c.research_run_id == research_run_id)
+                .order_by(tables.evidence_admission.c.admission_record_id)
+            ).mappings().all()
+        except SQLAlchemyError as exc:
+            raise PersistenceError("persistence read failed") from exc
+        return [map_row.evidence_admission_from_row(row) for row in rows]
 
 
 class PostgresAuditEventRepository:

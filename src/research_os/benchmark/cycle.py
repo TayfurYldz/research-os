@@ -14,6 +14,10 @@ from research_os.research.model_port import (
     ModelPort,
     ModelPortError,
     ModelRole,
+    ProviderAuthError,
+    ProviderRateLimitError,
+    ProviderTimeoutError,
+    StructuredOutputTransportError,
 )
 from research_os.research.proposals import (
     HypothesisChallenge,
@@ -48,6 +52,9 @@ class BoundedCycleTrace:
     falsifier_output: Mapping[str, Any] | None = None
     parse_error: str | None = None
     provider_runtime_error: bool = False
+    provider_failure_class: str | None = None
+    generator_telemetry: object | None = None
+    falsifier_telemetry: object | None = None
 
 
 def run_bounded_cycle(
@@ -62,6 +69,8 @@ def run_bounded_cycle(
     generator_output: Mapping[str, Any] | None = None
     falsifier_output: Mapping[str, Any] | None = None
     parse_error: str | None = None
+    generator_telemetry = None
+    falsifier_telemetry = None
 
     try:
         generated = generate_proposal(
@@ -69,6 +78,7 @@ def run_bounded_cycle(
         )
         generator_output = dict(generated.model_result.structured_output)
         proposal = generated.proposal
+        generator_telemetry = generated.model_result.telemetry
     except ModelPortError as exc:
         admission = AdmissionDecision(
             outcome=AdmissionOutcome.MODEL_INVOCATION_FAILED,
@@ -84,7 +94,8 @@ def run_bounded_cycle(
             falsifier_calls=0,
             requests=tuple(recorder.requests),
             parse_error=str(exc),
-            provider_runtime_error=True,
+            provider_runtime_error=not isinstance(exc, StructuredOutputTransportError),
+            provider_failure_class=_provider_failure_value(exc),
         )
     except ProposalAuthorityError as exc:
         generator_output = _output_from_exc(exc)
@@ -129,6 +140,7 @@ def run_bounded_cycle(
         )
         falsifier_output = dict(challenged.model_result.structured_output)
         challenge = challenged.challenge
+        falsifier_telemetry = challenged.model_result.telemetry
     except ModelPortError as exc:
         admission = AdmissionDecision(
             outcome=AdmissionOutcome.MODEL_INVOCATION_FAILED,
@@ -146,7 +158,9 @@ def run_bounded_cycle(
             proposal=proposal,
             generator_output=generator_output,
             parse_error=str(exc),
-            provider_runtime_error=True,
+            provider_runtime_error=not isinstance(exc, StructuredOutputTransportError),
+            provider_failure_class=_provider_failure_value(exc),
+            generator_telemetry=generator_telemetry,
         )
     except ProposalAuthorityError as exc:
         falsifier_output = _output_from_exc(exc)
@@ -202,7 +216,21 @@ def run_bounded_cycle(
         challenge=challenge,
         generator_output=generator_output,
         falsifier_output=falsifier_output,
+        generator_telemetry=generator_telemetry,
+        falsifier_telemetry=falsifier_telemetry,
     )
+
+
+def _provider_failure_value(exc: ModelPortError) -> str:
+    if isinstance(exc, StructuredOutputTransportError):
+        return "STRUCTURED_OUTPUT_FAILURE"
+    if isinstance(exc, ProviderAuthError):
+        return "PROVIDER_AUTH"
+    if isinstance(exc, ProviderRateLimitError):
+        return "PROVIDER_RATE_LIMIT"
+    if isinstance(exc, ProviderTimeoutError):
+        return "PROVIDER_TIMEOUT"
+    return "PROVIDER_RUNTIME"
 
 
 def _role_calls(recorder: RecordingModelPort, role: ModelRole) -> int:

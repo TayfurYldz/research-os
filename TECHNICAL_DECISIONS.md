@@ -6382,5 +6382,166 @@ Do not log hidden answers. Do not store sealed scenario bodies inside benchmark 
 
 **FINAL STATUS: PASS**
 
+---
+
+# Decision 033 — Live Model Adapter / Empirical Comparison
+
+Status: **accepted with constraints** (GATE 04B)
+
+Date: 2026-08-17
+
+Does not rewrite Decisions 001–032. Does not select a production default provider.
+
+## Strategy
+
+Provider choice is an empirical GATE 04B result, not hype. The GATE 04A/04B-PREP harness is reused. Live adapters implement `ModelPort` below Research.
+
+Comparative PASS requires at least two real model configurations actually executed on the same comparable suite (suite fingerprint, scenario versions, instruction fingerprints, evaluator versions, Research OS commit). One live configuration, or only scripted baselines, is **PENDING**, not PASS.
+
+Missing SDK, credential, or explicit model id is **UNAVAILABLE**. UNAVAILABLE is not a benchmark failure and not a research-quality failure.
+
+## Adapter boundary
+
+Research, Core, Application, and `research_os.benchmark` do not import provider SDKs. Concrete adapters live in `integrations/models/`. The benchmark script is the composition root: it may resolve a live adapter from an environment secret reference and inject a `ModelPort`.
+
+Provider-specific authentication, request translation, structured-output transport, telemetry normalization, and error mapping are adapter responsibilities.
+
+## Identity
+
+Reports persist adapter id, requested model id, provider-returned model/version when the provider actually returns it, Generator/Falsifier instruction fingerprints, structured-output spec version, and relevant generation settings that were set. Unset version/snapshot fields stay unset. Alias-only identity is not reproducible.
+
+## Secrets
+
+API keys do not enter ResearchContext, ModelCallRequest content, SoR, logs, or benchmark reports. The composition root may hold a `SecretReference` (environment name). Missing key = UNAVAILABLE. Full secret-management product is out of scope.
+
+## Failure taxonomy
+
+Keep distinct: `PROVIDER_RUNTIME`, `PROVIDER_AUTH`, `PROVIDER_RATE_LIMIT`, `PROVIDER_TIMEOUT`, `STRUCTURED_OUTPUT_FAILURE`, `GENERATOR_RESEARCH_QUALITY`, `FALSIFIER_RESEARCH_QUALITY`, `HARNESS_INVARIANT`.
+
+Provider failure is not research-quality failure. Malformed JSON is not silently repaired into a valid proposal.
+
+## Telemetry
+
+Record latency, input tokens, output tokens, retries, and provider cost only when the adapter actually received them, with provenance if cost is present. Do not fabricate. Pricing tables do not live in Research.
+
+## Comparison policy
+
+Same suite fingerprint, prompt fingerprints, evaluator versions, and Research OS commit are required for direct comparison. Output is dimensional. There is no `WINNER = X`. Repeated runs follow Decision 031. Hard failures stay fractions (`1/3`), not averaged PASS.
+
+Sealed holdout: run only if an external path exists; otherwise `SEALED HOLDOUT = UNAVAILABLE`. Development fixtures are not unseen.
+
+## Confidence
+
+**HIGH** that Research must stay provider-neutral.
+
+**HIGH** that missing credentials must not be labeled PASS.
+
+**MEDIUM** for current SDK request shapes; adapters map current OpenAI Responses, Anthropic `output_config.format`, and google-genai `response_json_schema` APIs and must be revisited if those SDKs change.
+
+## Constraints
+
+1. Do not import provider SDKs into Research.
+2. Do not put API keys in ResearchContext, ModelCallRequest, SoR, logs, or reports.
+3. Do not count scripted baselines as live providers.
+4. Do not print `WINNER`.
+5. Do not call the development suite a sealed holdout.
+6. Do not silently repair invalid structured output.
+
+## Revisit triggers
+
+- SDK/API wire-format change
+- Need for a fourth provider
+- First sealed holdout used in a live comparison
+- Provider-supplied cost provenance format
+
+**FINAL STATUS: PASS** (implementation). Live comparative execution is **PENDING** until ≥2 real configurations run.
+
+---
+
+# Decision 034 — Evidence Admission / Transition B Authority
+
+Status: **accepted with constraints** (Transition B)
+
+Date: 2026-08-17
+
+Does not rewrite Decisions 001–033. Does not implement Verification, Candidate, or Finding.
+
+## Strategy
+
+Locked chain:
+
+Observation / Artifact → Research evaluation → EvidenceProposal → explicit auditable Evidence admission → Evidence.
+
+Evidence ≠ Candidate ≠ Finding. Evidence admission ≠ Verification.
+
+The first implemented path is deterministic diagnostic.echo plumbing: a diagnostic hypothesis, durable ExperimentPlan, successful Observation, and `CONSISTENT_WITH_PREDICTION` (or a narrow `CONTRADICTS_PREDICTION` mismatch) may yield an EvidenceProposal for the claim that the diagnostic echo matched or did not match the executed plan. That is not vulnerability Evidence.
+
+## Admission authority
+
+Candidates evaluated:
+
+| Option | Verdict |
+|---|---|
+| Core admits Evidence | Rejected. Core is authorization authority, not Evidence truth. |
+| Data admits Evidence | Rejected. Persistence is not judgment. |
+| Application admits Evidence | Rejected. Application coordinates; it must not become Evidence authority. |
+| Model admits Evidence | Rejected. Model output is an untrusted structured proposal. |
+| Human admits every diagnostic plumbing record | Rejected for this gate. Human Review remains later for Finding. |
+| Research owns Evidence admission semantics; Application coordinates persistence; Data persists | **Accepted.** |
+
+The model may never admit Evidence. Workers cannot create Evidence. Generator cannot skip to Evidence.
+
+## EvidenceProposal
+
+Internal Research type. Conceptual fields: proposal id, research run, hypothesis/experiment references, Observation/assessment references, polarity (`SUPPORTING` / `CONTRADICTING` / `NEUTRAL`), bounded claim scope, rationale, provenance.
+
+Must not contain severity, Finding, Candidate, exploitability verdict, authorization, or numeric confidence as authority.
+
+## Admission rules
+
+Outcomes: `ADMITTED`, `REJECTED_INSUFFICIENT_SUPPORT`, `REJECTED_BROKEN_PROVENANCE`, `REJECTED_EXECUTION_UNUSABLE`, `REJECTED_POLICY_CONFLICT`, `NEEDS_VERIFICATION`.
+
+No score threshold. Admission checks at least: sources exist; sources belong to the correct run/context; Observation provenance is intact; unusable execution is not Evidence; model assertion alone is insufficient; assessment without Observation is insufficient; source references cannot be fabricated; Evidence cannot claim more than sources support.
+
+Timeout / `UNKNOWN_OUTCOME` / `EXECUTION_UNUSABLE` → no admitted Evidence.
+
+Rejected proposals create admission history and no Evidence row.
+
+## Evidence semantics
+
+Append-only Evidence records store identity, research run, related hypothesis/experiment, admitted source references, polarity, admission record reference, and created_at. They reference underlying immutable provenance. They do not copy WorkerResult bodies. Artifact attachment is not automatic Evidence.
+
+`NEEDS_VERIFICATION` is reserved and is not a Verification Engine.
+
+## Persistence
+
+New Alembic revision `a10_001_evidence_admission` only. a3/a6/a7/a8/a9 are not edited. Real PostgreSQL is required.
+
+## Confidence
+
+**HIGH** that Research must own Evidence admission semantics.
+
+**HIGH** that Observation/assessment auto-promotion would be a false-positive path.
+
+**MEDIUM** for later security-specific Evidence classes; not opened here.
+
+## Constraints
+
+1. Do not create Evidence from model assertion alone.
+2. Do not auto-promote Observation or HypothesisAssessment.
+3. Do not treat CONSISTENT_WITH_PREDICTION as vulnerability proof.
+4. Do not implement Verification, Candidate, or Finding here.
+5. Do not edit old Alembic revisions.
+6. Do not put numeric confidence on Evidence.
+
+## Revisit triggers
+
+- First security-relevant Evidence class
+- Verification Engine
+- Human review of Evidence (if ever required beyond Finding)
+- Multi-observation composition rules
+
+**FINAL STATUS: PASS**
+
 
 

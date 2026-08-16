@@ -7,6 +7,8 @@ from typing import Protocol
 from research_os.data.ports import (
     AuditEventRepository,
     AuthorizationSourceRepository,
+    EvidenceAdmissionRepository,
+    EvidenceRepository,
     ExecutionAttemptRepository,
     ExperimentPlanRepository,
     ExperimentRepository,
@@ -38,6 +40,8 @@ class UnitOfWork(Protocol):
     research_admissions: ResearchAdmissionRepository
     experiment_plans: ExperimentPlanRepository
     hypothesis_assessments: HypothesisAssessmentRepository
+    evidence: EvidenceRepository
+    evidence_admissions: EvidenceAdmissionRepository
     audit_events: AuditEventRepository
 
     def commit(self) -> None: ...

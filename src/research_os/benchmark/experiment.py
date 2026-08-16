@@ -12,7 +12,7 @@ from uuid import uuid4
 
 from research_os.benchmark.errors import BenchmarkError
 from research_os.benchmark.evaluate import ScenarioRunResult, evaluate_scenario
-from research_os.benchmark.failures import FailureClass
+from research_os.benchmark.failures import FailureClass, PROVIDER_FAILURE_CLASSES
 from research_os.benchmark.holdout import HoldoutLoad
 from research_os.benchmark.identity import (
     BenchmarkExperimentConfig,
@@ -35,6 +35,9 @@ class ScenarioRepeatSummary:
     attempted: int
     completed: int
     provider_runtime_failures: int
+    provider_auth_failures: int
+    provider_rate_limit_failures: int
+    provider_timeout_failures: int
     structured_output_failures: int
     research_quality_failures: int
     harness_invariant_failures: int
@@ -54,6 +57,9 @@ class ScenarioRepeatSummary:
             "attempted": self.attempted,
             "completed": self.completed,
             "provider_runtime_failures": self.provider_runtime_failures,
+            "provider_auth_failures": self.provider_auth_failures,
+            "provider_rate_limit_failures": self.provider_rate_limit_failures,
+            "provider_timeout_failures": self.provider_timeout_failures,
             "structured_output_failures": self.structured_output_failures,
             "research_quality_failures": self.research_quality_failures,
             "harness_invariant_failures": self.harness_invariant_failures,
@@ -148,8 +154,16 @@ def summarize_repeats(
     scenario: BenchmarkScenario, runs: tuple[ScenarioRunResult, ...]
 ) -> ScenarioRepeatSummary:
     attempted = len(runs)
-    completed = sum(1 for item in runs if not item.provider_runtime_error)
+    completed = sum(
+        1
+        for item in runs
+        if item.failure_class not in {cls.value for cls in PROVIDER_FAILURE_CLASSES}
+        and not item.provider_runtime_error
+    )
     provider = sum(1 for item in runs if item.failure_class == FailureClass.PROVIDER_RUNTIME.value)
+    auth = sum(1 for item in runs if item.failure_class == FailureClass.PROVIDER_AUTH.value)
+    rate = sum(1 for item in runs if item.failure_class == FailureClass.PROVIDER_RATE_LIMIT.value)
+    timeout = sum(1 for item in runs if item.failure_class == FailureClass.PROVIDER_TIMEOUT.value)
     structured = sum(
         1 for item in runs if item.failure_class == FailureClass.STRUCTURED_OUTPUT_FAILURE.value
     )
@@ -182,6 +196,9 @@ def summarize_repeats(
         attempted=attempted,
         completed=completed,
         provider_runtime_failures=provider,
+        provider_auth_failures=auth,
+        provider_rate_limit_failures=rate,
+        provider_timeout_failures=timeout,
         structured_output_failures=structured,
         research_quality_failures=research,
         harness_invariant_failures=harness,
@@ -236,6 +253,13 @@ def run_experiment(
 
 
 def compare_experiments(left: ExperimentReport, right: ExperimentReport) -> PairedComparison:
+    if left.git_commit != right.git_commit:
+        return PairedComparison(
+            comparable=False,
+            reason="Research OS commit differs; results are not directly comparable",
+            left_adapter=left.model.adapter_identity,
+            right_adapter=right.model.adapter_identity,
+        )
     if left.suite.suite_fingerprint != right.suite.suite_fingerprint:
         return PairedComparison(
             comparable=False,
@@ -283,6 +307,9 @@ def _summary_view(summary: ScenarioRepeatSummary) -> dict[str, Any]:
         "attempted": summary.attempted,
         "completed": summary.completed,
         "provider_runtime_failures": summary.provider_runtime_failures,
+        "provider_auth_failures": summary.provider_auth_failures,
+        "provider_rate_limit_failures": summary.provider_rate_limit_failures,
+        "provider_timeout_failures": summary.provider_timeout_failures,
         "research_quality_failures": summary.research_quality_failures,
         "structured_output_failures": summary.structured_output_failures,
         "hard_fail_occurrence": dict(summary.hard_fail_occurrence),

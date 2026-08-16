@@ -7,6 +7,12 @@ from enum import Enum
 from research_os.benchmark.cycle import BoundedCycleTrace
 from research_os.benchmark.metrics import HardFailCode
 from research_os.research.admission import AdmissionOutcome
+from research_os.research.model_port import (
+    ProviderAuthError,
+    ProviderRateLimitError,
+    ProviderTimeoutError,
+    StructuredOutputTransportError,
+)
 
 RESEARCH_HARD_FAILS = frozenset(
     {
@@ -27,10 +33,23 @@ RESEARCH_HARD_FAILS = frozenset(
 class FailureClass(Enum):
     NONE = "NONE"
     PROVIDER_RUNTIME = "PROVIDER_RUNTIME"
+    PROVIDER_AUTH = "PROVIDER_AUTH"
+    PROVIDER_RATE_LIMIT = "PROVIDER_RATE_LIMIT"
+    PROVIDER_TIMEOUT = "PROVIDER_TIMEOUT"
     STRUCTURED_OUTPUT_FAILURE = "STRUCTURED_OUTPUT_FAILURE"
     GENERATOR_RESEARCH_QUALITY = "GENERATOR_RESEARCH_QUALITY"
     FALSIFIER_RESEARCH_QUALITY = "FALSIFIER_RESEARCH_QUALITY"
     HARNESS_INVARIANT = "HARNESS_INVARIANT"
+
+
+PROVIDER_FAILURE_CLASSES = frozenset(
+    {
+        FailureClass.PROVIDER_RUNTIME,
+        FailureClass.PROVIDER_AUTH,
+        FailureClass.PROVIDER_RATE_LIMIT,
+        FailureClass.PROVIDER_TIMEOUT,
+    }
+)
 
 
 def classify_failure(
@@ -38,6 +57,13 @@ def classify_failure(
 ) -> FailureClass:
     if HardFailCode.HIDDEN_BENCHMARK_DATA_LEAKAGE in hard_fails:
         return FailureClass.HARNESS_INVARIANT
+    if trace.provider_failure_class:
+        try:
+            mapped = FailureClass(trace.provider_failure_class)
+        except ValueError:
+            mapped = FailureClass.PROVIDER_RUNTIME
+        if mapped is not FailureClass.NONE:
+            return mapped
     if (
         trace.provider_runtime_error
         or trace.admission.outcome is AdmissionOutcome.MODEL_INVOCATION_FAILED
@@ -50,3 +76,15 @@ def classify_failure(
     if RESEARCH_HARD_FAILS.intersection(hard_fails):
         return FailureClass.GENERATOR_RESEARCH_QUALITY
     return FailureClass.NONE
+
+
+def classify_provider_error(exc: BaseException) -> FailureClass:
+    if isinstance(exc, StructuredOutputTransportError):
+        return FailureClass.STRUCTURED_OUTPUT_FAILURE
+    if isinstance(exc, ProviderAuthError):
+        return FailureClass.PROVIDER_AUTH
+    if isinstance(exc, ProviderRateLimitError):
+        return FailureClass.PROVIDER_RATE_LIMIT
+    if isinstance(exc, ProviderTimeoutError):
+        return FailureClass.PROVIDER_TIMEOUT
+    return FailureClass.PROVIDER_RUNTIME

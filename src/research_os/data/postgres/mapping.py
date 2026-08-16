@@ -7,6 +7,8 @@ from typing import Any, Mapping
 from research_os.data.records import (
     AuditEventRecord,
     AuthorizationSourceRecord,
+    EvidenceAdmissionRecord,
+    EvidenceRecord,
     ExecutionAttemptRecord,
     ExperimentPlanRecord,
     ExperimentRecord,
@@ -247,4 +249,47 @@ def hypothesis_assessment_from_row(row: Mapping[str, Any]) -> HypothesisAssessme
         rationale=data["rationale"],
         evaluation_strategy=data["evaluation_strategy"],
         created_at=data["created_at"],
+    )
+
+
+def _id_tuple(value: object) -> tuple[str, ...]:
+    if isinstance(value, tuple):
+        return tuple(str(item) for item in value)
+    if isinstance(value, list):
+        return tuple(str(item) for item in value)
+    return ()
+
+
+def evidence_from_row(row: Mapping[str, Any]) -> EvidenceRecord:
+    data = _mapping(row)
+    return EvidenceRecord(
+        evidence_id=data["evidence_id"],
+        research_run_id=data["research_run_id"],
+        hypothesis_id=data["hypothesis_id"],
+        experiment_id=data["experiment_id"],
+        admission_record_id=data["admission_record_id"],
+        polarity=data["polarity"],
+        claim_scope=data["claim_scope"],
+        observation_ids=_id_tuple(data["observation_ids"]),
+        assessment_ids=_id_tuple(data["assessment_ids"]),
+        created_at=data["created_at"],
+    )
+
+
+def evidence_admission_from_row(row: Mapping[str, Any]) -> EvidenceAdmissionRecord:
+    data = _mapping(row)
+    return EvidenceAdmissionRecord(
+        admission_record_id=data["admission_record_id"],
+        proposal_id=data["proposal_id"],
+        research_run_id=data["research_run_id"],
+        outcome=data["outcome"],
+        reason_codes=_id_tuple(data["reason_codes"]),
+        observation_ids=_id_tuple(data["observation_ids"]),
+        assessment_ids=_id_tuple(data["assessment_ids"]),
+        admission_policy_version=data["admission_policy_version"],
+        evaluator_version=data["evaluator_version"],
+        created_at=data["created_at"],
+        admitted_evidence_id=data.get("admitted_evidence_id"),
+        claim_scope=data.get("claim_scope"),
+        polarity=data.get("polarity"),
     )

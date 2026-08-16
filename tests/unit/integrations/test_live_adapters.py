@@ -1,0 +1,129 @@
+from __future__ import annotations
+
+import json
+import unittest
+from unittest.mock import MagicMock, patch
+
+import pathsetup  # noqa: F401
+
+from integrations.models.availability import UnavailableReason
+from integrations.models.common import JsonSchemaModelAdapter, ProviderInvocation, parse_structured_object
+from integrations.models.errors import classify_provider_exception
+from integrations.models.factory import probe_live_adapter
+from integrations.models.secrets import REDACTED, SecretReference, redact_secret
+from research_os.research.model_port import (
+    ModelCallRequest,
+    ModelRole,
+    ProviderAuthError,
+    ProviderRateLimitError,
+    StructuredOutputTransportError,
+)
+
+
+class _FakeTransport:
+    adapter_identity = "test.adapter"
+    provider_adapter_identity = "test"
+
+    def __init__(self, invocation: ProviderInvocation) -> None:
+        self._invocation = invocation
+        self.requests: list[ModelCallRequest] = []
+
+    def invoke(self, request: ModelCallRequest, schema):
+        del schema
+        self.requests.append(request)
+        return self._invocation
+
+
+class LiveAdapterBoundaryTests(unittest.TestCase):
+    def test_missing_sdk_or_key_is_unavailable_not_failure(self) -> None:
+        availability = probe_live_adapter(
+            "openai",
+            model_id="gpt-test",
+            env={},
+        )
+        self.assertFalse(availability.available)
+        self.assertIn(
+            availability.reason,
+            {UnavailableReason.MISSING_SDK, UnavailableReason.MISSING_CREDENTIAL},
+        )
+        self.assertNotEqual(availability.reason.value, "BENCHMARK_FAILURE")
+
+    def test_unknown_adapter_is_unavailable(self) -> None:
+        availability = probe_live_adapter("not-a-vendor", env={})
+        self.assertEqual(availability.reason, UnavailableReason.UNKNOWN_ADAPTER)
+
+    def test_secret_is_redacted_and_not_copied_into_request(self) -> None:
+        secret = "sk-live-secret-value"
+        self.assertEqual(redact_secret(f"failed {secret}", secret), f"failed {REDACTED}")
+        request = ModelCallRequest(
+            role=ModelRole.GENERATOR,
+            correlation_id="c1",
+            context_fingerprint="fp",
+            instructions="propose",
+            payload={"research_context": {"note": "no key here"}},
+        )
+        serialized = json.dumps(dict(request.payload), ensure_ascii=True)
+        self.assertNotIn(secret, serialized)
+        self.assertNotIn(secret, request.instructions)
+
+    def test_malformed_json_is_structured_output_failure(self) -> None:
+        with self.assertRaises(StructuredOutputTransportError):
+            parse_structured_object("not-json")
+
+    def test_adapter_does_not_repair_invalid_object(self) -> None:
+        transport = _FakeTransport(ProviderInvocation(text='["list-not-object"]'))
+        adapter = JsonSchemaModelAdapter(transport)
+        request = ModelCallRequest(
+            role=ModelRole.GENERATOR,
+            correlation_id="c1",
+            context_fingerprint="fp",
+            instructions="propose",
+            payload={"task": "x"},
+        )
+        with self.assertRaises(StructuredOutputTransportError):
+            adapter.complete(request)
+
+    def test_auth_and_rate_limit_are_distinct(self) -> None:
+        auth = classify_provider_exception(RuntimeError("401 unauthorized"))
+        rate = classify_provider_exception(RuntimeError("429 rate limit"))
+        self.assertIsInstance(auth, ProviderAuthError)
+        self.assertIsInstance(rate, ProviderRateLimitError)
+
+    def test_secret_reference_does_not_echo_value(self) -> None:
+        ref = SecretReference("OPENAI_API_KEY")
+        self.assertEqual(ref.env_name, "OPENAI_API_KEY")
+        self.assertNotIn("sk-", ref.env_name)
+
+    def test_openai_transport_maps_auth_without_leaking_key(self) -> None:
+        from integrations.models.openai_adapter import OpenAIResponsesTransport
+
+        class Boom:
+            def __init__(self, **kwargs):
+                self.kwargs = kwargs
+
+            class responses:
+                @staticmethod
+                def create(**kwargs):
+                    del kwargs
+                    raise RuntimeError("invalid api_key sk-secret-live")
+
+        transport = OpenAIResponsesTransport(
+            model_id="gpt-test",
+            secret=SecretReference("OPENAI_API_KEY"),
+            env={"OPENAI_API_KEY": "sk-secret-live"},
+        )
+        request = ModelCallRequest(
+            role=ModelRole.GENERATOR,
+            correlation_id="c1",
+            context_fingerprint="fp",
+            instructions="propose",
+            payload={"task": "x"},
+        )
+        with patch.dict("sys.modules", {"openai": MagicMock(OpenAI=Boom)}):
+            with self.assertRaises(ProviderAuthError) as ctx:
+                transport.invoke(request, {"type": "object"})
+        self.assertNotIn("sk-secret-live", str(ctx.exception))
+
+
+if __name__ == "__main__":
+    unittest.main()

@@ -99,6 +99,8 @@ class EvaluateExperimentFeedbackTests(unittest.TestCase):
         self.assertFalse(hasattr(feedback, "severity"))
         self.assertFalse(hasattr(feedback, "confidence"))
         self.assertEqual(len(store.hypothesis_assessments), 1)
+        self.assertEqual(len(store.evidence), 0)
+        self.assertEqual(len(store.evidence_admissions), 0)
 
     def test_mismatch_contradicts_prediction_without_global_reject(self) -> None:
         store = _Store()
@@ -236,7 +238,7 @@ class EvaluateExperimentFeedbackTests(unittest.TestCase):
         )
         self.assertEqual(first.assessment_outcome, second.assessment_outcome)
         self.assertEqual(len(store.hypothesis_assessments), 2)
-        self.assertFalse(hasattr(store, "evidence"))
+        self.assertEqual(len(store.evidence), 0)
         self.assertEqual(store.hypotheses["hyp-1"].claim, DIAGNOSTIC_CLAIM)
 
 

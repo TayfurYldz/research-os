@@ -9,6 +9,8 @@ from datetime import datetime
 from research_os.data.records import (
     AuditEventRecord,
     AuthorizationSourceRecord,
+    EvidenceAdmissionRecord,
+    EvidenceRecord,
     ExecutionAttemptRecord,
     ExperimentPlanRecord,
     ExperimentRecord,
@@ -124,6 +126,22 @@ class HypothesisAssessmentRepository(Protocol):
     def list_for_research_run(
         self, research_run_id: str
     ) -> list[HypothesisAssessmentRecord]: ...
+
+
+class EvidenceRepository(Protocol):
+    def insert(self, record: EvidenceRecord) -> None: ...
+    def get(self, evidence_id: str) -> EvidenceRecord | None: ...
+    def list_for_research_run(self, research_run_id: str) -> list[EvidenceRecord]: ...
+    def list_for_hypothesis(self, hypothesis_id: str) -> list[EvidenceRecord]: ...
+    def list_for_experiment(self, experiment_id: str) -> list[EvidenceRecord]: ...
+
+
+class EvidenceAdmissionRepository(Protocol):
+    def insert(self, record: EvidenceAdmissionRecord) -> None: ...
+    def get(self, admission_record_id: str) -> EvidenceAdmissionRecord | None: ...
+    def list_for_research_run(
+        self, research_run_id: str
+    ) -> list[EvidenceAdmissionRecord]: ...
 
 
 class AuditEventRepository(Protocol):

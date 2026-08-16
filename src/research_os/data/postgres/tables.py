@@ -408,6 +408,75 @@ hypothesis_assessment = Table(
     ),
 )
 
+evidence = Table(
+    "evidence",
+    metadata,
+    Column("evidence_id", Text, primary_key=True),
+    Column("research_run_id", Text, ForeignKey("research_run.research_run_id"), nullable=False),
+    Column("hypothesis_id", Text, nullable=False),
+    Column("experiment_id", Text, nullable=False),
+    Column("admission_record_id", Text, nullable=False),
+    Column("polarity", Text, nullable=False),
+    Column("claim_scope", Text, nullable=False),
+    Column("observation_ids", JSONB, nullable=False),
+    Column("assessment_ids", JSONB, nullable=False),
+    Column("created_at", DateTime(timezone=True), nullable=False),
+    ForeignKeyConstraint(
+        ["hypothesis_id", "research_run_id"],
+        ["hypothesis.hypothesis_id", "hypothesis.research_run_id"],
+        name="fk_evidence_hypothesis_same_run",
+    ),
+    ForeignKeyConstraint(
+        ["experiment_id", "research_run_id"],
+        ["experiment.experiment_id", "experiment.research_run_id"],
+        name="fk_evidence_experiment_same_run",
+    ),
+    CheckConstraint(
+        "polarity IN ('SUPPORTING', 'CONTRADICTING', 'NEUTRAL')",
+        name="ck_evidence_polarity",
+    ),
+)
+
+evidence_observation = Table(
+    "evidence_observation",
+    metadata,
+    Column("evidence_id", Text, ForeignKey("evidence.evidence_id"), primary_key=True),
+    Column("observation_id", Text, ForeignKey("observation.observation_id"), primary_key=True),
+)
+
+evidence_admission = Table(
+    "evidence_admission",
+    metadata,
+    Column("admission_record_id", Text, primary_key=True),
+    Column("proposal_id", Text, nullable=False),
+    Column("research_run_id", Text, ForeignKey("research_run.research_run_id"), nullable=False),
+    Column("outcome", Text, nullable=False),
+    Column("reason_codes", JSONB, nullable=False),
+    Column("observation_ids", JSONB, nullable=False),
+    Column("assessment_ids", JSONB, nullable=False),
+    Column("admission_policy_version", Text, nullable=False),
+    Column("evaluator_version", Text, nullable=False),
+    Column("created_at", DateTime(timezone=True), nullable=False),
+    Column("admitted_evidence_id", Text, ForeignKey("evidence.evidence_id"), nullable=True),
+    Column("claim_scope", Text, nullable=True),
+    Column("polarity", Text, nullable=True),
+    CheckConstraint(
+        "outcome IN ("
+        "'ADMITTED', 'REJECTED_INSUFFICIENT_SUPPORT', 'REJECTED_BROKEN_PROVENANCE', "
+        "'REJECTED_EXECUTION_UNUSABLE', 'REJECTED_POLICY_CONFLICT', 'NEEDS_VERIFICATION')",
+        name="ck_evidence_admission_outcome",
+    ),
+    CheckConstraint(
+        "(outcome = 'ADMITTED' AND admitted_evidence_id IS NOT NULL) OR "
+        "(outcome <> 'ADMITTED' AND admitted_evidence_id IS NULL)",
+        name="ck_evidence_admission_evidence_presence",
+    ),
+    CheckConstraint(
+        "polarity IS NULL OR polarity IN ('SUPPORTING', 'CONTRADICTING', 'NEUTRAL')",
+        name="ck_evidence_admission_polarity",
+    ),
+)
+
 SPINE_TABLES = (
     program,
     authorization_source,
@@ -423,6 +492,9 @@ SPINE_TABLES = (
     research_admission,
     experiment_plan,
     hypothesis_assessment,
+    evidence,
+    evidence_observation,
+    evidence_admission,
 )
 
 APPEND_ONLY_TABLES = (
@@ -432,4 +504,7 @@ APPEND_ONLY_TABLES = (
     "research_admission",
     "experiment_plan",
     "hypothesis_assessment",
+    "evidence",
+    "evidence_observation",
+    "evidence_admission",
 )

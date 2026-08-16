@@ -94,6 +94,7 @@ uv run python scripts/run_research_benchmark.py --baseline BAD_HALLUCINATOR --ru
 uv run python scripts/run_research_benchmark.py --compare-baseline GENERIC_TEMPLATE_BASELINE
 uv run python scripts/run_research_benchmark.py --sealed-holdout-path D:\sealed-research-holdout
 uv run python scripts/run_research_benchmark.py --write-results
+uv run python scripts/run_research_benchmark.py --adapter openai --model "$env:RESEARCH_OS_OPENAI_MODEL"
 ```
 
-Scripted baselines are test doubles, not real models. GATE 04B live adapters are deferred. This prep gate does not select a provider.
+Scripted baselines are test doubles, not real models. Live adapters live in `integrations/models/`. Missing SDK or API key is **UNAVAILABLE**, not a benchmark failure. GATE 04B comparative PASS requires at least two real model configurations executed on the same comparable suite. No `WINNER` line.

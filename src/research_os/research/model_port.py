@@ -22,6 +22,26 @@ class ModelPortError(ValueError):
     """Invalid ModelPort request or result envelope. Not a Core DENY."""
 
 
+class ProviderRuntimeError(ModelPortError):
+    """Provider/API failed. Not a research-quality judgment."""
+
+
+class ProviderAuthError(ProviderRuntimeError):
+    """Authentication or credential rejection. Not a research-quality judgment."""
+
+
+class ProviderRateLimitError(ProviderRuntimeError):
+    """Rate limited by the provider. Not a research-quality judgment."""
+
+
+class ProviderTimeoutError(ProviderRuntimeError):
+    """Provider call timed out. Not a research-quality judgment."""
+
+
+class StructuredOutputTransportError(ModelPortError):
+    """Adapter could not obtain parseable JSON. Does not repair the proposal."""
+
+
 @dataclass(frozen=True)
 class ModelCallRequest:
     """One reasoning invocation. Instructions and untrusted data stay separate."""
@@ -53,6 +73,18 @@ class ModelCallRequest:
 
 
 @dataclass(frozen=True)
+class ModelCallTelemetry:
+    """Adapter-reported operational metadata. Missing fields stay unset. Not pricing policy."""
+
+    latency_ms: int | None = None
+    input_tokens: int | None = None
+    output_tokens: int | None = None
+    retries: int | None = None
+    provider_reported_cost: float | None = None
+    provider_cost_provenance: str | None = None
+
+
+@dataclass(frozen=True)
 class ModelCallResult:
     """Untrusted structured output plus adapter identity. Do not invent missing fields."""
 
@@ -62,6 +94,7 @@ class ModelCallResult:
     structured_output: Mapping[str, object]
     model_id: str | None = None
     model_version: str | None = None
+    telemetry: ModelCallTelemetry | None = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.role, ModelRole):
@@ -84,6 +117,8 @@ class ModelCallResult:
             not isinstance(self.model_version, str) or not self.model_version.strip()
         ):
             raise ModelPortError("model_version must be a non-empty string when set")
+        if self.telemetry is not None and not isinstance(self.telemetry, ModelCallTelemetry):
+            raise ModelPortError("telemetry must be ModelCallTelemetry when set")
 
 
 class ModelPort(Protocol):

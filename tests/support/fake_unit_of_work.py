@@ -16,6 +16,8 @@ from research_os.data.records import (
     ALLOWED_EXPERIMENT_STATES,
     AuditEventRecord,
     AuthorizationSourceRecord,
+    EvidenceAdmissionRecord,
+    EvidenceRecord,
     ExecutionAttemptRecord,
     ExperimentPlanRecord,
     ExperimentRecord,
@@ -48,6 +50,8 @@ class _Store:
         self.research_admissions: dict[str, ResearchAdmissionRecord] = {}
         self.experiment_plans: dict[str, ExperimentPlanRecord] = {}
         self.hypothesis_assessments: dict[str, HypothesisAssessmentRecord] = {}
+        self.evidence: dict[str, EvidenceRecord] = {}
+        self.evidence_admissions: dict[str, EvidenceAdmissionRecord] = {}
         self.audit_events: dict[str, AuditEventRecord] = {}
         self.open_transactions = 0
         self.set_state_calls = 0
@@ -97,6 +101,10 @@ def _id_of(record: Any) -> str:
         return record.experiment_id
     if isinstance(record, HypothesisAssessmentRecord):
         return record.assessment_id
+    if isinstance(record, EvidenceRecord):
+        return record.evidence_id
+    if isinstance(record, EvidenceAdmissionRecord):
+        return record.admission_record_id
     if isinstance(record, AuditEventRecord):
         return record.audit_event_id
     raise PersistenceError("unknown record identity")
@@ -389,6 +397,60 @@ class _HypothesisAssessmentRepo(_Repo):
         )
 
 
+class _EvidenceRepo(_Repo):
+    def __init__(self, store: _Store, fail_on_insert: bool = False) -> None:
+        super().__init__(store.evidence, fail_on_insert=fail_on_insert)
+        self._root = store
+
+    def list_for_research_run(self, research_run_id: str) -> list[EvidenceRecord]:
+        return sorted(
+            [
+                record
+                for record in self._root.evidence.values()
+                if record.research_run_id == research_run_id
+            ],
+            key=lambda record: record.evidence_id,
+        )
+
+    def list_for_hypothesis(self, hypothesis_id: str) -> list[EvidenceRecord]:
+        return sorted(
+            [
+                record
+                for record in self._root.evidence.values()
+                if record.hypothesis_id == hypothesis_id
+            ],
+            key=lambda record: record.evidence_id,
+        )
+
+    def list_for_experiment(self, experiment_id: str) -> list[EvidenceRecord]:
+        return sorted(
+            [
+                record
+                for record in self._root.evidence.values()
+                if record.experiment_id == experiment_id
+            ],
+            key=lambda record: record.evidence_id,
+        )
+
+
+class _EvidenceAdmissionRepo(_Repo):
+    def __init__(self, store: _Store, fail_on_insert: bool = False) -> None:
+        super().__init__(store.evidence_admissions, fail_on_insert=fail_on_insert)
+        self._root = store
+
+    def list_for_research_run(
+        self, research_run_id: str
+    ) -> list[EvidenceAdmissionRecord]:
+        return sorted(
+            [
+                record
+                for record in self._root.evidence_admissions.values()
+                if record.research_run_id == research_run_id
+            ],
+            key=lambda record: record.admission_record_id,
+        )
+
+
 class FakeUnitOfWork:
     def __init__(self, store: _Store | None = None, fail_on: str | None = None) -> None:
         self._store = store or _Store()
@@ -425,6 +487,10 @@ class FakeUnitOfWork:
         )
         self.hypothesis_assessments = _HypothesisAssessmentRepo(
             self._store, fail_on_insert=fail_on == "hypothesis_assessments"
+        )
+        self.evidence = _EvidenceRepo(self._store, fail_on_insert=fail_on == "evidence")
+        self.evidence_admissions = _EvidenceAdmissionRepo(
+            self._store, fail_on_insert=fail_on == "evidence_admissions"
         )
         self.audit_events = _Repo(
             self._store.audit_events, fail_on_insert=fail_on == "audit_events"
@@ -486,6 +552,10 @@ class FakeUnitOfWork:
         self._store.experiment_plans.update(snapshot.experiment_plans)
         self._store.hypothesis_assessments.clear()
         self._store.hypothesis_assessments.update(snapshot.hypothesis_assessments)
+        self._store.evidence.clear()
+        self._store.evidence.update(snapshot.evidence)
+        self._store.evidence_admissions.clear()
+        self._store.evidence_admissions.update(snapshot.evidence_admissions)
         self._store.audit_events.clear()
         self._store.audit_events.update(snapshot.audit_events)
 

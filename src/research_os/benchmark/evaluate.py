@@ -23,7 +23,7 @@ from research_os.benchmark.scenarios import (
     assert_hidden_matches_context,
     context_from_visible,
 )
-from research_os.research.model_port import ModelPort
+from research_os.research.model_port import ModelCallTelemetry, ModelPort
 
 
 @dataclass(frozen=True)
@@ -195,6 +195,7 @@ def evaluate_scenario(
     direction = None
     if trace.proposal is not None:
         direction = normalize_claim(trace.proposal.suggested_disconfirming_test)
+    telemetry = _combined_telemetry(trace.generator_telemetry, trace.falsifier_telemetry)
     return ScenarioRunResult(
         scenario_id=scenario.scenario_id,
         version=scenario.version,
@@ -216,6 +217,12 @@ def evaluate_scenario(
         source_references=() if trace.proposal is None else trace.proposal.source_references,
         experiment_direction=direction,
         run_index=run_index,
+        latency_ms=telemetry.latency_ms,
+        input_tokens=telemetry.input_tokens,
+        output_tokens=telemetry.output_tokens,
+        provider_reported_cost=telemetry.provider_reported_cost,
+        pricing_reference=telemetry.provider_cost_provenance,
+        retries=telemetry.retries,
     )
 
 
@@ -264,3 +271,31 @@ def format_scorecard(report: ModelBenchmarkReport) -> str:
     )
     lines.append("no aggregate model score")
     return "\n".join(lines)
+
+
+def _combined_telemetry(left: object, right: object) -> ModelCallTelemetry:
+    items = [
+        item
+        for item in (left, right)
+        if isinstance(item, ModelCallTelemetry)
+    ]
+    if not items:
+        return ModelCallTelemetry()
+    latency = [item.latency_ms for item in items if item.latency_ms is not None]
+    inputs = [item.input_tokens for item in items if item.input_tokens is not None]
+    outputs = [item.output_tokens for item in items if item.output_tokens is not None]
+    retries = [item.retries for item in items if item.retries is not None]
+    costs = [item.provider_reported_cost for item in items if item.provider_reported_cost is not None]
+    provenances = [
+        item.provider_cost_provenance
+        for item in items
+        if item.provider_cost_provenance
+    ]
+    return ModelCallTelemetry(
+        latency_ms=sum(latency) if latency else None,
+        input_tokens=sum(inputs) if inputs else None,
+        output_tokens=sum(outputs) if outputs else None,
+        retries=sum(retries) if retries else None,
+        provider_reported_cost=sum(costs) if costs else None,
+        provider_cost_provenance=provenances[0] if len(provenances) == 1 else None,
+    )

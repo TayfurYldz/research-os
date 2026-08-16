@@ -18,6 +18,8 @@ Hypothesis / Experiment
 + ResearchAdmissionRecord (append-only admission process history; not target truth)
 + ExperimentPlanRecord (immutable executed-plan specification; not Experiment lifecycle)
 + HypothesisAssessmentRecord (append-only context-bound assessment; not Evidence)
++ EvidenceRecord (append-only admitted Evidence; not Candidate or Finding)
++ EvidenceAdmissionRecord (append-only Evidence admission history; rejected proposals create no Evidence)
 ```
 
 This is **not** a database copy of DOMAIN_MODEL.md.
@@ -33,7 +35,7 @@ This is **not** a database copy of DOMAIN_MODEL.md.
 
 - Core authorization / ExecutionDecision
 - Worker execution
-- Evidence admission authority (still an open domain decision — no Evidence table)
+- Evidence admission *authority* (Research owns semantics; Data only persists)
 - Candidate / Finding / Approval persistence
 - ScopeRule matcher storage
 - model routing, graphs, vectors
@@ -51,6 +53,8 @@ This is **not** a database copy of DOMAIN_MODEL.md.
 - `research_admission` is append-only research-process history. Rejected admissions have no `admitted_hypothesis_id`.
 - `experiment_plan` is the immutable specification used for later assessment. It is not authorization state.
 - `hypothesis_assessment` is append-only context-bound learning. It is not Evidence and does not mutate Hypothesis truth.
+- `evidence` is append-only admitted Evidence. Inserting Observation or HypothesisAssessment does not create it.
+- `evidence_admission` is append-only Evidence admission history. Rejected proposals have no `admitted_evidence_id`.
 - WorkerResult stores first-class request-envelope provenance (`request_id`, correlation, capability/action, authorization decision reference, budget reference). `request_id` is unique (idempotency). Correlation is not JSON-only.
 - IssuedBudget is immutable after insert (0 = no allowance).
 - AuditEvent is append-only reconstructive history, not Evidence, not a log substitute, and not a dispatch queue.

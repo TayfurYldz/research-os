@@ -16,7 +16,7 @@ from research_os.research.cycle import (
 )
 from research_os.research.proposals import CHALLENGE_KEYS, PROPOSAL_KEYS
 
-HARNESS_VERSION = "gate-04b-prep.1"
+HARNESS_VERSION = "gate-04b.1"
 CONTEXT_BUILDER_VERSION = "ResearchContextBuilder.v1"
 ADMISSION_VERSION = "admit_hypothesis.v1"
 EVALUATOR_VERSION = "benchmark.evaluator.v1"

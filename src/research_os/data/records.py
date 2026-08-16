@@ -103,6 +103,28 @@ ALLOWED_EVALUATOR_KINDS = frozenset({"DETERMINISTIC"})
 ASSESSMENT_RATIONALE_FORBIDDEN_KEYS = frozenset(
     {"severity", "evidence", "finding", "confidence", "candidate"}
 )
+ALLOWED_EVIDENCE_POLARITIES = frozenset({"SUPPORTING", "CONTRADICTING", "NEUTRAL"})
+ALLOWED_EVIDENCE_ADMISSION_OUTCOMES = frozenset(
+    {
+        "ADMITTED",
+        "REJECTED_INSUFFICIENT_SUPPORT",
+        "REJECTED_BROKEN_PROVENANCE",
+        "REJECTED_EXECUTION_UNUSABLE",
+        "REJECTED_POLICY_CONFLICT",
+        "NEEDS_VERIFICATION",
+    }
+)
+EVIDENCE_FORBIDDEN_KEYS = frozenset(
+    {
+        "severity",
+        "finding",
+        "candidate",
+        "exploitability",
+        "authorization",
+        "confidence",
+        "verification",
+    }
+)
 
 
 def require_opaque_id(value: str, field_name: str) -> str:
@@ -432,6 +454,95 @@ class HypothesisAssessmentRecord:
             )
         _reject_secret_keys(self.rationale, "rationale")
         object.__setattr__(self, "rationale", dict(self.rationale))
+
+
+@dataclass(frozen=True)
+class EvidenceRecord:
+    """Append-only admitted Evidence. Not Candidate, Finding, or Verification."""
+
+    evidence_id: str
+    research_run_id: str
+    hypothesis_id: str
+    experiment_id: str
+    admission_record_id: str
+    polarity: str
+    claim_scope: str
+    observation_ids: tuple[str, ...]
+    assessment_ids: tuple[str, ...]
+    created_at: datetime
+
+    def __post_init__(self) -> None:
+        require_opaque_id(self.evidence_id, "evidence_id")
+        require_opaque_id(self.research_run_id, "research_run_id")
+        require_opaque_id(self.hypothesis_id, "hypothesis_id")
+        require_opaque_id(self.experiment_id, "experiment_id")
+        require_opaque_id(self.admission_record_id, "admission_record_id")
+        require_aware_datetime(self.created_at, "created_at")
+        if self.polarity not in ALLOWED_EVIDENCE_POLARITIES:
+            raise PersistenceInputError("polarity is not an Evidence polarity")
+        if not isinstance(self.claim_scope, str) or not self.claim_scope.strip():
+            raise PersistenceInputError("claim_scope must be a non-empty string")
+        if not isinstance(self.observation_ids, tuple) or not self.observation_ids:
+            raise PersistenceInputError("observation_ids must be a non-empty tuple")
+        cleaned: list[str] = []
+        for index, item in enumerate(self.observation_ids):
+            cleaned.append(require_opaque_id(item, f"observation_ids[{index}]"))
+        object.__setattr__(self, "observation_ids", tuple(cleaned))
+        if not isinstance(self.assessment_ids, tuple) or not self.assessment_ids:
+            raise PersistenceInputError("assessment_ids must be a non-empty tuple")
+        assessments: list[str] = []
+        for index, item in enumerate(self.assessment_ids):
+            assessments.append(require_opaque_id(item, f"assessment_ids[{index}]"))
+        object.__setattr__(self, "assessment_ids", tuple(assessments))
+
+
+@dataclass(frozen=True)
+class EvidenceAdmissionRecord:
+    """Append-only Evidence admission history. Rejected proposals create no Evidence."""
+
+    admission_record_id: str
+    proposal_id: str
+    research_run_id: str
+    outcome: str
+    reason_codes: tuple[str, ...]
+    observation_ids: tuple[str, ...]
+    assessment_ids: tuple[str, ...]
+    admission_policy_version: str
+    evaluator_version: str
+    created_at: datetime
+    admitted_evidence_id: str | None = None
+    claim_scope: str | None = None
+    polarity: str | None = None
+
+    def __post_init__(self) -> None:
+        require_opaque_id(self.admission_record_id, "admission_record_id")
+        require_opaque_id(self.proposal_id, "proposal_id")
+        require_opaque_id(self.research_run_id, "research_run_id")
+        require_aware_datetime(self.created_at, "created_at")
+        if self.outcome not in ALLOWED_EVIDENCE_ADMISSION_OUTCOMES:
+            raise PersistenceInputError("outcome is not an Evidence admission outcome")
+        if not isinstance(self.reason_codes, tuple) or not self.reason_codes:
+            raise PersistenceInputError("reason_codes must be a non-empty tuple")
+        if not isinstance(self.observation_ids, tuple):
+            raise PersistenceInputError("observation_ids must be a tuple")
+        if not isinstance(self.assessment_ids, tuple):
+            raise PersistenceInputError("assessment_ids must be a tuple")
+        if not isinstance(self.admission_policy_version, str) or not self.admission_policy_version.strip():
+            raise PersistenceInputError("admission_policy_version must be a non-empty string")
+        if not isinstance(self.evaluator_version, str) or not self.evaluator_version.strip():
+            raise PersistenceInputError("evaluator_version must be a non-empty string")
+        if self.outcome == "ADMITTED":
+            require_opaque_id(self.admitted_evidence_id, "admitted_evidence_id")
+        elif self.admitted_evidence_id is not None:
+            raise PersistenceInputError(
+                "admitted_evidence_id must be null when Evidence is not admitted"
+            )
+        if self.polarity is not None and self.polarity not in ALLOWED_EVIDENCE_POLARITIES:
+            raise PersistenceInputError("polarity is not an Evidence polarity")
+        if self.claim_scope is not None and (
+            not isinstance(self.claim_scope, str) or not self.claim_scope.strip()
+        ):
+            raise PersistenceInputError("claim_scope must be a non-empty string when set")
 
 
 @dataclass(frozen=True)

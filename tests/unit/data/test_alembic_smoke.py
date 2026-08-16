@@ -17,6 +17,7 @@ A6_MIGRATION = ALEMBIC_VERSIONS / "a6_001_transition_a_provenance.py"
 A7_MIGRATION = ALEMBIC_VERSIONS / "a7_001_execution_attempt.py"
 A8_MIGRATION = ALEMBIC_VERSIONS / "a8_001_research_reasoning.py"
 A9_MIGRATION = ALEMBIC_VERSIONS / "a9_001_learning_cycle.py"
+A10_MIGRATION = ALEMBIC_VERSIONS / "a10_001_evidence_admission.py"
 
 
 def _imported_modules(tree: ast.AST) -> set[str]:
@@ -50,13 +51,15 @@ class AlembicSmokeTests(unittest.TestCase):
                 "research_admission",
                 "experiment_plan",
                 "hypothesis_assessment",
+                "evidence",
+                "evidence_observation",
+                "evidence_admission",
             },
         )
         self.assertEqual(set(metadata.tables), names)
 
     def test_deferred_domain_tables_are_absent(self) -> None:
         forbidden = {
-            "evidence",
             "candidate",
             "verification",
             "finding",
@@ -138,6 +141,17 @@ class AlembicSmokeTests(unittest.TestCase):
         a8 = A8_MIGRATION.read_text(encoding="utf-8")
         self.assertNotIn("research_admission", a8)
         self.assertNotIn("hypothesis_assessment", a8)
+
+    def test_a10_migration_is_append_only_revision(self) -> None:
+        source = A10_MIGRATION.read_text(encoding="utf-8")
+        self.assertIn("a10_001_evidence_admission", source)
+        self.assertIn("a9_001_learning_cycle", source)
+        self.assertIn("evidence_admission", source)
+        self.assertNotIn("create_all", source)
+        a9 = A9_MIGRATION.read_text(encoding="utf-8")
+        self.assertNotIn("evidence_admission", a9)
+        a3 = MIGRATION.read_text(encoding="utf-8")
+        self.assertNotIn("CREATE TABLE evidence", a3)
 
 
 if __name__ == "__main__":

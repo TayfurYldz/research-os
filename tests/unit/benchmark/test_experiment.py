@@ -50,6 +50,23 @@ class RepeatedRunTests(unittest.TestCase):
         self.assertNotIn("80%", json.dumps(summary.to_mapping()))
         self.assertGreaterEqual(summary.research_quality_failures, 1)
 
+    def test_provider_auth_is_not_research_quality_failure(self) -> None:
+        from research_os.research.model_port import ProviderAuthError
+
+        scenario = load_scenario(SCENARIO_DIR / "01_clean_diagnostic.json")
+        port = create_baseline("GOOD_BASELINE")
+        port._error = ProviderAuthError("401")
+        report = run_experiment(
+            (scenario,),
+            port,
+            config=BenchmarkExperimentConfig(runs_per_scenario=2),
+            model_identity=_identity("GOOD_BASELINE"),
+        )
+        summary = report.summaries[0]
+        self.assertEqual(summary.provider_auth_failures, 2)
+        self.assertEqual(summary.research_quality_failures, 0)
+        self.assertEqual(summary.runs[0].failure_class, "PROVIDER_AUTH")
+
     def test_provider_outage_is_not_research_quality_failure(self) -> None:
         scenario = load_scenario(SCENARIO_DIR / "01_clean_diagnostic.json")
         port = create_baseline("GOOD_BASELINE")

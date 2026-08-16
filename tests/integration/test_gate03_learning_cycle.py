@@ -424,11 +424,11 @@ class Gate03LearningCycleTests(unittest.TestCase):
                     )
                 )
             }
-        self.assertEqual(version, "a9_001_learning_cycle")
+        self.assertEqual(version, "a10_001_evidence_admission")
         self.assertIn("research_admission", tables)
         self.assertIn("experiment_plan", tables)
         self.assertIn("hypothesis_assessment", tables)
-        self.assertNotIn("evidence", tables)
+        self.assertIn("evidence", tables)
         self.assertNotIn("candidate", tables)
         self.assertNotIn("finding", tables)
 

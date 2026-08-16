@@ -92,7 +92,7 @@ class ArchitectureBoundaryTests(unittest.TestCase):
                 forbidden_roots=EXECUTION_ROOTS
                 + PERSISTENCE_LIBS
                 + SCHEMA_LIBS
-                + ("openai", "anthropic", "langchain", "llama_index", "litellm"),
+                + ("openai", "anthropic", "google", "langchain", "llama_index", "litellm"),
                 forbidden_prefixes=(
                     "research_os.data",
                     "research_os.workers",
@@ -100,6 +100,7 @@ class ArchitectureBoundaryTests(unittest.TestCase):
                     "research_os.application",
                     "research_os.benchmark",
                     "google.generativeai",
+                    "google.genai",
                 ),
             ),
             [],
@@ -111,7 +112,7 @@ class ArchitectureBoundaryTests(unittest.TestCase):
                 APPLICATION_DIR,
                 forbidden_roots=EXECUTION_ROOTS
                 + PERSISTENCE_LIBS
-                + ("openai", "anthropic", "langchain"),
+                + ("openai", "anthropic", "google", "langchain"),
                 forbidden_prefixes=(
                     "research_os.data.postgres",
                     "research_os.platform.local_process_worker",
@@ -119,6 +120,7 @@ class ArchitectureBoundaryTests(unittest.TestCase):
                     "research_os.benchmark",
                     "integrations",
                     "google.generativeai",
+                    "google.genai",
                 ),
             ),
             [],
@@ -131,13 +133,14 @@ class ArchitectureBoundaryTests(unittest.TestCase):
                 forbidden_roots=EXECUTION_ROOTS
                 + PERSISTENCE_LIBS
                 + SCHEMA_LIBS
-                + ("openai", "anthropic", "langchain", "llama_index", "litellm"),
+                + ("openai", "anthropic", "google", "langchain", "llama_index", "litellm"),
                 forbidden_prefixes=(
                     "research_os.data",
                     "research_os.application",
                     "research_os.workers",
                     "research_os.platform",
                     "google.generativeai",
+                    "google.genai",
                 ),
             ),
             [],

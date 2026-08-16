@@ -18,12 +18,12 @@ Use cases:
 - `ProposeResearchHypothesis` (bounded Generator/Falsifier/admission)
 - `PreparePlannedExperiment` (Experiment lifecycle + immutable ExperimentPlan spec)
 - `EvaluateExperimentFeedback` (reconstruct feedback, deterministic assessment, persist history)
+- `AdmitDiagnosticEvidence` (Transition B coordination; Research admits; Data persists)
 
 `request_id` is generated here. Worker and model do not choose it. Worker invocation happens only after durable AUTHORIZED/DISPATCHING intent is committed, and never inside an open database transaction.
 
 Assessment does not invoke a model, does not create Evidence, and does not start another experiment.
-
-`request_id` is generated here. Worker and model do not choose it. Worker invocation happens only after durable AUTHORIZED/DISPATCHING intent is committed, and never inside an open database transaction.
+Evidence admission does not create Candidate or Finding and is not Verification.
 
 Dependency direction:
 
