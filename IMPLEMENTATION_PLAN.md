@@ -1,0 +1,167 @@
+# Research OS — Implementation Plan
+
+Roadmap only. No business logic, products, or frameworks are selected here.
+
+Follow `.cursor/rules/research-os.mdc`, `PROJECT_STRUCTURE.md`, `DOMAIN_MODEL.md`, `TECHNICAL_REQUIREMENTS.md`, and `TECHNICAL_DECISIONS.md`.
+
+Decision-driver order remains: correctness → authorization/security → durability → audit/provenance → recoverability → simplicity → testability → …
+
+---
+
+## Locked context (do not reopen in code)
+
+| Decision | Lock |
+|---|---|
+| 001 | Python control plane; Workers/Integrations may differ; language-neutral contracts |
+| 002 | Relational SoR; rebuildable read models; companions non-authoritative |
+| 003 | PostgreSQL SoR; not Research Memory; not default artifact bytes |
+| 004 | Hybrid orchestration; engine **product deferred** |
+| 005 | Mixed topology; Worker contract; Kali/WSL first **tool** Worker; no mandatory broker |
+| 006 | Artifact metadata/hash in SoR; bytes behind port; local FS first |
+| 007 | No dedicated cache product in v1 |
+| 008 | ModelPort; provider **deferred**; no live multi-model router |
+| 009 | No vector in v1; Research Memory = structured/text over SoR |
+| 010 | Staged deploy; Phase A local Control Plane + local PostgreSQL + Kali/WSL Worker |
+| 011 | Staged Interface; no full dashboard required in v1; UI frameworks **deferred** |
+| 012 | ObservabilityPort; structured logs first; vendors **deferred** |
+| 013 | SecretPort; values never in Domain/prompts/AuditEvent; product **deferred** |
+| 014 | Process/OS boundary; in-process = fakes; containers **not** required |
+| 015 | Identity classes; operator id for audit/Approval; authn ≠ authz; no IAM product |
+
+---
+
+## Standing invariants (every slice)
+
+- DEFAULT DENY. Core authorizes; Workers execute; Data persists.
+- WorkerResult untrusted until Transition A. Evidence only via Transition B.
+- Finding only after Human Review and Core-recorded Approval.
+- Interface does not own Approval. Models are not principals.
+- PostgreSQL wins vs companions, logs, traces, metrics, caches, vector indexes (none in v1).
+- Secret **values** never logged or stored as Domain.
+
+---
+
+## Phase A — first working implementation
+
+Matches Decision 010 Phase A and Decision 011 Phase A.
+
+### Slice A0 — Layout (this commit)
+
+Repository tree, package boundaries, empty ports. **Done when this layout exists.** No runtime.
+
+### Slice A1 — Contracts
+
+Add language-neutral contract **files** under `contracts/` (format still unchosen).
+
+Minimum conceptual messages:
+
+- authorization request / decision
+- issued budget limits (immutable)
+- Worker job / WorkerResult
+- SecretReference (no values)
+- Artifact identity + opaque locator + hash
+- correlation ids (run / experiment / worker / model)
+
+**Verify:** Core/Research can be specified against these without importing Workers. No serialization product mandated beyond “contracts live here.”
+
+### Slice A2 — Core (no I/O)
+
+Authorization, scope, budget **policy**, Approval **semantics**, Finding promotion **contract**. In-memory tests only.
+
+**Verify:** missing AuthorizationSource or ambiguous scope → DENY or REQUIRE_HUMAN_REVIEW. LLM-shaped input cannot authorize. No subprocess, no SDKs.
+
+### Slice A3 — Data ports + PostgreSQL SoR
+
+Persist Program, AuthorizationSource, ScopeRule, ResearchRun, Budget, and AuditEvent first. Then Observation/Artifact **metadata**, WorkerResult **record**, Evidence, Candidate, FindingProposal, Finding, Approval.
+
+**Verify:** Approval + Finding in one transaction; Evidence/AuditEvent/Approval not updated in place; JSON/flexible fields not used for authority. **ORM and migration tool still unchosen** — pick them in a later recorded decision before this slice’s implementation, not silently.
+
+### Slice A4 — Tools + Platform ports
+
+Tool **capability** types. Platform ports: orchestration coordination (thin, not Temporal), SecretPort, ObservabilityPort (structured logs), artifact byte port (local `var/artifacts/`).
+
+**Verify:** Core/Research still import only ports. No Redis, Vault, OTel vendor, Docker.
+
+### Slice A5 — Research (proposals)
+
+Hypothesis / Experiment **plan** / Evidence **proposal** / Candidate / FindingProposal. ModelPort **fake** adapter in tests.
+
+**Verify:** Research cannot create Finding. Model output stays UNTRUSTED STRUCTURED PROPOSAL.
+
+### Slice A6 — Interface Phase A
+
+Application/API **boundary** (no API framework chosen until a later decision) + minimal CLI + minimal Human Review that submits Approval to Core.
+
+**Verify:** UI/CLI cannot write Findings into PostgreSQL. Operator identity on Approval (Decision 015).
+
+### Slice A7 — Worker process + Kali/WSL adapter slot
+
+`workers/python/` child-process (or WSL) runtime implementing the Worker contract. Fake/recon-capable **stub** first; no vendor tool required.
+
+**Verify:** out-of-process; crash does not kill Core; no SoR writes from Worker; redirect → stop → Core re-eval; correlation id present.
+
+### Slice A8 — Transition A then B
+
+Deterministic ingest WorkerResult → Observation/Artifact metadata (+ bytes via port). Separate Evidence admission.
+
+**Verify:** no Evidence at ingest. Artifact attachment ≠ Evidence.
+
+### Slice A9 — First Human Review loop
+
+FindingProposal → Interface review → Core Approval → Finding. AuditEvent for the decision.
+
+**Verify:** no Finding without Approval. Logs are not the audit authority (Decision 012).
+
+---
+
+## Phase B — replaceable Workers and dashboard
+
+- Same Worker contract → authenticated remote Worker **when needed** (not now).
+- Interface Phase B: web dashboard (**framework still a later decision**).
+- ModelPort: one real adapter when a provider is chosen (Decision 008 product still deferred).
+- `integrations/strix/` only if explicitly adopted as a replaceable adapter.
+
+---
+
+## Phase C — production topology if justified
+
+Distributed Control Plane/Workers, object-store artifact adapter, external secrets manager, observability backend, stronger isolation — **each requires a decision revisit**. No Kubernetes-by-default.
+
+---
+
+## Explicitly later / not this roadmap’s job
+
+- ORM, migration tool, API framework, web framework
+- Temporal/Celery/Prefect, brokers, Redis
+- Vector/graph/search products
+- Embedding pipeline
+- Full observability platform
+- Docker/Kubernetes as architecture
+- Multi-model live routing
+- Packaging (`pyproject.toml`) — add when A2/A3 start, as a packaging decision, not as hidden stack lock-in
+
+---
+
+## Suggested test order
+
+1. `tests/unit/` — Core deny/allow, promotion contract, immutability rules
+2. `tests/contract/` — WorkerResult and authorization message shapes
+3. `tests/integration/` — PostgreSQL transactions; filesystem artifact adapter
+4. `tests/e2e/` — one authorized run through Human Review
+
+---
+
+## Definition of “first working implementation”
+
+A single operator can:
+
+1. Record Program + AuthorizationSource + ScopeRules
+2. Start a ResearchRun under Core
+3. Dispatch an authorized Worker job
+4. Ingest WorkerResult (Transition A)
+5. Admit Evidence (Transition B) only as a separate step
+6. Open a FindingProposal
+7. Record Human Review as Core Approval
+8. Persist a Finding only after that Approval
+
+All of that uses this repository layout, PostgreSQL as SoR, and no extra product mandated by this plan.
