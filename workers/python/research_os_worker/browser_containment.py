@@ -18,15 +18,27 @@ from typing import Any, Mapping
 
 HELLO_MESSAGE_TYPE = "hello"
 CONTAINMENT_MESSAGE_TYPE = "containment_ready"
-BROWSER_WORKER_PROTOCOL = "browser.worker.v1"
+BROWSER_WORKER_PROTOCOL = "browser.worker.v2"
 CONTAINMENT_NOT_ESTABLISHED = "CONTAINMENT_NOT_ESTABLISHED"
+
+PID_CEILING_TASKS = "tasks"
+PID_CEILING_PROCESSES = "processes"
+PID_CEILING_KINDS = frozenset({PID_CEILING_TASKS, PID_CEILING_PROCESSES})
+
+MECHANISM_LINUX_CGROUP_V2 = "linux.cgroup2"
+MECHANISM_WINDOWS_JOB_OBJECT = "windows.jobobject"
+MECHANISM_PID_KIND = {
+    MECHANISM_LINUX_CGROUP_V2: PID_CEILING_TASKS,
+    MECHANISM_WINDOWS_JOB_OBJECT: PID_CEILING_PROCESSES,
+}
 
 
 @dataclass(frozen=True)
 class ContainmentAck:
     mechanism: str
     max_memory_bytes: int
-    max_processes: int
+    pid_ceiling_kind: str
+    pid_ceiling_value: int
 
 
 _ACK: ContainmentAck | None = None
@@ -44,13 +56,15 @@ def accept_containment(
     message: Mapping[str, Any],
     *,
     max_memory_bytes: int,
-    max_processes: int,
+    max_descendant_processes: int,
+    max_descendant_tasks: int,
 ) -> tuple[ContainmentAck | None, str | None]:
     """Validate the parent acknowledgement against the Worker's declared limits.
 
     The parent may enforce a tighter ceiling than the Worker declares. It may
     never enforce a wider one, because the declared limit would then be a claim
-    the kernel does not back.
+    the kernel does not back. The PID ceiling kind must match the mechanism:
+    Linux cgroup v2 enforces tasks, Windows Job Objects enforce processes.
     """
 
     if message.get("message_type") != CONTAINMENT_MESSAGE_TYPE:
@@ -59,19 +73,33 @@ def accept_containment(
         return None, "containment acknowledgement protocol mismatch"
     mechanism = message.get("mechanism")
     memory = message.get("max_memory_bytes")
-    processes = message.get("max_processes")
+    kind = message.get("pid_ceiling_kind")
+    value = message.get("pid_ceiling_value")
     if not isinstance(mechanism, str) or not mechanism.strip():
         return None, "containment acknowledgement has no enforcement mechanism"
     if not isinstance(memory, int) or isinstance(memory, bool) or memory < 1:
         return None, "containment acknowledgement has no enforced memory ceiling"
-    if not isinstance(processes, int) or isinstance(processes, bool) or processes < 1:
-        return None, "containment acknowledgement has no enforced process ceiling"
+    if not isinstance(kind, str) or kind not in PID_CEILING_KINDS:
+        return None, "containment acknowledgement has an unknown pid ceiling kind"
+    if not isinstance(value, int) or isinstance(value, bool) or value < 1:
+        return None, "containment acknowledgement has no enforced pid ceiling"
+    expected_kind = MECHANISM_PID_KIND.get(mechanism)
+    if expected_kind is None:
+        return None, "containment acknowledgement has an unknown enforcement mechanism"
+    if kind != expected_kind:
+        return None, "containment acknowledgement mechanism and pid ceiling kind do not match"
     if memory > max_memory_bytes:
         return None, "the enforced memory ceiling is wider than the declared limit"
-    if processes > max_processes:
-        return None, "the enforced process ceiling is wider than the declared limit"
+    declared = (
+        max_descendant_tasks if kind == PID_CEILING_TASKS else max_descendant_processes
+    )
+    if value > declared:
+        return None, f"the enforced {kind} ceiling is wider than the declared limit"
     return ContainmentAck(
-        mechanism=mechanism, max_memory_bytes=memory, max_processes=processes
+        mechanism=mechanism,
+        max_memory_bytes=memory,
+        pid_ceiling_kind=kind,
+        pid_ceiling_value=value,
     ), None
 
 

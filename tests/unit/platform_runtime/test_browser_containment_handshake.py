@@ -17,6 +17,7 @@ import pathsetup  # noqa: F401
 
 from research_os.platform.browser_resource_control import (
     BREACH_MEMORY_MAX,
+    PID_CEILING_PROCESSES,
     BrowserResourceLimits,
     BrowserResourceReadiness,
 )
@@ -75,6 +76,9 @@ class _RecordingController:
             "job_memory_limit_bytes": None,
             "process_memory_limit_bytes": None,
         }
+
+    def pid_ceiling(self) -> tuple[str, int]:
+        return PID_CEILING_PROCESSES, self.limits.max_processes
 
     def confirm_containment(self, supervised, worker_pid: int) -> str | None:
         self.confirmed_pids.append((supervised.process.pid, worker_pid))
@@ -189,6 +193,19 @@ class BrowserContainmentHandshakeTests(unittest.TestCase):
         self.assertEqual(outcome.invocation_status, InvocationStatus.TIMED_OUT)
         self.assertIn(f"{RESOURCE_BREACH_REASON}: {BREACH_MEMORY_MAX}", outcome.reason or "")
         self.assertIsNone(outcome.worker_result)
+
+    def test_terminal_failure_returns_drained_bounded_stderr(self) -> None:
+        script = HANDSHAKE_PREAMBLE + (
+            "sys.stderr.write('spawned=7\\n')\n"
+            "sys.stderr.flush()\n"
+            "time.sleep(30)\n"
+        )
+        controller = _RecordingController(BrowserResourceLimits(), breach=BREACH_MEMORY_MAX)
+        adapter = self._adapter(script, controller, timeout_ms=900)
+        outcome = adapter.invoke(valid_worker_request())
+        self.assertEqual(outcome.invocation_status, InvocationStatus.TIMED_OUT)
+        self.assertIsNone(outcome.worker_result)
+        self.assertIn("spawned=7", outcome.stderr_diagnostics)
 
     def test_a_cleanup_failure_blocks_the_next_browser_start(self) -> None:
         controller = _RecordingController(

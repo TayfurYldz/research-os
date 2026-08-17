@@ -42,7 +42,7 @@ DEFAULT_MAX_STDOUT_BYTES = 65_536
 SHUTDOWN_WAIT_SECONDS = 2.0
 HANDSHAKE_TIMEOUT_SECONDS = 10.0
 CONTAINMENT_MESSAGE_TYPE = "containment_ready"
-BROWSER_WORKER_PROTOCOL = "browser.worker.v1"
+BROWSER_WORKER_PROTOCOL = "browser.worker.v2"
 HELLO_MESSAGE_TYPE = "hello"
 CONTAINMENT_UNAVAILABLE_REASON = "browser resource containment unavailable"
 RESOURCE_BREACH_REASON = "browser resource limit breached"
@@ -126,86 +126,58 @@ class PersistentBrowserWorkerAdapter:
                 process.stdin.write(payload)
                 process.stdin.flush()
             except OSError:
-                reason = self._breach_reason("worker stdin write failed")
-                self._kill()
-                return WorkerInvocationOutcome(
-                    invocation_status=InvocationStatus.PROCESS_FAILED,
-                    started_at=started,
-                    completed_at=_utc_now(),
-                    reason=reason,
+                return self._terminal_outcome(
+                    InvocationStatus.PROCESS_FAILED,
+                    started,
+                    process,
+                    "worker stdin write failed",
                 )
             line, exceeded, timed_out, crashed = self._read_result_line(
                 process, timeout_s=effective_timeout / 1000.0
             )
-            stderr_text = _decode(self._stderr_box.get("data", b"") or b"")
-            stderr_truncated = bool(self._stderr_box.get("exceeded"))
             if timed_out:
-                reason = self._breach_reason(
-                    "worker exceeded caller/budget timeout; no WorkerResult fabricated"
-                )
-                self._kill()
-                return WorkerInvocationOutcome(
-                    invocation_status=InvocationStatus.TIMED_OUT,
-                    started_at=started,
-                    completed_at=_utc_now(),
-                    exit_code=process.returncode,
-                    stderr_diagnostics=stderr_text,
-                    stderr_truncated=stderr_truncated,
-                    reason=reason,
+                return self._terminal_outcome(
+                    InvocationStatus.TIMED_OUT,
+                    started,
+                    process,
+                    "worker exceeded caller/budget timeout; no WorkerResult fabricated",
                 )
             if crashed or not line:
-                exit_code = process.returncode
-                reason = self._breach_reason("no stdout WorkerResult document")
-                self._kill()
                 status = (
                     InvocationStatus.PROCESS_FAILED
-                    if exit_code not in (None, 0)
+                    if process.returncode not in (None, 0)
                     else InvocationStatus.PROTOCOL_ERROR
                 )
-                return WorkerInvocationOutcome(
-                    invocation_status=status,
-                    started_at=started,
-                    completed_at=_utc_now(),
-                    exit_code=exit_code,
-                    stderr_diagnostics=stderr_text,
-                    stderr_truncated=stderr_truncated,
-                    reason=reason,
+                return self._terminal_outcome(
+                    status,
+                    started,
+                    process,
+                    "no stdout WorkerResult document",
                 )
             if exceeded:
-                self._kill()
-                return WorkerInvocationOutcome(
-                    invocation_status=InvocationStatus.PROTOCOL_ERROR,
-                    started_at=started,
-                    completed_at=_utc_now(),
-                    exit_code=process.returncode,
-                    stderr_diagnostics=stderr_text,
-                    stderr_truncated=stderr_truncated,
-                    reason="stdout exceeded max_stdout_bytes; truncated output is not a WorkerResult",
+                return self._terminal_outcome(
+                    InvocationStatus.PROTOCOL_ERROR,
+                    started,
+                    process,
+                    "stdout exceeded max_stdout_bytes; truncated output is not a WorkerResult",
                 )
             try:
                 document = json.loads(_decode(line))
             except ValueError as exc:
-                self._kill()
-                return WorkerInvocationOutcome(
-                    invocation_status=InvocationStatus.PROTOCOL_ERROR,
-                    started_at=started,
-                    completed_at=_utc_now(),
-                    exit_code=process.returncode,
-                    stderr_diagnostics=stderr_text,
-                    stderr_truncated=stderr_truncated,
-                    reason=str(exc),
+                return self._terminal_outcome(
+                    InvocationStatus.PROTOCOL_ERROR,
+                    started,
+                    process,
+                    str(exc),
                 )
             if not isinstance(document, dict):
-                self._kill()
-                return WorkerInvocationOutcome(
-                    invocation_status=InvocationStatus.PROTOCOL_ERROR,
-                    started_at=started,
-                    completed_at=_utc_now(),
-                    exit_code=process.returncode,
-                    stderr_diagnostics=stderr_text,
-                    stderr_truncated=stderr_truncated,
-                    reason="stdout JSON must be an object",
+                return self._terminal_outcome(
+                    InvocationStatus.PROTOCOL_ERROR,
+                    started,
+                    process,
+                    "stdout JSON must be an object",
                 )
+            stderr_text, stderr_truncated = self._stderr_snapshot()
             try:
                 self._validator.validate_worker_result(document)
             except ContractValidationError as exc:
@@ -336,12 +308,14 @@ class PersistentBrowserWorkerAdapter:
         containment_error = controller.confirm_containment(spawned, worker_pid)
         if containment_error is not None:
             return containment_error
+        kind, value = controller.pid_ceiling()
         ack = {
             "message_type": CONTAINMENT_MESSAGE_TYPE,
             "protocol": BROWSER_WORKER_PROTOCOL,
             "mechanism": controller.mechanism,
             "max_memory_bytes": self._resource_limits.max_memory_bytes,
-            "max_processes": self._resource_limits.max_processes,
+            "pid_ceiling_kind": kind,
+            "pid_ceiling_value": value,
         }
         try:
             assert spawned.process.stdin is not None
@@ -408,6 +382,34 @@ class PersistentBrowserWorkerAdapter:
         failure = kill_error or cleanup_error
         if failure is not None and self.containment_failure_reason is None:
             self.containment_failure_reason = failure
+
+    def _terminal_outcome(
+        self,
+        status: InvocationStatus,
+        started: datetime,
+        process: subprocess.Popen[bytes],
+        reason_base: str,
+    ) -> WorkerInvocationOutcome:
+        """Classify a breach, kill the tree, then snapshot drained stderr."""
+
+        reason = self._breach_reason(reason_base)
+        self._kill()
+        stderr_text, stderr_truncated = self._stderr_snapshot()
+        return WorkerInvocationOutcome(
+            invocation_status=status,
+            started_at=started,
+            completed_at=_utc_now(),
+            exit_code=process.returncode,
+            stderr_diagnostics=stderr_text,
+            stderr_truncated=stderr_truncated,
+            reason=reason,
+        )
+
+    def _stderr_snapshot(self) -> tuple[str, bool]:
+        return (
+            _decode(self._stderr_box.get("data", b"") or b""),
+            bool(self._stderr_box.get("exceeded")),
+        )
 
     def _breach_reason(self, base: str) -> str:
         controller = self._controller

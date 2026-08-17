@@ -43,14 +43,15 @@ class BrowserEngineUnavailable(Exception):
 class BrowserRuntimeLimits:
     """Bounds for one browser action.
 
-    ``max_descendant_processes`` and ``max_memory_bytes`` are hard ceilings for
-    the whole browser process tree. ``max_memory_bytes`` is the maximum aggregate
-    memory available to this Worker and its Chromium descendants combined; it is
-    not a sampled RSS figure. The Worker does not enforce these itself; the
+    ``max_memory_bytes`` is the maximum aggregate memory available to this Worker
+    and its Chromium descendants combined; it is not a sampled RSS figure.
+    ``max_descendant_processes`` is the process ceiling. ``max_descendant_tasks``
+    is the task/thread ceiling. The Worker does not enforce these itself; the
     supervising parent does, in the kernel, and states the enforced values in the
-    containment acknowledgement before the engine may be created. Linux uses
-    cgroup v2 ``memory.max``/``pids.max`` across the contained tree; Windows uses
-    the Job Object ``JobMemoryLimit`` and ``ActiveProcessLimit``.
+    containment acknowledgement before the engine may be created. Linux cgroup v2
+    enforces the task ceiling with ``pids.max``. Windows Job Objects enforce the
+    process ceiling with ``ActiveProcessLimit``. Both are hard kernel boundaries.
+    Neither is an RSS or process-sampling approximation.
     """
 
     max_active_contexts: int = 2
@@ -62,6 +63,7 @@ class BrowserRuntimeLimits:
     max_navigation_runtime_ms: int = 5000
     max_stdout_bytes: int = 65536
     max_descendant_processes: int = 32
+    max_descendant_tasks: int = 256
     max_memory_bytes: int = 2_147_483_648
 
 

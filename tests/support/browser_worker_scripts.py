@@ -11,7 +11,7 @@ from __future__ import annotations
 HANDSHAKE_PREAMBLE = (
     "import json, os, subprocess, sys, time\n"
     "sys.stdout.write(json.dumps({'message_type': 'hello',"
-    " 'protocol': 'browser.worker.v1', 'pid': os.getpid()}) + '\\n')\n"
+    " 'protocol': 'browser.worker.v2', 'pid': os.getpid()}) + '\\n')\n"
     "sys.stdout.flush()\n"
     "ack = sys.stdin.readline()\n"
     "if not ack.strip():\n"

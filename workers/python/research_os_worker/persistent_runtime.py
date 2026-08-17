@@ -36,7 +36,8 @@ def _handshake(stdin: TextIO, stdout: TextIO) -> str | None:
     ack, error = accept_containment(
         message,
         max_memory_bytes=limits.max_memory_bytes,
-        max_processes=limits.max_descendant_processes,
+        max_descendant_processes=limits.max_descendant_processes,
+        max_descendant_tasks=limits.max_descendant_tasks,
     )
     if ack is None:
         return error

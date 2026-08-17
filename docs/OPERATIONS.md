@@ -444,10 +444,15 @@ Worker capability keeps working.
 `max_memory_bytes` has one meaning on every host: the maximum aggregate memory
 available to the contained Browser Worker plus its Chromium process tree.
 
-| Host | Mechanism | Aggregate memory ceiling | Process ceiling |
+| Host | Mechanism | Aggregate memory ceiling | PID ceiling |
 | --- | --- | --- | --- |
-| Linux | cgroup v2 owned child | `memory.max` over the whole contained tree | `pids.max` |
-| Windows | Job Object | `JOB_OBJECT_LIMIT_JOB_MEMORY` / `JobMemoryLimit` across all job members | `ActiveProcessLimit` |
+| Linux | cgroup v2 owned child | `memory.max` over the whole contained tree | `pids.max` = `max_tasks` (tasks/threads, default 256) |
+| Windows | Job Object | `JOB_OBJECT_LIMIT_JOB_MEMORY` / `JobMemoryLimit` across all job members | `ActiveProcessLimit` = `max_processes` (processes, default 32) |
+
+These ceilings are not interchangeable. Linux `pids.max` counts tasks, including
+threads. Windows `ActiveProcessLimit` counts processes. The containment
+acknowledgement states the enforced kind and value; the Worker rejects a
+mechanism/kind mismatch or a ceiling wider than its declared bound.
 
 Windows additionally applies `JOB_OBJECT_LIMIT_PROCESS_MEMORY` with the same
 value, which is stricter per process and never a substitute for the aggregate

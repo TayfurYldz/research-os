@@ -24,6 +24,8 @@ from research_os.platform.browser_resource_control import (
     CGROUP_ROOT_ENV,
     MECHANISM_LINUX_CGROUP_V2,
     MECHANISM_WINDOWS_JOB_OBJECT,
+    PID_CEILING_PROCESSES,
+    PID_CEILING_TASKS,
     BrowserResourceLimits,
     LinuxCgroupV2ResourceController,
     UnsupportedPlatformResourceController,
@@ -41,7 +43,7 @@ CHILD_CONTROL_FILES = (
     "memory.oom.group",
     "memory.swap.max",
 )
-LIMITS = BrowserResourceLimits(max_memory_bytes=134_217_728, max_processes=8)
+LIMITS = BrowserResourceLimits(max_memory_bytes=134_217_728, max_processes=8, max_tasks=8)
 CHILD_NAME = "research-os-browser-4242-abcd1234"
 
 
@@ -98,6 +100,7 @@ class CgroupReadinessTests(_CgroupTreeCase):
         self.assertTrue(state.ready, state.reason)
         self.assertEqual(state.mechanism, MECHANISM_LINUX_CGROUP_V2)
         self.assertIn("memory.max=134217728", state.detail or "")
+        self.assertIn("pids.max=8", state.detail or "")
 
     def test_not_ready_when_cgroup_v2_is_inactive(self) -> None:
         (self.root / "cgroup.controllers").unlink()
@@ -209,6 +212,28 @@ class CgroupPrepareTests(_CgroupTreeCase):
         self.assertIsNone(limits["active_process_limit"])
         self.assertIsNone(limits["job_memory_limit_bytes"])
         self.assertIsNone(limits["process_memory_limit_bytes"])
+
+    def test_default_pids_max_is_the_task_ceiling(self) -> None:
+        defaults = BrowserResourceLimits()
+        self.assertEqual(defaults.max_tasks, 256)
+        self.assertEqual(defaults.max_processes, 32)
+        controller = LinuxCgroupV2ResourceController(
+            defaults,
+            cgroup_root=self.root,
+            self_cgroup_reader=lambda: "/delegated.scope",
+            child_factory=_kernel_child,
+            platform_is_linux=True,
+            child_name=CHILD_NAME,
+            root_override="",
+            empty_wait_seconds=0.05,
+            tree_reader=lambda root: {root, 9191},
+            child_remover=_kernel_remove,
+        )
+        self.assertEqual(controller.pid_ceiling(), (PID_CEILING_TASKS, 256))
+        self.assertIsNone(controller.prepare())
+        child = controller.owned_cgroup
+        assert child is not None
+        self.assertEqual((child / "pids.max").read_text(encoding="utf-8"), "256")
 
 
 class CgroupAttachmentTests(_CgroupTreeCase):
@@ -322,6 +347,15 @@ class WindowsJobObjectControllerTests(unittest.TestCase):
         self.assertEqual(limits["job_memory_limit_bytes"], LIMITS.max_memory_bytes)
         self.assertEqual(limits["process_memory_limit_bytes"], LIMITS.max_memory_bytes)
         self.assertEqual(controller.mechanism, MECHANISM_WINDOWS_JOB_OBJECT)
+        self.assertEqual(controller.pid_ceiling(), (PID_CEILING_PROCESSES, LIMITS.max_processes))
+
+    def test_default_active_process_limit_remains_32(self) -> None:
+        defaults = BrowserResourceLimits()
+        controller = WindowsJobObjectResourceController(defaults)
+        self.assertEqual(defaults.max_processes, 32)
+        self.assertEqual(defaults.max_tasks, 256)
+        self.assertEqual(controller.spawn_limits()["active_process_limit"], 32)
+        self.assertEqual(controller.pid_ceiling(), (PID_CEILING_PROCESSES, 32))
 
     def test_readiness_reports_the_aggregate_ceiling(self) -> None:
         state = WindowsJobObjectResourceController(LIMITS).readiness()
@@ -475,6 +509,7 @@ class ControllerSelectionTests(unittest.TestCase):
         worker = BrowserRuntimeLimits()
         self.assertEqual(defaults.max_memory_bytes, worker.max_memory_bytes)
         self.assertEqual(defaults.max_processes, worker.max_descendant_processes)
+        self.assertEqual(defaults.max_tasks, worker.max_descendant_tasks)
 
 
 class _FakeProcess:

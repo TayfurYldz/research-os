@@ -23,6 +23,7 @@ import os
 import sys
 import time
 import unittest
+from datetime import datetime, timezone
 from pathlib import Path
 
 _REPO = Path(__file__).resolve().parents[2]
@@ -44,7 +45,7 @@ from research_os.platform.persistent_browser_worker import (
     RESOURCE_BREACH_REASON,
     PersistentBrowserWorkerAdapter,
 )
-from research_os.platform.worker import InvocationStatus
+from research_os.platform.worker import InvocationStatus, WorkerInvocationOutcome
 from support.browser_worker_scripts import (
     descendant_script,
     memory_breach_script,
@@ -53,12 +54,29 @@ from support.browser_worker_scripts import (
 from support.worker_requests import valid_worker_request
 
 REQUIRE_ENV = "RESEARCH_OS_REQUIRE_CGROUP_TESTS"
-BREACH_LIMITS = BrowserResourceLimits(max_memory_bytes=134_217_728, max_processes=8)
+BREACH_LIMITS = BrowserResourceLimits(
+    max_memory_bytes=134_217_728,
+    max_processes=32,
+    max_tasks=8,
+)
 BREACH_STATUSES = (
     InvocationStatus.TIMED_OUT,
     InvocationStatus.PROCESS_FAILED,
     InvocationStatus.PROTOCOL_ERROR,
 )
+
+
+def require_succeeded_browser_result(outcome: WorkerInvocationOutcome) -> dict[str, object]:
+    """COMPLETED is not success. Only a SUCCEEDED WorkerResult may prove Chromium ran."""
+
+    if outcome.invocation_status != InvocationStatus.COMPLETED:
+        raise AssertionError(f"invocation did not complete: {outcome.reason}")
+    result = outcome.worker_result
+    if result is None:
+        raise AssertionError(f"no WorkerResult: {outcome.reason}")
+    if result.get("status") != "SUCCEEDED":
+        raise AssertionError(f"browser execution failed: {result.get('diagnostics')!r}")
+    return dict(result)
 
 
 def _pid_alive(pid: int) -> bool:
@@ -249,7 +267,7 @@ class Gate21ChromiumCgroupMembershipTests(unittest.TestCase):
 
     def test_chromium_processes_join_the_owned_cgroup(self) -> None:
         outcome = self.adapter.invoke(self._navigate_request())
-        self.assertEqual(outcome.invocation_status, InvocationStatus.COMPLETED, outcome.reason)
+        require_succeeded_browser_result(outcome)
         controller = self.adapter.resource_controller
         assert isinstance(controller, LinuxCgroupV2ResourceController)
         cgroup = controller.owned_cgroup
@@ -265,6 +283,33 @@ class Gate21ChromiumCgroupMembershipTests(unittest.TestCase):
             any("chrom" in name.lower() for name in names),
             msg=f"no Chromium process is a member of the owned cgroup: {names}",
         )
+
+
+class Gate21ChromiumResultPreconditionTests(unittest.TestCase):
+    """These assertions must run on every host; they do not prove kernel enforcement."""
+
+    def test_execution_failed_is_not_treated_as_chromium_success(self) -> None:
+        now = datetime.now(timezone.utc)
+        outcome = WorkerInvocationOutcome(
+            invocation_status=InvocationStatus.COMPLETED,
+            started_at=now,
+            completed_at=now,
+            worker_result={
+                "status": "EXECUTION_FAILED",
+                "diagnostics": {
+                    "error": "browser engine is unavailable",
+                    "reason_code": "IMPLEMENTATION_NOT_AVAILABLE",
+                },
+            },
+        )
+        with self.assertRaises(AssertionError) as ctx:
+            require_succeeded_browser_result(outcome)
+        self.assertIn("IMPLEMENTATION_NOT_AVAILABLE", str(ctx.exception))
+
+    def test_breach_fixture_uses_a_small_task_ceiling(self) -> None:
+        self.assertEqual(BREACH_LIMITS.max_tasks, 8)
+        self.assertEqual(BREACH_LIMITS.max_processes, 32)
+        self.assertLess(BREACH_LIMITS.max_tasks, BrowserResourceLimits().max_tasks)
 
 
 if __name__ == "__main__":

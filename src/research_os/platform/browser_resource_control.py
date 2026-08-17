@@ -1,9 +1,10 @@
 """Kernel-enforced resource containment for the persistent browser Worker.
 
-The browser process tree must run under a hard, kernel-enforced memory and
-process ceiling. Linux uses cgroup v2 (``memory.max`` / ``pids.max``). Windows
-uses the existing validated Job Object. Sampling RSS is not enforcement and is
-never used here.
+The browser process tree must run under a hard, kernel-enforced memory ceiling
+and a host-specific PID ceiling. Linux uses cgroup v2 ``memory.max`` and
+``pids.max`` (a task/thread ceiling). Windows uses the existing validated Job
+Object ``JobMemoryLimit`` and ``ActiveProcessLimit`` (a process ceiling).
+Sampling RSS is not enforcement and is never used here.
 
 If enforcement cannot be established the browser runtime is NOT READY and no
 Chromium is started. There is no unlimited fallback. Other Worker capabilities
@@ -46,6 +47,10 @@ BREACH_PIDS_MAX = "PIDS_MAX"
 
 DEFAULT_MAX_MEMORY_BYTES = 2_147_483_648
 DEFAULT_MAX_PROCESSES = 32
+DEFAULT_MAX_TASKS = 256
+
+PID_CEILING_TASKS = "tasks"
+PID_CEILING_PROCESSES = "processes"
 
 
 @dataclass(frozen=True)
@@ -59,10 +64,17 @@ class BrowserResourceLimits:
     Object ``JobMemoryLimit``, which bounds committed memory across all job
     members. Windows additionally applies the same value as a per-process limit,
     which is stricter and never a substitute for the aggregate bound.
+
+    ``max_processes`` and ``max_tasks`` are not interchangeable. Linux cgroup v2
+    ``pids.max`` counts tasks, including threads, so the kernel ceiling is
+    ``max_tasks``. Windows Job Object ``ActiveProcessLimit`` counts processes,
+    so the kernel ceiling is ``max_processes``. The unused field on a host is
+    not an enforcement claim.
     """
 
     max_memory_bytes: int = DEFAULT_MAX_MEMORY_BYTES
     max_processes: int = DEFAULT_MAX_PROCESSES
+    max_tasks: int = DEFAULT_MAX_TASKS
 
 
 @dataclass(frozen=True)
@@ -83,6 +95,8 @@ class BrowserResourceController(Protocol):
     def prepare(self) -> str | None: ...
 
     def spawn_limits(self) -> dict[str, int | None]: ...
+
+    def pid_ceiling(self) -> tuple[str, int]: ...
 
     def confirm_containment(
         self, supervised: SupervisedProcess, worker_pid: int
@@ -262,7 +276,7 @@ class LinuxCgroupV2ResourceController:
         return BrowserResourceReadiness(
             ready=True,
             mechanism=self.mechanism,
-            detail=f"base={base} memory.max={self._limits.max_memory_bytes} pids.max={self._limits.max_processes}",
+            detail=f"base={base} memory.max={self._limits.max_memory_bytes} pids.max={self._limits.max_tasks}",
         )
 
     def prepare(self) -> str | None:
@@ -294,7 +308,7 @@ class LinuxCgroupV2ResourceController:
         if error is not None:
             self.cleanup()
             return error
-        error = _write_text(pids_max, str(self._limits.max_processes))
+        error = _write_text(pids_max, str(self._limits.max_tasks))
         if error is not None:
             self.cleanup()
             return error
@@ -315,7 +329,7 @@ class LinuxCgroupV2ResourceController:
         pids = (_read_text(pids_max) or "").strip()
         if memory != str(self._limits.max_memory_bytes):
             return f"memory.max was not applied (read {memory!r})"
-        if pids != str(self._limits.max_processes):
+        if pids != str(self._limits.max_tasks):
             return f"pids.max was not applied (read {pids!r})"
         return None
 
@@ -325,6 +339,9 @@ class LinuxCgroupV2ResourceController:
             "job_memory_limit_bytes": None,
             "process_memory_limit_bytes": None,
         }
+
+    def pid_ceiling(self) -> tuple[str, int]:
+        return PID_CEILING_TASKS, self._limits.max_tasks
 
     def confirm_containment(
         self, supervised: SupervisedProcess, worker_pid: int
@@ -456,6 +473,9 @@ class WindowsJobObjectResourceController:
             "process_memory_limit_bytes": self._limits.max_memory_bytes,
         }
 
+    def pid_ceiling(self) -> tuple[str, int]:
+        return PID_CEILING_PROCESSES, self._limits.max_processes
+
     def confirm_containment(
         self, supervised: SupervisedProcess, worker_pid: int
     ) -> str | None:
@@ -529,6 +549,9 @@ class UnsupportedPlatformResourceController:
             "job_memory_limit_bytes": None,
             "process_memory_limit_bytes": None,
         }
+
+    def pid_ceiling(self) -> tuple[str, int]:
+        return PID_CEILING_PROCESSES, self._limits.max_processes
 
     def confirm_containment(
         self, supervised: SupervisedProcess, worker_pid: int
