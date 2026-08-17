@@ -218,6 +218,26 @@ python -m unittest tests.e2e.test_gate16_state_transition_security
 
 If `RESEARCH_OS_TEST_DATABASE_URL` is unset, the suite must SKIP, never fabricate PASS.
 
+## GATE 17 — autonomous multi-hypothesis research selection
+
+**GATE 17 status: PENDING.**
+
+GATE 14 = single controlled BOLA security E2E.
+GATE 15 = BOLA ground-truth / false-positive benchmark.
+GATE 16 = workflow/state-transition security semantics + cross-class discrimination.
+GATE 17 = autonomous multi-hypothesis research selection + adaptive closed-loop experiment choice.
+GATE 04B = live model comparison.
+
+These gates do not imply one another. GATE 17 implementation must not set PASS, `SECURITY_RESEARCH_VALIDATED`, or `PRODUCTION_READY`.
+
+No new security capability. No internet. No Codex / LLM / Strix. No migration.
+
+```
+python -m unittest tests.e2e.test_gate17_autonomous_research_selection
+```
+
+If `RESEARCH_OS_TEST_DATABASE_URL` is unset, the suite must SKIP, never fabricate PASS.
+
 ## Maturity
 
 - ARCHITECTURE_VALIDATED: architecture package complete
@@ -228,3 +248,4 @@ If `RESEARCH_OS_TEST_DATABASE_URL` is unset, the suite must SKIP, never fabricat
 - GATE 14: PASS (2026-08-17, Kali, dedicated PostgreSQL, 19 E2E OK / 0 skipped)
 - GATE 15: PASS (2026-08-17, Kali, dedicated PostgreSQL, GATE14 regression 19 OK / 0 skipped, GATE15 21 OK / 0 skipped)
 - GATE 16: PASS (2026-08-17, Kali, dedicated PostgreSQL, GATE14 19 OK / 0 skipped, GATE15 21 OK / 0 skipped, GATE16 34 OK / 0 skipped)
+- GATE 17: PENDING (implementation of controlled local multi-hypothesis closed-loop research selection; not an authoritative PASS)

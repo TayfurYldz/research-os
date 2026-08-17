@@ -300,6 +300,30 @@ class ArchitectureBoundaryTests(unittest.TestCase):
             packaged.read_text(encoding="utf-8"),
         )
 
+    def test_production_research_does_not_branch_on_benchmark_ids(self) -> None:
+        forbidden_ids = (
+            "R01_BOLA_TRUE_WORKFLOW_DECOY",
+            "R02_WORKFLOW_TRUE_BOLA_DECOY",
+            "R03_BOTH_TRUE",
+            "R04_BOTH_BENIGN",
+            "R11A_COUNTERFACTUAL_BOLA_PRIVATE",
+            "R12A_COUNTERFACTUAL_WORKFLOW_APPROVED",
+        )
+        found = []
+        for directory in (RESEARCH_DIR, APPLICATION_DIR, CORE_DIR):
+            for path in directory.rglob("*.py"):
+                text = path.read_text(encoding="utf-8")
+                for token in forbidden_ids:
+                    if token in text:
+                        found.append(f"{path.relative_to(REPO_ROOT)} contains {token}")
+        self.assertEqual(found, [])
+        research_text = "\n".join(
+            path.read_text(encoding="utf-8") for path in RESEARCH_DIR.rglob("*.py")
+        )
+        self.assertNotIn("if scenario_id", research_text)
+        self.assertNotIn("priority_score =", research_text)
+        self.assertNotIn("weighted_score =", research_text)
+
 
 if __name__ == "__main__":
     unittest.main()

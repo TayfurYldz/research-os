@@ -35,6 +35,22 @@ MANDATORY_WORKFLOW_SCENARIO_IDS = (
     "W11_OUT_OF_SCOPE",
     "W12_REDIRECT_BOUNDARY",
 )
+MANDATORY_RESEARCH_SELECTION_SCENARIO_IDS = (
+    "R01_BOLA_TRUE_WORKFLOW_DECOY",
+    "R02_WORKFLOW_TRUE_BOLA_DECOY",
+    "R03_BOTH_TRUE",
+    "R04_BOTH_BENIGN",
+    "R05_AMBIGUOUS_NEEDS_CONTEXT",
+    "R06_CONTRADICTION_CHANGES_DIRECTION",
+    "R07_BUDGET_CONSTRAINED_SELECTION",
+    "R08_REDUNDANT_EXPERIMENT_AVOIDANCE",
+    "R09_CONTEXT_BOUND_NEGATIVE_KNOWLEDGE",
+    "R10_CORE_DENIAL_ALTERNATIVE_PATH",
+    "R11A_COUNTERFACTUAL_BOLA_PRIVATE",
+    "R11B_COUNTERFACTUAL_BOLA_PUBLIC",
+    "R12A_COUNTERFACTUAL_WORKFLOW_APPROVED",
+    "R12B_COUNTERFACTUAL_WORKFLOW_UNCHANGED",
+)
 
 
 @dataclass(frozen=True)
@@ -56,6 +72,15 @@ class ScenarioHarness:
     transition: str | None = None
     verification_resource_id: str | None = None
     area: str = "workflow"
+    object_fixture: str | None = None
+    workflow_fixture: str | None = None
+    second_actor: str | None = None
+    second_own_object: str | None = None
+    second_cross_object: str | None = None
+    max_cycles: int | None = None
+    max_experiments: int | None = None
+    pause_after_cycles: int | None = None
+    candidate_origin: str | None = None
 
 
 @dataclass(frozen=True)
@@ -67,6 +92,11 @@ class HiddenEvaluation:
     required_controls: tuple[str, ...]
     forbidden_promotions: tuple[str, ...]
     expected_classification: str | None = None
+    expected_surviving_hypothesis_classes: tuple[str, ...] = ()
+    required_falsified_classes: tuple[str, ...] = ()
+    expected_terminal_research_state: str | None = None
+    required_branch_difference: bool = False
+    pair_group: str | None = None
 
 
 @dataclass(frozen=True)
@@ -112,6 +142,15 @@ def load_scenario(path: Path) -> SecurityGroundTruthScenario:
                 harness_raw.get("verification_resource_id")
             ),
             area=_text(harness_raw.get("area") or "workflow", "harness.area"),
+            object_fixture=_optional_text(harness_raw.get("object_fixture")),
+            workflow_fixture=_optional_text(harness_raw.get("workflow_fixture")),
+            second_actor=_optional_text(harness_raw.get("second_actor")),
+            second_own_object=_optional_text(harness_raw.get("second_own_object")),
+            second_cross_object=_optional_text(harness_raw.get("second_cross_object")),
+            max_cycles=_optional_int(harness_raw.get("max_cycles")),
+            max_experiments=_optional_int(harness_raw.get("max_experiments")),
+            pause_after_cycles=_optional_int(harness_raw.get("pause_after_cycles")),
+            candidate_origin=_optional_text(harness_raw.get("candidate_origin")),
         ),
         hidden_evaluation=HiddenEvaluation(
             expected_class=ExpectedSecurityClass(
@@ -136,6 +175,21 @@ def load_scenario(path: Path) -> SecurityGroundTruthScenario:
             expected_classification=_optional_text(
                 hidden_raw.get("expected_classification")
             ),
+            expected_surviving_hypothesis_classes=_texts(
+                hidden_raw.get("expected_surviving_hypothesis_classes", []),
+                "expected_surviving_hypothesis_classes",
+            ),
+            required_falsified_classes=_texts(
+                hidden_raw.get("required_falsified_classes", []),
+                "required_falsified_classes",
+            ),
+            expected_terminal_research_state=_optional_text(
+                hidden_raw.get("expected_terminal_research_state")
+            ),
+            required_branch_difference=bool(
+                hidden_raw.get("required_branch_difference", False)
+            ),
+            pair_group=_optional_text(hidden_raw.get("pair_group")),
         ),
     )
 
@@ -163,10 +217,33 @@ def load_workflow_scenarios(directory: Path) -> tuple[SecurityGroundTruthScenari
     return scenarios
 
 
+def load_research_selection_scenarios(
+    directory: Path,
+) -> tuple[SecurityGroundTruthScenario, ...]:
+    paths = sorted(directory.glob("*.json"))
+    scenarios = tuple(load_scenario(path) for path in paths)
+    ids = tuple(item.scenario_id for item in scenarios)
+    missing = [item for item in MANDATORY_RESEARCH_SELECTION_SCENARIO_IDS if item not in ids]
+    if missing:
+        raise ValueError(f"missing mandatory research-selection scenarios: {missing}")
+    extra = [item for item in ids if item not in MANDATORY_RESEARCH_SELECTION_SCENARIO_IDS]
+    if extra:
+        raise ValueError(f"unexpected research-selection scenarios: {extra}")
+    return scenarios
+
+
 def _text(value: object, field_name: str) -> str:
     if not isinstance(value, str) or not value.strip():
         raise ValueError(f"{field_name} must be a non-empty string")
     return value.strip()
+
+
+def _optional_int(value: object) -> int | None:
+    if value is None:
+        return None
+    if not isinstance(value, int) or isinstance(value, bool) or value < 0:
+        raise ValueError("optional int fields must be >= 0 when present")
+    return value
 
 
 def _optional_text(value: object) -> str | None:

@@ -16,6 +16,10 @@ passed on Kali against dedicated PostgreSQL. It does not mean live models,
 autonomous discovery quality, bug-bounty performance, production readiness,
 or broad security-research validation.
 
+GATE 17 remains PENDING until a later authoritative run. Implementation tests
+must not set GATE_17_STATUS to PASS. GATE 17 does not prove general autonomous
+vulnerability discovery, live model quality, or production readiness.
+
 PRODUCTION_READY must stay false until operational and live-research gates
 that this environment has not passed actually pass.
 """
@@ -33,6 +37,7 @@ GATE_13_STATUS = "PASS"
 GATE_14_STATUS = "PASS"
 GATE_15_STATUS = "PASS"
 GATE_16_STATUS = "PASS"
+GATE_17_STATUS = "PENDING"
 GATE_04B_STATUS = "PENDING"
 SUBSCRIPTION_OAUTH_STATUS = "NOT_IMPLEMENTED"
 
@@ -50,6 +55,7 @@ def maturity_mapping() -> dict[str, object]:
         "GATE_14": GATE_14_STATUS,
         "GATE_15": GATE_15_STATUS,
         "GATE_16": GATE_16_STATUS,
+        "GATE_17": GATE_17_STATUS,
         "SUBSCRIPTION_OAUTH": SUBSCRIPTION_OAUTH_STATUS,
         "contains_secrets": False,
     }
