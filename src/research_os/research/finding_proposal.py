@@ -13,6 +13,8 @@ from research_os.research.candidate import (
     DIAGNOSTIC_CANDIDATE_CLASSIFICATION,
     HTTP_AUTHORIZATION_DIFFERENTIAL_CANDIDATE_CLAIM,
     HTTP_AUTHORIZATION_DIFFERENTIAL_CLASSIFICATION,
+    HTTP_STATE_TRANSITION_CANDIDATE_CLAIM,
+    HTTP_STATE_TRANSITION_CLASSIFICATION,
     CandidateState,
 )
 from research_os.research.types import ResearchInputError
@@ -26,6 +28,10 @@ HTTP_AUTHORIZATION_DIFFERENTIAL_FINDING_TITLE = (
 HTTP_AUTHORIZATION_DIFFERENTIAL_FINDING_CLASSIFICATION = (
     HTTP_AUTHORIZATION_DIFFERENTIAL_CLASSIFICATION
 )
+HTTP_STATE_TRANSITION_FINDING_TITLE = (
+    "Local lab unauthorized workflow state transition"
+)
+HTTP_STATE_TRANSITION_FINDING_CLASSIFICATION = HTTP_STATE_TRANSITION_CLASSIFICATION
 HUMAN_OPERATOR_ACTOR = "HUMAN_OPERATOR"
 
 FORBIDDEN_FINDING_KEYS = frozenset(
@@ -397,6 +403,33 @@ def propose_authorization_differential_finding_proposal(
     )
 
 
+def propose_state_transition_finding_proposal(
+    context: FindingProposalAdmissionContext,
+    *,
+    proposal_id: str,
+) -> FindingProposalDraft | None:
+    if context.candidate_state is not CandidateState.VALIDATED:
+        return None
+    if context.classification != HTTP_STATE_TRANSITION_FINDING_CLASSIFICATION:
+        return None
+    if not context.evidence_ids or not context.verification_ids:
+        return None
+    return FindingProposalDraft(
+        proposal_id=proposal_id,
+        candidate_id=context.candidate_id,
+        research_run_id=context.research_run_id,
+        title=HTTP_STATE_TRANSITION_FINDING_TITLE,
+        claim=HTTP_STATE_TRANSITION_CANDIDATE_CLAIM,
+        evidence_ids=context.evidence_ids,
+        verification_ids=context.verification_ids,
+        rationale={
+            "reason_code": "AUTHORIZED_LOCAL_LAB_PROPOSAL",
+            "not_a_finding": True,
+        },
+        provenance={"source": "http.state_transition.finding_proposal"},
+    )
+
+
 def admit_finding_proposal(
     draft: FindingProposalDraft,
     context: FindingProposalAdmissionContext,
@@ -449,6 +482,13 @@ def admit_finding_proposal(
         admitted_reason = "HTTP_AUTHORIZATION_DIFFERENTIAL_FINDING_PROPOSAL_FROM_VALIDATED_CANDIDATE"
         title_code = "TITLE_NOT_HTTP_AUTHORIZATION_DIFFERENTIAL"
         claim_code = "CLAIM_NOT_HTTP_AUTHORIZATION_DIFFERENTIAL"
+    elif context.classification == HTTP_STATE_TRANSITION_FINDING_CLASSIFICATION:
+        expected_title = HTTP_STATE_TRANSITION_FINDING_TITLE
+        expected_claim = HTTP_STATE_TRANSITION_CANDIDATE_CLAIM
+        expected_classification = HTTP_STATE_TRANSITION_FINDING_CLASSIFICATION
+        admitted_reason = "HTTP_STATE_TRANSITION_AUTHORIZATION_FINDING_PROPOSAL_FROM_VALIDATED_CANDIDATE"
+        title_code = "TITLE_NOT_HTTP_STATE_TRANSITION_AUTHORIZATION"
+        claim_code = "CLAIM_NOT_HTTP_STATE_TRANSITION_AUTHORIZATION"
     if draft.title != expected_title:
         return FindingProposalAdmissionDecision(
             outcome=FindingProposalAdmissionOutcome.REJECTED_POLICY_CONFLICT,
@@ -602,6 +642,9 @@ def evaluate_finding_creation(context: FindingCreationContext) -> FindingCreatio
     if (
         context.title == HTTP_AUTHORIZATION_DIFFERENTIAL_FINDING_TITLE
         and context.claim == HTTP_AUTHORIZATION_DIFFERENTIAL_CANDIDATE_CLAIM
+    ) or (
+        context.title == HTTP_STATE_TRANSITION_FINDING_TITLE
+        and context.claim == HTTP_STATE_TRANSITION_CANDIDATE_CLAIM
     ):
         created_codes = ("AUTHORIZED_LOCAL_LAB_FINDING",)
     else:

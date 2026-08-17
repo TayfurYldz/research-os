@@ -12,6 +12,7 @@ from research_os.research.evidence import (
     DIAGNOSTIC_ECHO_MATCHED_CLAIM,
     DIAGNOSTIC_ECHO_MISMATCHED_CLAIM,
     HTTP_AUTHORIZATION_DIFFERENTIAL_CLAIM,
+    HTTP_STATE_TRANSITION_CLAIM,
     EvidencePolarity,
 )
 from research_os.research.types import ResearchInputError
@@ -20,11 +21,13 @@ DIAGNOSTIC_VERIFICATION_STRATEGY = "diagnostic.echo.reproduction.v1"
 HTTP_AUTHORIZATION_DIFFERENTIAL_VERIFICATION_STRATEGY = (
     "http.authorization.differential.reproduction.v1"
 )
+HTTP_STATE_TRANSITION_VERIFICATION_STRATEGY = "http.state_transition.reproduction.v1"
 DIAGNOSTIC_VERIFIER_KIND = "DETERMINISTIC"
 DIAGNOSTIC_VERIFIER_IDENTITY = "diagnostic.echo.verifier.v1"
 HTTP_AUTHORIZATION_DIFFERENTIAL_VERIFIER_IDENTITY = (
     "http.authorization.differential.verifier.v1"
 )
+HTTP_STATE_TRANSITION_VERIFIER_IDENTITY = "http.state_transition.verifier.v1"
 DIAGNOSTIC_NEGATIVE_CONTROL_TOKEN = "__diagnostic_control_fail__"
 
 FORBIDDEN_VERIFICATION_KEYS = frozenset(
@@ -353,6 +356,35 @@ def plan_authorization_differential_verification(
     )
 
 
+def plan_state_transition_verification(
+    candidate_id: str,
+    original_evidence_ids: tuple[str, ...],
+) -> VerificationPlan:
+    return VerificationPlan(
+        candidate_id=candidate_id,
+        verification_strategy=HTTP_STATE_TRANSITION_VERIFICATION_STRATEGY,
+        expected_security_behavior=(
+            "workflow authorization prevents a requester from approving or skipping "
+            "required states"
+        ),
+        observed_behavior_to_confirm=(
+            "fresh independent experiment reproduces an unauthorized workflow state "
+            "transition with authoritative pre-state and post-state"
+        ),
+        negative_control_intent=(
+            "control-path transition remains denied or conflicted"
+        ),
+        alternative_explanations_to_test=(
+            "original observation reused as sole proof",
+            "HTTP 200 without authoritative state change",
+            "explicit delegated reviewer authority",
+            "idempotent repeat of an already completed transition",
+        ),
+        required_original_evidence_ids=original_evidence_ids,
+        maximum_side_effect_level=1,
+    )
+
+
 def _independent(original: VerificationEvidenceRef, reproduction: VerificationEvidenceRef) -> bool:
     if original.evidence_id == reproduction.evidence_id:
         return False
@@ -593,6 +625,79 @@ def evaluate_authorization_differential_verification(
     )
 
 
+def evaluate_state_transition_verification(
+    context: VerificationContext,
+) -> VerificationResult:
+    """Independent reproduction verifier. Original Evidence cannot self-validate."""
+
+    identity = HTTP_STATE_TRANSITION_VERIFIER_IDENTITY
+    if context.plan.candidate_id != context.candidate_id:
+        raise ResearchInputError("VerificationPlan candidate_id mismatch")
+    if context.plan.verification_strategy != HTTP_STATE_TRANSITION_VERIFICATION_STRATEGY:
+        raise ResearchInputError("unsupported verification strategy")
+    if context.original_evidence.research_run_id != context.research_run_id:
+        raise ResearchInputError("original evidence is not in the Candidate research run")
+    if context.authoritative_out_of_scope:
+        return _result(
+            VerificationOutcome.OUT_OF_SCOPE,
+            context,
+            ("AUTHORITATIVE_OUT_OF_SCOPE",),
+            verifier_identity=identity,
+        )
+    if context.reproduction_execution_unusable:
+        return _result(
+            VerificationOutcome.INCONCLUSIVE,
+            context,
+            ("REPRODUCTION_UNUSABLE", "FAILURE_TO_VERIFY_IS_NOT_REJECTION"),
+            verifier_identity=identity,
+        )
+    if not _reproduction_independent_of_original(context):
+        return _result(
+            VerificationOutcome.INCONCLUSIVE,
+            context,
+            ("REPRODUCTION_NOT_INDEPENDENT", "CANNOT_SELF_VALIDATE"),
+            reproduction_ids=_reproduction_ids(context),
+            verifier_identity=identity,
+        )
+    reproduction = context.reproduction_evidence
+    if (
+        reproduction is not None
+        and reproduction.polarity == EvidencePolarity.SUPPORTING.value
+        and reproduction.claim_scope == HTTP_STATE_TRANSITION_CLAIM
+        and _workflow_controls_held(reproduction.observed_facts)
+    ):
+        return _result(
+            VerificationOutcome.VALIDATED,
+            context,
+            (
+                "REPRODUCTION_INDEPENDENT",
+                "NEGATIVE_CONTROL_HELD",
+                "HTTP_STATE_TRANSITION_AUTHORIZATION_REPRODUCED",
+            ),
+            reproduction_ids=(reproduction.evidence_id,),
+            checks={
+                "negative_control_held": True,
+                "not_a_finding": True,
+            },
+            verifier_identity=identity,
+        )
+    if context.reproduction_assessment_outcome is AssessmentOutcome.CONTRADICTS_PREDICTION:
+        return _result(
+            VerificationOutcome.REJECTED,
+            context,
+            ("REPRODUCTION_CONTRADICTS_CLAIM", "WORKFLOW_CONTROL_HELD"),
+            reproduction_ids=_reproduction_ids(context),
+            verifier_identity=identity,
+        )
+    return _result(
+        VerificationOutcome.INCONCLUSIVE,
+        context,
+        ("REPRODUCTION_DOES_NOT_SUPPORT_CLAIM",),
+        reproduction_ids=_reproduction_ids(context),
+        verifier_identity=identity,
+    )
+
+
 def _reproduction_ids(context: VerificationContext) -> tuple[str, ...]:
     if context.reproduction_evidence is None:
         return ()
@@ -648,6 +753,29 @@ def _controls_held(facts: Mapping[str, Any] | None) -> bool:
         and isinstance(actor, str)
         and bool(actor.strip())
         and cross_owner != actor
+    )
+
+
+def _workflow_controls_held(facts: Mapping[str, Any] | None) -> bool:
+    if not isinstance(facts, Mapping):
+        return False
+    control = facts.get("control_status")
+    post_state = facts.get("post_state")
+    pre_state = facts.get("pre_state")
+    actor = facts.get("actor")
+    actor_role = facts.get("actor_role")
+    approved_by = facts.get("approved_by")
+    readers = facts.get("delegated_reviewers")
+    if isinstance(readers, list) and isinstance(actor, str) and actor in readers:
+        return False
+    return (
+        control in {401, 403, 409}
+        and post_state == "APPROVED"
+        and pre_state != post_state
+        and actor_role == "requester"
+        and isinstance(actor, str)
+        and bool(actor.strip())
+        and approved_by == actor
     )
 
 

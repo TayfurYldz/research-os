@@ -10,6 +10,7 @@ from research_os.application.transition_a.authorization_differential import (
 from research_os.application.transition_a.diagnostic_echo import DiagnosticEchoNormalizer
 from research_os.application.transition_a.drafts import ObservationDraft
 from research_os.application.transition_a.errors import UnsupportedNormalizerError
+from research_os.application.transition_a.state_transition import HttpStateTransitionNormalizer
 
 
 class ObservationNormalizer(Protocol):
@@ -29,7 +30,7 @@ class NormalizerRegistry:
         registered = (
             normalizers
             if normalizers is not None
-            else (DiagnosticEchoNormalizer(), HttpAuthorizationDifferentialNormalizer())
+            else (DiagnosticEchoNormalizer(), HttpAuthorizationDifferentialNormalizer(), HttpStateTransitionNormalizer())
         )
         self._normalizers: dict[tuple[str, str], ObservationNormalizer] = {}
         for normalizer in registered:

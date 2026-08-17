@@ -5,10 +5,15 @@ from __future__ import annotations
 import json
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any, Mapping, Protocol
 
-from research_os.security_benchmark.scorecard import SecurityScorecard
 from research_os.security_benchmark.types import BENCHMARK_VERSION
+
+
+class _ScorecardMapping(Protocol):
+    benchmark_version: str
+
+    def to_mapping(self) -> dict[str, Any]: ...
 
 
 class SecurityBenchmarkReportError(ValueError):
@@ -17,17 +22,18 @@ class SecurityBenchmarkReportError(ValueError):
 
 def write_immutable_report(
     directory: Path,
-    scorecard: SecurityScorecard,
+    scorecard: _ScorecardMapping,
     *,
     postgresql_backed: bool,
     source_commit: str = "unknown",
     created_at: datetime | None = None,
     extra: Mapping[str, Any] | None = None,
+    report_prefix: str = "gate15",
 ) -> Path:
     directory.mkdir(parents=True, exist_ok=True)
     stamp_source = created_at or datetime.now(timezone.utc)
     stamp = stamp_source.strftime("%Y%m%dT%H%M%S%fZ")
-    path = directory / f"{stamp}_gate15_{scorecard.benchmark_version.replace('.', '_')}.json"
+    path = directory / f"{stamp}_{report_prefix}_{scorecard.benchmark_version.replace('.', '_')}.json"
     if path.exists():
         raise SecurityBenchmarkReportError(f"refusing to overwrite security benchmark report: {path}")
     payload = {

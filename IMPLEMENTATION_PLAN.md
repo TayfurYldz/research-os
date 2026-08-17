@@ -690,6 +690,24 @@ Hidden evaluation (`expected_class`, canaries, expected promotion) must never en
 
 **Verify:** `python -m unittest tests.e2e.test_gate15_security_ground_truth` on Kali with `RESEARCH_OS_TEST_DATABASE_URL` set. Do not set `SECURITY_RESEARCH_VALIDATED` or `PRODUCTION_READY` because this gate passed.
 
+## GATE 16 — Workflow / State-Transition Authorization
+
+GATE 14 proved one controlled BOLA/IDOR E2E. GATE 15 proved multi-scenario false-positive discipline for HTTP authorization differential. GATE 16 adds a **second distinct vulnerability class**: workflow / state-transition authorization, plus cross-class discrimination against BOLA.
+
+Classification: `HTTP_STATE_TRANSITION_AUTHORIZATION`. Capability: `http.state_transition`. This class must not be stored as `HTTP_AUTHORIZATION_DIFFERENTIAL`.
+
+Alembic revision `a19_001_http_state_class` extends Candidate/Finding CHECK constraints only. It does not rewrite a3–a18.
+
+**GATE 16 status: PENDING.** Implementation tests do not set PASS. Later authoritative PASS requires Kali, dedicated PostgreSQL, 0 skipped, both true workflow scenarios independently VALIDATED, zero Findings on negative ground truth, and GATE 14/15 regressions still passing.
+
+GATE 16 proves only (when later PASS): controlled state-transition/workflow authorization security semantics and cross-class discrimination in the local synthetic lab.
+
+GATE 16 does **not** prove autonomous vulnerability discovery quality, real-world bug bounty performance, multi-model live validation, production readiness, or broad security-research validation.
+
+`LIVE_MODEL_VALIDATED=no`, `SECURITY_RESEARCH_VALIDATED=no`, `PRODUCTION_READY=no`. GATE 04B remains PENDING. GATE 14 remains PASS. GATE 15 remains PASS.
+
+**Verify (later PASS, not now):** `python -m unittest tests.e2e.test_gate16_state_transition_security` on Kali with `RESEARCH_OS_TEST_DATABASE_URL` set. Do not set `GATE_16_STATUS=PASS` from this implementation.
+
 ---
 
 ## Research Brain (Research capability — not Core)

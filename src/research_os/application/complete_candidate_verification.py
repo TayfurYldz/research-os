@@ -25,6 +25,7 @@ from research_os.research.assessment import (
 )
 from research_os.research.candidate import (
     HTTP_AUTHORIZATION_DIFFERENTIAL_CLASSIFICATION,
+    HTTP_STATE_TRANSITION_CLASSIFICATION,
     CandidateState,
 )
 from research_os.research.types import ResearchInputError
@@ -35,8 +36,10 @@ from research_os.research.verification import (
     apply_verification_to_candidate,
     evaluate_authorization_differential_verification,
     evaluate_diagnostic_verification,
+    evaluate_state_transition_verification,
     plan_authorization_differential_verification,
     plan_diagnostic_verification,
+    plan_state_transition_verification,
 )
 
 
@@ -140,18 +143,21 @@ class CompleteCandidateVerification:
             if command.duplicate_of_candidate_id is not None:
                 known = uow.candidates.get(command.duplicate_of_candidate_id)
                 known_duplicate_exists = known is not None
-            http_classification = (
-                candidate.classification == HTTP_AUTHORIZATION_DIFFERENTIAL_CLASSIFICATION
-            )
-            plan = (
-                plan_authorization_differential_verification(
+            if candidate.classification == HTTP_AUTHORIZATION_DIFFERENTIAL_CLASSIFICATION:
+                plan = plan_authorization_differential_verification(
                     candidate.candidate_id, candidate.evidence_ids
                 )
-                if http_classification
-                else plan_diagnostic_verification(
+                evaluate_fn = evaluate_authorization_differential_verification
+            elif candidate.classification == HTTP_STATE_TRANSITION_CLASSIFICATION:
+                plan = plan_state_transition_verification(
                     candidate.candidate_id, candidate.evidence_ids
                 )
-            )
+                evaluate_fn = evaluate_state_transition_verification
+            else:
+                plan = plan_diagnostic_verification(
+                    candidate.candidate_id, candidate.evidence_ids
+                )
+                evaluate_fn = evaluate_diagnostic_verification
             context = VerificationContext(
                 candidate_id=candidate.candidate_id,
                 candidate_state=current,
@@ -171,11 +177,7 @@ class CompleteCandidateVerification:
                 reproduction_request_id=reproduction_request_id,
                 reproduction_observation_ids=reproduction_observation_ids,
             )
-            result = (
-                evaluate_authorization_differential_verification(context)
-                if http_classification
-                else evaluate_diagnostic_verification(context)
-            )
+            result = evaluate_fn(context)
             try:
                 next_state = apply_verification_to_candidate(current, result)
             except ResearchInputError as exc:
@@ -251,7 +253,10 @@ def _observation_facts(
     for item in observations:
         if item.observation_id not in wanted:
             continue
-        if item.observation_kind == "HTTP_AUTHORIZATION_DIFFERENTIAL":
+        if item.observation_kind in {
+            "HTTP_AUTHORIZATION_DIFFERENTIAL",
+            "HTTP_STATE_TRANSITION_AUTHORIZATION",
+        }:
             return dict(item.payload)
     return {}
 

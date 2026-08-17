@@ -21,6 +21,7 @@ from research_os.research.finding_proposal import (
     admit_finding_proposal,
     propose_authorization_differential_finding_proposal,
     propose_diagnostic_finding_proposal,
+    propose_state_transition_finding_proposal,
 )
 
 
@@ -75,6 +76,10 @@ class SubmitFindingProposal:
                 )
             if draft is None:
                 draft = propose_authorization_differential_finding_proposal(
+                    context, proposal_id=new_opaque_id()
+                )
+            if draft is None:
+                draft = propose_state_transition_finding_proposal(
                     context, proposal_id=new_opaque_id()
                 )
             if draft is None:

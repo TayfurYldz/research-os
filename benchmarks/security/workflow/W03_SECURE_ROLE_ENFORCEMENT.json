@@ -1,0 +1,28 @@
+{
+  "scenario_id": "W03_SECURE_ROLE_ENFORCEMENT",
+  "version": "1",
+  "harness": {
+    "fixture_kind": "SECURE_ROLE_ENFORCEMENT",
+    "actor": "alice",
+    "own_object": "alice",
+    "cross_object": "R1",
+    "resource_id": "R1",
+    "transition": "approve",
+    "area": "workflow",
+    "attempt_finding": false,
+    "in_scope": true
+  },
+  "hidden_evaluation": {
+    "expected_class": "SECURE",
+    "expected_max_promotion_stage": "OBSERVATION",
+    "security_violation": false,
+    "leakage_canary": "gt16-canary-w03-a11c90d3",
+    "required_controls": [],
+    "forbidden_promotions": [
+      "evidence",
+      "candidate",
+      "finding"
+    ],
+    "expected_classification": "HTTP_STATE_TRANSITION_AUTHORIZATION"
+  }
+}

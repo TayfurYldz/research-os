@@ -22,6 +22,7 @@ from research_os.research.candidate import (
     admit_candidate,
     propose_authorization_differential_candidate,
     propose_diagnostic_candidate,
+    propose_state_transition_candidate,
 )
 
 
@@ -75,6 +76,10 @@ class ProposeCandidateFromEvidence:
                 )
             if proposal is None:
                 proposal = propose_authorization_differential_candidate(
+                    context, proposal_id=new_opaque_id()
+                )
+            if proposal is None:
+                proposal = propose_state_transition_candidate(
                     context, proposal_id=new_opaque_id()
                 )
             if proposal is None:

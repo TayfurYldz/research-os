@@ -10,6 +10,12 @@ benchmark passed on Kali against dedicated PostgreSQL. It does not mean live
 models, autonomous discovery quality, bug-bounty performance, production
 readiness, or broad security-research validation.
 
+GATE 16 remains PENDING until the controlled workflow/state-transition
+authorization E2E is later marked PASS on Kali against dedicated PostgreSQL.
+Implementation of GATE 16 does not itself set PASS. GATE 16 does not mean live
+models, autonomous discovery quality, bug-bounty performance, production
+readiness, or broad security-research validation.
+
 PRODUCTION_READY must stay false until operational and live-research gates
 that this environment has not passed actually pass.
 """
@@ -26,6 +32,7 @@ GATE_12_STATUS = "PASS"
 GATE_13_STATUS = "PASS"
 GATE_14_STATUS = "PASS"
 GATE_15_STATUS = "PASS"
+GATE_16_STATUS = "PENDING"
 GATE_04B_STATUS = "PENDING"
 SUBSCRIPTION_OAUTH_STATUS = "NOT_IMPLEMENTED"
 
@@ -42,6 +49,7 @@ def maturity_mapping() -> dict[str, object]:
         "GATE_13": GATE_13_STATUS,
         "GATE_14": GATE_14_STATUS,
         "GATE_15": GATE_15_STATUS,
+        "GATE_16": GATE_16_STATUS,
         "SUBSCRIPTION_OAUTH": SUBSCRIPTION_OAUTH_STATUS,
         "contains_secrets": False,
     }

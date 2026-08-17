@@ -22,10 +22,12 @@ from research_os.research.assessment import (
     AssessmentOutcome,
     DIAGNOSTIC_ECHO_EVALUATION_STRATEGY,
     HTTP_AUTHORIZATION_DIFFERENTIAL_EVALUATION_STRATEGY,
+    HTTP_STATE_TRANSITION_EVALUATION_STRATEGY,
 )
 from research_os.research.evidence import (
     EVIDENCE_ADMISSION_POLICY_VERSION,
     HTTP_AUTHORIZATION_CONTROL_HELD_CLAIM,
+    HTTP_STATE_TRANSITION_CONTROL_HELD_CLAIM,
     EvidenceAdmissionContext,
     EvidenceAdmissionDecision,
     EvidenceAdmissionOutcome,
@@ -35,6 +37,7 @@ from research_os.research.evidence import (
     admit_evidence,
     propose_authorization_differential_evidence,
     propose_diagnostic_echo_evidence,
+    propose_state_transition_evidence,
 )
 
 
@@ -75,6 +78,7 @@ class AdmitDiagnosticEvidence:
             if plan.evaluation_strategy not in {
                 DIAGNOSTIC_ECHO_EVALUATION_STRATEGY,
                 HTTP_AUTHORIZATION_DIFFERENTIAL_EVALUATION_STRATEGY,
+                HTTP_STATE_TRANSITION_EVALUATION_STRATEGY,
             }:
                 raise ApplicationError("AdmitDiagnosticEvidence has no evaluator for this strategy")
             assessments = uow.hypothesis_assessments.list_for_experiment(experiment.experiment_id)
@@ -102,6 +106,10 @@ class AdmitDiagnosticEvidence:
             if proposal is None:
                 if plan.evaluation_strategy == HTTP_AUTHORIZATION_DIFFERENTIAL_EVALUATION_STRATEGY:
                     proposal = propose_authorization_differential_evidence(
+                        context, proposal_id=new_opaque_id()
+                    )
+                elif plan.evaluation_strategy == HTTP_STATE_TRANSITION_EVALUATION_STRATEGY:
+                    proposal = propose_state_transition_evidence(
                         context, proposal_id=new_opaque_id()
                     )
                 else:
@@ -138,6 +146,24 @@ class AdmitDiagnosticEvidence:
                         "reason_code": "DIFFERENTIAL_DOES_NOT_ESTABLISH_MISSING_OBJECT_ACCESS_CONTROL"
                     },
                     provenance={"source": "http.authorization.differential.rejected"},
+                )
+            if (
+                proposal is None
+                and plan.evaluation_strategy == HTTP_STATE_TRANSITION_EVALUATION_STRATEGY
+            ):
+                proposal = EvidenceProposal(
+                    proposal_id=new_opaque_id(),
+                    research_run_id=context.research_run_id,
+                    hypothesis_id=context.hypothesis_id,
+                    experiment_id=context.experiment_id,
+                    observation_ids=tuple(item.observation_id for item in context.observations),
+                    assessment_ids=() if context.assessment_id is None else (context.assessment_id,),
+                    polarity=EvidencePolarity.NEUTRAL,
+                    claim_scope=HTTP_STATE_TRANSITION_CONTROL_HELD_CLAIM,
+                    rationale={
+                        "reason_code": "STATE_TRANSITION_DOES_NOT_ESTABLISH_WORKFLOW_BYPASS"
+                    },
+                    provenance={"source": "http.state_transition.rejected"},
                 )
             if proposal is None:
                 raise ApplicationError(

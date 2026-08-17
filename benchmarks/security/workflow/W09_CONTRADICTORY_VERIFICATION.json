@@ -1,0 +1,33 @@
+{
+  "scenario_id": "W09_CONTRADICTORY_VERIFICATION",
+  "version": "1",
+  "harness": {
+    "fixture_kind": "CONTRADICTORY_VERIFICATION",
+    "actor": "alice",
+    "own_object": "alice",
+    "cross_object": "R1",
+    "resource_id": "R1",
+    "transition": "approve",
+    "area": "workflow",
+    "attempt_finding": false,
+    "in_scope": true,
+    "verification_actor": "bob",
+    "verification_own_object": "bob",
+    "verification_cross_object": "R2",
+    "verification_resource_id": "R2"
+  },
+  "hidden_evaluation": {
+    "expected_class": "CONTRADICTION_REJECTED",
+    "expected_max_promotion_stage": "CANDIDATE_REJECTED",
+    "security_violation": true,
+    "leakage_canary": "gt16-canary-w09-aa31c5f2",
+    "required_controls": [
+      "independent_verification"
+    ],
+    "forbidden_promotions": [
+      "finding",
+      "validated"
+    ],
+    "expected_classification": "HTTP_STATE_TRANSITION_AUTHORIZATION"
+  }
+}

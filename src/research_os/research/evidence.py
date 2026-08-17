@@ -9,6 +9,7 @@ from typing import Any, Mapping
 from research_os.research.assessment import (
     DIAGNOSTIC_ECHO_EVALUATION_STRATEGY,
     HTTP_AUTHORIZATION_DIFFERENTIAL_EVALUATION_STRATEGY,
+    HTTP_STATE_TRANSITION_EVALUATION_STRATEGY,
     AssessmentOutcome,
     UNUSABLE_ATTEMPT_STATES,
     UNUSABLE_EXECUTION_OUTCOMES,
@@ -28,10 +29,18 @@ HTTP_AUTHORIZATION_DIFFERENTIAL_CLAIM = (
 HTTP_AUTHORIZATION_CONTROL_HELD_CLAIM = (
     "observed HTTP differential does not establish missing object access control"
 )
+HTTP_STATE_TRANSITION_CLAIM = (
+    "Authenticated requester performed an unauthorized workflow state transition "
+    "because role or sequence authorization is missing on the workflow endpoint."
+)
+HTTP_STATE_TRANSITION_CONTROL_HELD_CLAIM = (
+    "observed HTTP state transition does not establish unauthorized workflow bypass"
+)
 SUPPORTED_EVIDENCE_STRATEGIES = frozenset(
     {
         DIAGNOSTIC_ECHO_EVALUATION_STRATEGY,
         HTTP_AUTHORIZATION_DIFFERENTIAL_EVALUATION_STRATEGY,
+        HTTP_STATE_TRANSITION_EVALUATION_STRATEGY,
     }
 )
 
@@ -325,6 +334,44 @@ def propose_authorization_differential_evidence(
     )
 
 
+def propose_state_transition_evidence(
+    context: EvidenceAdmissionContext,
+    *,
+    proposal_id: str,
+) -> EvidenceProposal | None:
+    """Deterministic workflow-bypass proposal. Not a Finding."""
+
+    if context.evaluation_strategy != HTTP_STATE_TRANSITION_EVALUATION_STRATEGY:
+        return None
+    if context.execution_unusable:
+        return None
+    if context.assessment_id is None or context.assessment_outcome is None:
+        return None
+    if not context.observations:
+        return None
+    if context.assessment_outcome is not AssessmentOutcome.CONSISTENT_WITH_PREDICTION:
+        return None
+    return EvidenceProposal(
+        proposal_id=proposal_id,
+        research_run_id=context.research_run_id,
+        hypothesis_id=context.hypothesis_id,
+        experiment_id=context.experiment_id,
+        observation_ids=tuple(item.observation_id for item in context.observations),
+        assessment_ids=(context.assessment_id,),
+        polarity=EvidencePolarity.SUPPORTING,
+        claim_scope=HTTP_STATE_TRANSITION_CLAIM,
+        rationale={
+            "reason_code": "UNAUTHORIZED_STATE_TRANSITION_ESTABLISHED",
+            "evaluation_strategy": context.evaluation_strategy,
+        },
+        provenance={
+            "source": "http.state_transition.deterministic",
+            "assessment_id": context.assessment_id,
+            "experiment_id": context.experiment_id,
+        },
+    )
+
+
 def admit_evidence(
     proposal: EvidenceProposal,
     context: EvidenceAdmissionContext,
@@ -381,6 +428,8 @@ def admit_evidence(
         )
     if context.evaluation_strategy == HTTP_AUTHORIZATION_DIFFERENTIAL_EVALUATION_STRATEGY:
         return _admit_http_authorization_evidence(proposal, context, codes)
+    if context.evaluation_strategy == HTTP_STATE_TRANSITION_EVALUATION_STRATEGY:
+        return _admit_state_transition_evidence(proposal, context, codes)
     if context.assessment_outcome not in {
         AssessmentOutcome.CONSISTENT_WITH_PREDICTION,
         AssessmentOutcome.CONTRADICTS_PREDICTION,
@@ -437,6 +486,13 @@ def _admit_http_authorization_evidence(
             proposal=proposal,
             admitted=False,
         )
+    if proposal.claim_scope == HTTP_STATE_TRANSITION_CLAIM:
+        return EvidenceAdmissionDecision(
+            outcome=EvidenceAdmissionOutcome.REJECTED_POLICY_CONFLICT,
+            reason_codes=("CROSS_CLASS_CLAIM_REJECTED", *codes),
+            proposal=proposal,
+            admitted=False,
+        )
     if proposal.polarity is not EvidencePolarity.SUPPORTING:
         return EvidenceAdmissionDecision(
             outcome=EvidenceAdmissionOutcome.REJECTED_INSUFFICIENT_SUPPORT,
@@ -454,6 +510,54 @@ def _admit_http_authorization_evidence(
     return EvidenceAdmissionDecision(
         outcome=EvidenceAdmissionOutcome.ADMITTED,
         reason_codes=("HTTP_AUTHORIZATION_DIFFERENTIAL_PROVENANCE_INTACT",),
+        proposal=proposal,
+        admitted=True,
+    )
+
+
+def _admit_state_transition_evidence(
+    proposal: EvidenceProposal,
+    context: EvidenceAdmissionContext,
+    codes: list[str],
+) -> EvidenceAdmissionDecision:
+    if context.assessment_outcome is not AssessmentOutcome.CONSISTENT_WITH_PREDICTION:
+        return EvidenceAdmissionDecision(
+            outcome=EvidenceAdmissionOutcome.REJECTED_INSUFFICIENT_SUPPORT,
+            reason_codes=("STATE_TRANSITION_DOES_NOT_ESTABLISH_WORKFLOW_BYPASS", *codes),
+            proposal=proposal,
+            admitted=False,
+        )
+    if proposal.claim_scope != HTTP_STATE_TRANSITION_CLAIM:
+        return EvidenceAdmissionDecision(
+            outcome=EvidenceAdmissionOutcome.REJECTED_POLICY_CONFLICT,
+            reason_codes=("CLAIM_EXCEEDS_SOURCES", *codes),
+            proposal=proposal,
+            admitted=False,
+        )
+    if proposal.claim_scope == HTTP_AUTHORIZATION_DIFFERENTIAL_CLAIM:
+        return EvidenceAdmissionDecision(
+            outcome=EvidenceAdmissionOutcome.REJECTED_POLICY_CONFLICT,
+            reason_codes=("CROSS_CLASS_CLAIM_REJECTED", *codes),
+            proposal=proposal,
+            admitted=False,
+        )
+    if proposal.polarity is not EvidencePolarity.SUPPORTING:
+        return EvidenceAdmissionDecision(
+            outcome=EvidenceAdmissionOutcome.REJECTED_INSUFFICIENT_SUPPORT,
+            reason_codes=("POLARITY_DOES_NOT_SUPPORT_CLAIM", *codes),
+            proposal=proposal,
+            admitted=False,
+        )
+    if codes:
+        return EvidenceAdmissionDecision(
+            outcome=EvidenceAdmissionOutcome.REJECTED_INSUFFICIENT_SUPPORT,
+            reason_codes=tuple(codes),
+            proposal=proposal,
+            admitted=False,
+        )
+    return EvidenceAdmissionDecision(
+        outcome=EvidenceAdmissionOutcome.ADMITTED,
+        reason_codes=("HTTP_STATE_TRANSITION_AUTHORIZATION_PROVENANCE_INTACT",),
         proposal=proposal,
         admitted=True,
     )

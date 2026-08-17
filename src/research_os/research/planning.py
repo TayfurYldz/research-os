@@ -7,6 +7,7 @@ import json
 from research_os.research.assessment import (
     DIAGNOSTIC_ECHO_EVALUATION_STRATEGY,
     HTTP_AUTHORIZATION_DIFFERENTIAL_EVALUATION_STRATEGY,
+    HTTP_STATE_TRANSITION_EVALUATION_STRATEGY,
 )
 from research_os.research.proposals import HypothesisChallenge, HypothesisProposal
 from research_os.research.types import ExperimentPlan, HypothesisDraft, ResearchInputError
@@ -15,6 +16,8 @@ from research_os.tools.capabilities import (
     DIAGNOSTIC_ECHO_CAPABILITY,
     HTTP_AUTHORIZATION_DIFFERENTIAL_ACTION,
     HTTP_AUTHORIZATION_DIFFERENTIAL_CAPABILITY,
+    HTTP_STATE_TRANSITION_ACTION,
+    HTTP_STATE_TRANSITION_CAPABILITY,
 )
 
 HUMAN_ORIGIN = "human"
@@ -32,6 +35,17 @@ HTTP_AUTHORIZATION_EXPECTED_OBSERVATION = (
 )
 HTTP_AUTHORIZATION_DISCONFIRMING_OBSERVATION = (
     "cross-object access is denied or the returned object is not the other actor's object"
+)
+HTTP_STATE_TRANSITION_CLAIM = (
+    "Authenticated requester performed an unauthorized workflow state transition "
+    "because role or sequence authorization is missing on the workflow endpoint."
+)
+HTTP_STATE_TRANSITION_EXPECTED_OBSERVATION = (
+    "authenticated requester changes workflow state to APPROVED without reviewer "
+    "authority or required prior states, while the control path denies the transition"
+)
+HTTP_STATE_TRANSITION_DISCONFIRMING_OBSERVATION = (
+    "the requested transition is denied or authoritative state does not change"
 )
 
 
@@ -99,6 +113,42 @@ def plan_authorization_differential(
         expected_observation=HTTP_AUTHORIZATION_EXPECTED_OBSERVATION,
         disconfirming_observation=HTTP_AUTHORIZATION_DISCONFIRMING_OBSERVATION,
         evaluation_strategy=HTTP_AUTHORIZATION_DIFFERENTIAL_EVALUATION_STRATEGY,
+    )
+
+
+def plan_state_transition(
+    hypothesis_id: str,
+    *,
+    budget_id: str,
+    target_reference: str,
+    authorized_origin: str,
+    actor: str,
+    resource_id: str,
+    transition: str,
+    area: str = "workflow",
+) -> ExperimentPlan:
+    """Level-1 local workflow plan. Not internet scanning and not autonomous discovery."""
+    if area not in {"workflow", "control", "redirect"}:
+        raise ResearchInputError("area must be workflow, control, or redirect")
+    if transition not in {"submit", "review", "approve", "reject"}:
+        raise ResearchInputError("transition is not in the allowlist")
+    return ExperimentPlan(
+        hypothesis_id=hypothesis_id,
+        required_capability=HTTP_STATE_TRANSITION_CAPABILITY,
+        action=HTTP_STATE_TRANSITION_ACTION,
+        target_reference=target_reference,
+        side_effect_level=1,
+        arguments={
+            "authorized_origin": authorized_origin,
+            "actor": actor,
+            "resource_id": resource_id,
+            "transition": transition,
+            "area": area,
+        },
+        requested_budget_id=budget_id,
+        expected_observation=HTTP_STATE_TRANSITION_EXPECTED_OBSERVATION,
+        disconfirming_observation=HTTP_STATE_TRANSITION_DISCONFIRMING_OBSERVATION,
+        evaluation_strategy=HTTP_STATE_TRANSITION_EVALUATION_STRATEGY,
     )
 
 

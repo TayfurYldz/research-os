@@ -9,6 +9,11 @@ from research_os_worker.http_authorization import (
     HTTP_AUTHORIZATION_DIFFERENTIAL_CAPABILITY,
     execute_http_authorization,
 )
+from research_os_worker.http_state_transition import (
+    HTTP_STATE_TRANSITION_ACTION,
+    HTTP_STATE_TRANSITION_CAPABILITY,
+    execute_http_state_transition,
+)
 
 DIAGNOSTIC_ECHO_CAPABILITY = "diagnostic.echo"
 DIAGNOSTIC_ECHO_ACTION = "echo"
@@ -39,6 +44,11 @@ def execute(request: Mapping[str, Any]) -> tuple[str, dict[str, Any], dict[str, 
         and action == HTTP_AUTHORIZATION_DIFFERENTIAL_ACTION
     ):
         return execute_http_authorization(request)
+    if (
+        capability == HTTP_STATE_TRANSITION_CAPABILITY
+        and action == HTTP_STATE_TRANSITION_ACTION
+    ):
+        return execute_http_state_transition(request)
     return (
         "EXECUTION_FAILED",
         {},

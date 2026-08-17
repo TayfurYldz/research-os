@@ -9,6 +9,7 @@ from typing import Any, Mapping
 from research_os.research.evidence import (
     DIAGNOSTIC_ECHO_MATCHED_CLAIM,
     HTTP_AUTHORIZATION_DIFFERENTIAL_CLAIM,
+    HTTP_STATE_TRANSITION_CLAIM,
     EvidencePolarity,
 )
 from research_os.research.types import ResearchInputError
@@ -18,6 +19,8 @@ DIAGNOSTIC_CANDIDATE_CLASSIFICATION = "DIAGNOSTIC_PLUMBING"
 DIAGNOSTIC_CANDIDATE_CLAIM = DIAGNOSTIC_ECHO_MATCHED_CLAIM
 HTTP_AUTHORIZATION_DIFFERENTIAL_CLASSIFICATION = "HTTP_AUTHORIZATION_DIFFERENTIAL"
 HTTP_AUTHORIZATION_DIFFERENTIAL_CANDIDATE_CLAIM = HTTP_AUTHORIZATION_DIFFERENTIAL_CLAIM
+HTTP_STATE_TRANSITION_CLASSIFICATION = "HTTP_STATE_TRANSITION_AUTHORIZATION"
+HTTP_STATE_TRANSITION_CANDIDATE_CLAIM = HTTP_STATE_TRANSITION_CLAIM
 
 FORBIDDEN_CANDIDATE_KEYS = frozenset(
     {
@@ -36,6 +39,7 @@ ALLOWED_CANDIDATE_CLASSIFICATIONS = frozenset(
     {
         DIAGNOSTIC_CANDIDATE_CLASSIFICATION,
         HTTP_AUTHORIZATION_DIFFERENTIAL_CLASSIFICATION,
+        HTTP_STATE_TRANSITION_CLASSIFICATION,
     }
 )
 
@@ -304,6 +308,42 @@ def propose_authorization_differential_candidate(
     )
 
 
+def propose_state_transition_candidate(
+    context: CandidateAdmissionContext,
+    *,
+    proposal_id: str,
+) -> CandidateProposal | None:
+    """Bounded workflow-bypass Candidate. Not a Finding and not a BOLA class."""
+
+    if len(context.evidence) != 1:
+        return None
+    evidence = context.evidence[0]
+    if evidence.polarity != EvidencePolarity.SUPPORTING.value:
+        return None
+    if evidence.claim_scope != HTTP_STATE_TRANSITION_CLAIM:
+        return None
+    if evidence.claim_scope == HTTP_AUTHORIZATION_DIFFERENTIAL_CLAIM:
+        return None
+    if evidence.research_run_id != context.research_run_id:
+        return None
+    return CandidateProposal(
+        proposal_id=proposal_id,
+        research_run_id=context.research_run_id,
+        hypothesis_id=context.hypothesis_id,
+        evidence_ids=(evidence.evidence_id,),
+        claim=HTTP_STATE_TRANSITION_CANDIDATE_CLAIM,
+        classification=HTTP_STATE_TRANSITION_CLASSIFICATION,
+        rationale={
+            "reason_code": "HTTP_STATE_TRANSITION_AUTHORIZATION_EVIDENCE_SEEDED",
+            "not_a_finding": True,
+        },
+        provenance={
+            "source": "http.state_transition.candidate",
+            "evidence_id": evidence.evidence_id,
+        },
+    )
+
+
 def admit_candidate(
     proposal: CandidateProposal,
     context: CandidateAdmissionContext,
@@ -359,16 +399,33 @@ def admit_candidate(
             admitted=False,
             initial_state=None,
         )
-    expected_claim = (
-        HTTP_AUTHORIZATION_DIFFERENTIAL_CANDIDATE_CLAIM
-        if proposal.classification == HTTP_AUTHORIZATION_DIFFERENTIAL_CLASSIFICATION
-        else DIAGNOSTIC_CANDIDATE_CLAIM
-    )
-    expected_evidence_claim = (
-        HTTP_AUTHORIZATION_DIFFERENTIAL_CLAIM
-        if proposal.classification == HTTP_AUTHORIZATION_DIFFERENTIAL_CLASSIFICATION
-        else DIAGNOSTIC_ECHO_MATCHED_CLAIM
-    )
+    evidence_claims = {
+        item.claim_scope
+        for item in context.evidence
+        if item.evidence_id in proposal.evidence_ids
+    }
+    if (
+        proposal.classification == HTTP_STATE_TRANSITION_CLASSIFICATION
+        and HTTP_AUTHORIZATION_DIFFERENTIAL_CLAIM in evidence_claims
+    ) or (
+        proposal.classification == HTTP_AUTHORIZATION_DIFFERENTIAL_CLASSIFICATION
+        and HTTP_STATE_TRANSITION_CLAIM in evidence_claims
+    ):
+        return CandidateAdmissionDecision(
+            outcome=CandidateAdmissionOutcome.REJECTED_NOT_TESTABLE,
+            reason_codes=("CROSS_CLASS_EVIDENCE_REJECTED", *codes),
+            proposal=proposal,
+            admitted=False,
+            initial_state=None,
+        )
+    expected_claim = DIAGNOSTIC_CANDIDATE_CLAIM
+    expected_evidence_claim = DIAGNOSTIC_ECHO_MATCHED_CLAIM
+    if proposal.classification == HTTP_AUTHORIZATION_DIFFERENTIAL_CLASSIFICATION:
+        expected_claim = HTTP_AUTHORIZATION_DIFFERENTIAL_CANDIDATE_CLAIM
+        expected_evidence_claim = HTTP_AUTHORIZATION_DIFFERENTIAL_CLAIM
+    elif proposal.classification == HTTP_STATE_TRANSITION_CLASSIFICATION:
+        expected_claim = HTTP_STATE_TRANSITION_CANDIDATE_CLAIM
+        expected_evidence_claim = HTTP_STATE_TRANSITION_CLAIM
     if proposal.claim != expected_claim:
         return CandidateAdmissionDecision(
             outcome=CandidateAdmissionOutcome.REJECTED_NOT_TESTABLE,
@@ -417,11 +474,12 @@ def admit_candidate(
             admitted=False,
             initial_state=None,
         )
-    reason = (
-        "HTTP_AUTHORIZATION_DIFFERENTIAL_CANDIDATE_SEEDED_FROM_EVIDENCE"
-        if proposal.classification == HTTP_AUTHORIZATION_DIFFERENTIAL_CLASSIFICATION
-        else "DIAGNOSTIC_CANDIDATE_SEEDED_FROM_EVIDENCE"
-    )
+    if proposal.classification == HTTP_STATE_TRANSITION_CLASSIFICATION:
+        reason = "HTTP_STATE_TRANSITION_AUTHORIZATION_CANDIDATE_SEEDED_FROM_EVIDENCE"
+    elif proposal.classification == HTTP_AUTHORIZATION_DIFFERENTIAL_CLASSIFICATION:
+        reason = "HTTP_AUTHORIZATION_DIFFERENTIAL_CANDIDATE_SEEDED_FROM_EVIDENCE"
+    else:
+        reason = "DIAGNOSTIC_CANDIDATE_SEEDED_FROM_EVIDENCE"
     return CandidateAdmissionDecision(
         outcome=CandidateAdmissionOutcome.ADMITTED,
         reason_codes=(reason,),

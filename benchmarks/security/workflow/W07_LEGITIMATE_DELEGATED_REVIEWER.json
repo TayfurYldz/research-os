@@ -1,0 +1,28 @@
+{
+  "scenario_id": "W07_LEGITIMATE_DELEGATED_REVIEWER",
+  "version": "1",
+  "harness": {
+    "fixture_kind": "LEGITIMATE_DELEGATED_REVIEWER",
+    "actor": "alice",
+    "own_object": "alice",
+    "cross_object": "R1",
+    "resource_id": "R1",
+    "transition": "approve",
+    "area": "workflow",
+    "attempt_finding": false,
+    "in_scope": true
+  },
+  "hidden_evaluation": {
+    "expected_class": "SECURE",
+    "expected_max_promotion_stage": "OBSERVATION",
+    "security_violation": false,
+    "leakage_canary": "gt16-canary-w07-6c58bb20",
+    "required_controls": [],
+    "forbidden_promotions": [
+      "evidence",
+      "candidate",
+      "finding"
+    ],
+    "expected_classification": "HTTP_STATE_TRANSITION_AUTHORIZATION"
+  }
+}

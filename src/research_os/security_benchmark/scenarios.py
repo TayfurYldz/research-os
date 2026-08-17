@@ -21,6 +21,20 @@ MANDATORY_SCENARIO_IDS = (
     "S09_REDIRECT_BOUNDARY",
     "S10_OUT_OF_SCOPE",
 )
+MANDATORY_WORKFLOW_SCENARIO_IDS = (
+    "W01_TRUE_ROLE_BYPASS",
+    "W02_TRUE_SEQUENCE_SKIP",
+    "W03_SECURE_ROLE_ENFORCEMENT",
+    "W04_SECURE_SEQUENCE_ENFORCEMENT",
+    "W05_DECEPTIVE_200_NO_STATE_CHANGE",
+    "W06_IDEMPOTENT_REPEAT",
+    "W07_LEGITIMATE_DELEGATED_REVIEWER",
+    "W08_STALE_CLIENT_STATE",
+    "W09_CONTRADICTORY_VERIFICATION",
+    "W10_OPERATIONAL_TIMEOUT",
+    "W11_OUT_OF_SCOPE",
+    "W12_REDIRECT_BOUNDARY",
+)
 
 
 @dataclass(frozen=True)
@@ -38,6 +52,10 @@ class ScenarioHarness:
     human_decision: str | None = None
     target_reference: str | None = None
     in_scope: bool = True
+    resource_id: str | None = None
+    transition: str | None = None
+    verification_resource_id: str | None = None
+    area: str = "workflow"
 
 
 @dataclass(frozen=True)
@@ -48,6 +66,7 @@ class HiddenEvaluation:
     leakage_canary: str
     required_controls: tuple[str, ...]
     forbidden_promotions: tuple[str, ...]
+    expected_classification: str | None = None
 
 
 @dataclass(frozen=True)
@@ -87,6 +106,12 @@ def load_scenario(path: Path) -> SecurityGroundTruthScenario:
             human_decision=_optional_text(harness_raw.get("human_decision")),
             target_reference=_optional_text(harness_raw.get("target_reference")),
             in_scope=bool(harness_raw.get("in_scope", True)),
+            resource_id=_optional_text(harness_raw.get("resource_id")),
+            transition=_optional_text(harness_raw.get("transition")),
+            verification_resource_id=_optional_text(
+                harness_raw.get("verification_resource_id")
+            ),
+            area=_text(harness_raw.get("area") or "workflow", "harness.area"),
         ),
         hidden_evaluation=HiddenEvaluation(
             expected_class=ExpectedSecurityClass(
@@ -108,6 +133,9 @@ def load_scenario(path: Path) -> SecurityGroundTruthScenario:
             forbidden_promotions=_texts(
                 hidden_raw.get("forbidden_promotions", []), "forbidden_promotions"
             ),
+            expected_classification=_optional_text(
+                hidden_raw.get("expected_classification")
+            ),
         ),
     )
 
@@ -119,6 +147,19 @@ def load_scenarios(directory: Path) -> tuple[SecurityGroundTruthScenario, ...]:
     missing = [item for item in MANDATORY_SCENARIO_IDS if item not in ids]
     if missing:
         raise ValueError(f"missing mandatory security scenarios: {missing}")
+    return scenarios
+
+
+def load_workflow_scenarios(directory: Path) -> tuple[SecurityGroundTruthScenario, ...]:
+    paths = sorted(directory.glob("*.json"))
+    scenarios = tuple(load_scenario(path) for path in paths)
+    ids = tuple(item.scenario_id for item in scenarios)
+    missing = [item for item in MANDATORY_WORKFLOW_SCENARIO_IDS if item not in ids]
+    if missing:
+        raise ValueError(f"missing mandatory workflow scenarios: {missing}")
+    extra = [item for item in ids if item not in MANDATORY_WORKFLOW_SCENARIO_IDS]
+    if extra:
+        raise ValueError(f"unexpected workflow scenarios: {extra}")
     return scenarios
 
 
