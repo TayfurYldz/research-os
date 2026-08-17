@@ -629,12 +629,25 @@ def _controls_held(facts: Mapping[str, Any] | None) -> bool:
     unauth = facts.get("unauthenticated_control_status")
     cross_owner = facts.get("cross_object_request_object_owner")
     cross_status = facts.get("cross_object_request_status")
+    actor = facts.get("actor")
+    visibility = facts.get("cross_object_request_visibility")
+    kind = facts.get("cross_object_request_resource_kind")
+    readers = facts.get("cross_object_request_authorized_readers")
+    if isinstance(visibility, str) and visibility.strip().upper() == "PUBLIC":
+        return False
+    if isinstance(kind, str) and kind.strip().upper() == "SHARED":
+        return False
+    if isinstance(readers, list) and isinstance(actor, str) and actor in readers:
+        return False
     return (
         secure == 403
         and unauth in {401, 403}
         and cross_status == 200
         and isinstance(cross_owner, str)
         and bool(cross_owner.strip())
+        and isinstance(actor, str)
+        and bool(actor.strip())
+        and cross_owner != actor
     )
 
 

@@ -1,0 +1,20 @@
+{
+  "scenario_id": "S06_SHARED_RESOURCE",
+  "version": "1",
+  "harness": {
+    "fixture_kind": "SHARED_RESOURCE",
+    "actor": "alice",
+    "own_object": "alice",
+    "cross_object": "shared",
+    "attempt_finding": false,
+    "in_scope": true
+  },
+  "hidden_evaluation": {
+    "expected_class": "SECURE",
+    "expected_max_promotion_stage": "OBSERVATION",
+    "security_violation": false,
+    "leakage_canary": "gt15-canary-s06-f2d6b4c7",
+    "required_controls": [],
+    "forbidden_promotions": ["evidence", "validated_candidate", "finding"]
+  }
+}

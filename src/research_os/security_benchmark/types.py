@@ -1,0 +1,90 @@
+"""Security ground-truth vocabulary. Not numeric confidence. Not a Finding."""
+
+from __future__ import annotations
+
+from enum import Enum
+
+BENCHMARK_VERSION = "security-ground-truth.v1"
+DEFAULT_RESULTS_DIR_NAME = "security-benchmark-results"
+
+FORBIDDEN_PIPELINE_KEYS = frozenset(
+    {
+        "expected_vulnerable",
+        "expected_finding",
+        "expected_candidate_state",
+        "expected_class",
+        "hidden_evaluation",
+        "leakage_canary",
+        "fixture_kind",
+        "security_violation",
+        "expected_max_promotion_stage",
+        "forbidden_promotions",
+        "required_controls",
+    }
+)
+
+FORBIDDEN_PIPELINE_LABELS = frozenset(
+    {
+        "TRUE_BOLA",
+        "SECURE_OBJECT_AUTHORIZATION",
+        "PUBLIC_OBJECT_LEGITIMATE_200",
+        "EXPLICIT_DELEGATED_ACCESS",
+        "DECEPTIVE_200_NO_OWNERSHIP_PROOF",
+        "SHARED_RESOURCE",
+        "CONTRADICTORY_VERIFICATION",
+        "OPERATIONAL_TIMEOUT",
+        "REDIRECT_BOUNDARY",
+        "OUT_OF_SCOPE",
+        "VULNERABLE",
+        "INSUFFICIENT_EVIDENCE",
+        "OPERATIONAL_INCONCLUSIVE",
+    }
+)
+
+
+class ExpectedSecurityClass(Enum):
+    VULNERABLE = "VULNERABLE"
+    SECURE = "SECURE"
+    INSUFFICIENT_EVIDENCE = "INSUFFICIENT_EVIDENCE"
+    OPERATIONAL_INCONCLUSIVE = "OPERATIONAL_INCONCLUSIVE"
+    SCOPE_DENIED = "SCOPE_DENIED"
+    CONTROLLED_STOP = "CONTROLLED_STOP"
+    CONTRADICTION_REJECTED = "CONTRADICTION_REJECTED"
+
+
+class PromotionStage(Enum):
+    NONE = "NONE"
+    SCOPE_DENIED = "SCOPE_DENIED"
+    NO_OBSERVATION = "NO_OBSERVATION"
+    OBSERVATION = "OBSERVATION"
+    EVIDENCE = "EVIDENCE"
+    CANDIDATE_OPEN = "CANDIDATE_OPEN"
+    CANDIDATE_REJECTED = "CANDIDATE_REJECTED"
+    CANDIDATE_INCONCLUSIVE = "CANDIDATE_INCONCLUSIVE"
+    CANDIDATE_VALIDATED = "CANDIDATE_VALIDATED"
+    FINDING_AFTER_HUMAN_APPROVAL = "FINDING_AFTER_HUMAN_APPROVAL"
+
+
+class HardFailCode(Enum):
+    FALSE_FINDING = "FALSE_FINDING"
+    FALSE_VALIDATED_CANDIDATE = "FALSE_VALIDATED_CANDIDATE"
+    HUMAN_APPROVAL_BYPASS = "HUMAN_APPROVAL_BYPASS"
+    SCOPE_BYPASS = "SCOPE_BYPASS"
+    REDIRECT_BOUNDARY_BYPASS = "REDIRECT_BOUNDARY_BYPASS"
+    SELF_VERIFICATION = "SELF_VERIFICATION"
+    GROUND_TRUTH_LEAKAGE = "GROUND_TRUTH_LEAKAGE"
+    TRUE_VULNERABILITY_MISSED = "TRUE_VULNERABILITY_MISSED"
+    FALSE_EVIDENCE_ADMISSION = "FALSE_EVIDENCE_ADMISSION"
+    PROMOTION_EXCEEDED = "PROMOTION_EXCEEDED"
+
+
+NEGATIVE_GROUND_TRUTH = frozenset(
+    {
+        ExpectedSecurityClass.SECURE,
+        ExpectedSecurityClass.INSUFFICIENT_EVIDENCE,
+        ExpectedSecurityClass.OPERATIONAL_INCONCLUSIVE,
+        ExpectedSecurityClass.SCOPE_DENIED,
+        ExpectedSecurityClass.CONTROLLED_STOP,
+        ExpectedSecurityClass.CONTRADICTION_REJECTED,
+    }
+)

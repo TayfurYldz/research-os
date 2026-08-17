@@ -85,6 +85,29 @@ class HttpAuthorizationDifferentialNormalizer:
                         f"raw_result.{key}.object_owner must be a non-empty string when present"
                     )
                 payload[f"{key}_object_owner"] = owner.strip()
+            visibility = item.get("object_visibility")
+            if visibility is not None:
+                if not isinstance(visibility, str) or not visibility.strip():
+                    raise MalformedNormalizedPayloadError(
+                        f"raw_result.{key}.object_visibility must be a non-empty string when present"
+                    )
+                payload[f"{key}_visibility"] = visibility.strip()
+            readers = item.get("object_authorized_readers")
+            if readers is not None:
+                if not isinstance(readers, list) or not all(
+                    isinstance(entry, str) and entry.strip() for entry in readers
+                ):
+                    raise MalformedNormalizedPayloadError(
+                        f"raw_result.{key}.object_authorized_readers must be a list of strings when present"
+                    )
+                payload[f"{key}_authorized_readers"] = [entry.strip() for entry in readers]
+            resource_kind = item.get("object_resource_kind")
+            if resource_kind is not None:
+                if not isinstance(resource_kind, str) or not resource_kind.strip():
+                    raise MalformedNormalizedPayloadError(
+                        f"raw_result.{key}.object_resource_kind must be a non-empty string when present"
+                    )
+                payload[f"{key}_resource_kind"] = resource_kind.strip()
         observed_at = parse_aware_timestamp(
             result.get("completed_at") or result.get("started_at"),
             "completed_at",

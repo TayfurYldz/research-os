@@ -87,6 +87,8 @@ def execute_http_authorization(request: Mapping[str, Any]) -> tuple[str, dict[st
             return "BLOCKED", {}, {"error": str(exc), "contacted": False}
         except _BoundExceeded:
             return "EXECUTION_FAILED", {}, {"error": "response exceeded byte bound", "contacted": True}
+        except (TimeoutError, socket.timeout):
+            return "TIMED_OUT", {}, {"error": "timeout", "contacted": True}
         except Exception as exc:  # noqa: BLE001 — worker must map transport failure, not raise through protocol
             return "EXECUTION_FAILED", {}, {"error": type(exc).__name__, "contacted": True}
     return "SUCCEEDED", raw, None
@@ -164,17 +166,33 @@ def _get(url: str, authorized_origin: str, actor: str | None) -> dict[str, Any]:
         connection.close()
     if len(body) > MAX_RESPONSE_BYTES:
         raise _BoundExceeded()
-    owner = None
+    payload: dict[str, Any] = {"status": status}
     if body:
         try:
             parsed_body = json.loads(body.decode("utf-8"))
         except (UnicodeDecodeError, json.JSONDecodeError):
             parsed_body = None
         if isinstance(parsed_body, dict):
-            raw_owner = parsed_body.get("owner")
-            if isinstance(raw_owner, str) and raw_owner.strip():
-                owner = raw_owner.strip()
-    payload: dict[str, Any] = {"status": status}
-    if owner is not None:
-        payload["object_owner"] = owner
+            payload.update(_observed_object_fields(parsed_body))
     return payload
+
+
+def _observed_object_fields(parsed_body: Mapping[str, Any]) -> dict[str, Any]:
+    """Copy observed authorization-context fields. Do not infer vulnerability truth."""
+
+    observed: dict[str, Any] = {}
+    raw_owner = parsed_body.get("owner")
+    if isinstance(raw_owner, str) and raw_owner.strip():
+        observed["object_owner"] = raw_owner.strip()
+    raw_visibility = parsed_body.get("visibility")
+    if isinstance(raw_visibility, str) and raw_visibility.strip():
+        observed["object_visibility"] = raw_visibility.strip()
+    raw_readers = parsed_body.get("authorized_readers")
+    if isinstance(raw_readers, list) and all(
+        isinstance(entry, str) and entry.strip() for entry in raw_readers
+    ):
+        observed["object_authorized_readers"] = [entry.strip() for entry in raw_readers]
+    raw_kind = parsed_body.get("resource_kind")
+    if isinstance(raw_kind, str) and raw_kind.strip():
+        observed["object_resource_kind"] = raw_kind.strip()
+    return observed

@@ -142,11 +142,39 @@ python -m unittest tests.e2e.test_gate14_security_lab
 
 If `RESEARCH_OS_TEST_DATABASE_URL` is unset, the suite must SKIP, never fabricate PASS.
 
+## GATE 15 — security ground-truth / false-positive benchmark
+
+**GATE 15 status: PENDING.**
+
+GATE 14 is a single controlled security-semantics E2E. GATE 15 is a multi-scenario ground-truth / false-positive benchmark on the same `http.authorization.differential` pipeline. GATE 04B is live model comparison. These gates do not imply each other.
+
+Do not set GATE 15 PASS because tests were authored. Authoritative close requires:
+
+- Kali Linux
+- real PostgreSQL
+- dedicated `RESEARCH_OS_TEST_DATABASE_URL`
+- Alembic head `a18_001_http_auth_class` (no new migration)
+- `python -m unittest tests.e2e.test_gate15_security_ground_truth`
+- 0 skipped
+- `false_finding = 0`
+- no Codex / LLM / Strix
+
+If the test DB is unset, GATE 15 is SKIPPED / PENDING, never PASS.
+
+Would prove: controlled multi-scenario ground-truth false-positive security benchmark for HTTP authorization differential / BOLA semantics.
+
+Does **not** prove autonomous vulnerability discovery quality, real-world bug bounty performance, multi-model live validation, production readiness, or broad security-research validation. Do not set `SECURITY_RESEARCH_VALIDATED` or `PRODUCTION_READY`.
+
+```
+python -m unittest tests.e2e.test_gate15_security_ground_truth
+```
+
 ## Maturity
 
 - ARCHITECTURE_VALIDATED: architecture package complete
 - DIAGNOSTIC_E2E_VALIDATED: yes after Gate 12/13 PASS on real PostgreSQL, process crash/restart, and clean install. Not live-model validation.
 - LIVE_MODEL_VALIDATED: no while GATE 04B is PENDING
-- SECURITY_RESEARCH_VALIDATED: no; GATE 14 PASS is local authorized lab pipeline E2E, not real-world research validation
+- SECURITY_RESEARCH_VALIDATED: no; GATE 14 PASS is local authorized lab pipeline E2E; GATE 15 PENDING is a local ground-truth benchmark, not real-world research validation
 - PRODUCTION_READY: no until operational and live-research gates that have not passed actually pass
 - GATE 14: PASS (2026-08-17, Kali, dedicated PostgreSQL, 19 E2E OK / 0 skipped)
+- GATE 15: PENDING (do not set PASS because tests were authored)

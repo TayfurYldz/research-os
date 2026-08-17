@@ -656,6 +656,26 @@ GATE 14 does **not** prove:
 
 **Verify:** `python -m unittest tests.e2e.test_gate14_security_lab` on Kali with `RESEARCH_OS_TEST_DATABASE_URL` set. Do not set `SECURITY_RESEARCH_VALIDATED` or `PRODUCTION_READY` because this gate passed.
 
+## GATE 15 — Security Ground-Truth / False-Positive Benchmark
+
+GATE 14 proved one controlled BOLA/IDOR path end-to-end. GATE 15 tests whether that same pipeline can distinguish true unauthorized access from secure, public, delegated, shared, deceptive, contradictory, timed-out, redirected, and out-of-scope behavior.
+
+This is **not** GATE 04B (live model comparison) and **not** a new security capability. It reuses `http.authorization.differential` and the existing ExperimentPlan → Core → Worker → Transition A → Evidence → Candidate → Verification → Human Review / Finding path.
+
+**GATE 15 status: PENDING.** Do not set PASS because tests were authored. Authoritative close requires Kali + dedicated real PostgreSQL + 0 skipped.
+
+GATE 15 would prove only: controlled multi-scenario ground-truth false-positive security benchmark passed.
+
+GATE 15 does **not** prove autonomous vulnerability discovery quality, real-world bug bounty performance, multi-model live validation, production readiness, or broad security-research validation.
+
+`LIVE_MODEL_VALIDATED=no`, `SECURITY_RESEARCH_VALIDATED=no`, `PRODUCTION_READY=no`. GATE 04B remains PENDING. GATE 14 remains PASS. GATE 01–13 statuses are unchanged.
+
+Primary mission: few correct reproducible findings; **zero false Findings on negative ground truth**.
+
+Hidden evaluation (`expected_class`, canaries, expected promotion) must never enter WorkerRequest, Observation, Evidence evaluator input, Candidate, or Verification.
+
+**Verify:** `python -m unittest tests.e2e.test_gate15_security_ground_truth` on Kali with `RESEARCH_OS_TEST_DATABASE_URL` set. If the test DB is unset, the suite must SKIP (PENDING), never PASS. Do not set `SECURITY_RESEARCH_VALIDATED` or `PRODUCTION_READY` if this gate later passes.
+
 ---
 
 ## Research Brain (Research capability — not Core)

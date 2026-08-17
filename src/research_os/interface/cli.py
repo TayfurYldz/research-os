@@ -8,7 +8,7 @@ import sys
 from typing import Mapping
 
 from research_os.application.operator_status import OperatorStatusSnapshot, render_operator_status
-from research_os.maturity import GATE_04B_STATUS, GATE_14_STATUS, SUBSCRIPTION_OAUTH_STATUS
+from research_os.maturity import GATE_04B_STATUS, GATE_14_STATUS, GATE_15_STATUS, SUBSCRIPTION_OAUTH_STATUS
 from research_os.platform.health import ComponentHealth
 
 
@@ -129,6 +129,7 @@ def build_status_snapshot(*, env: Mapping[str, str] | None = None, argv_runner=N
         observability="structured events; not AuditEvent; not Evidence",
         gate_04b=GATE_04B_STATUS,
         gate_14=GATE_14_STATUS,
+        gate_15=GATE_15_STATUS,
     )
 
 

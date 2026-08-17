@@ -5,6 +5,9 @@ GATE 14 PASS means the controlled authorized local HTTP authorization-differenti
 pipeline E2E ran on Kali against dedicated PostgreSQL. It does not mean live models,
 autonomous discovery quality, bug-bounty performance, or production readiness.
 
+GATE 15 PENDING means the multi-scenario ground-truth / false-positive benchmark
+exists but is not closed as PASS merely because tests were authored.
+
 PRODUCTION_READY must stay false until operational and live-research gates
 that this environment has not passed actually pass.
 """
@@ -20,6 +23,7 @@ PRODUCTION_READY = False
 GATE_12_STATUS = "PASS"
 GATE_13_STATUS = "PASS"
 GATE_14_STATUS = "PASS"
+GATE_15_STATUS = "PENDING"
 GATE_04B_STATUS = "PENDING"
 SUBSCRIPTION_OAUTH_STATUS = "NOT_IMPLEMENTED"
 
@@ -35,6 +39,7 @@ def maturity_mapping() -> dict[str, object]:
         "GATE_12": GATE_12_STATUS,
         "GATE_13": GATE_13_STATUS,
         "GATE_14": GATE_14_STATUS,
+        "GATE_15": GATE_15_STATUS,
         "SUBSCRIPTION_OAUTH": SUBSCRIPTION_OAUTH_STATUS,
         "contains_secrets": False,
     }

@@ -10,6 +10,7 @@ CORE_DIR = SRC_ROOT / "core"
 RESEARCH_DIR = SRC_ROOT / "research"
 APPLICATION_DIR = SRC_ROOT / "application"
 BENCHMARK_DIR = SRC_ROOT / "benchmark"
+SECURITY_BENCHMARK_DIR = SRC_ROOT / "security_benchmark"
 PLATFORM_DIR = SRC_ROOT / "platform"
 WORKERS_DIR = REPO_ROOT / "workers"
 
@@ -80,6 +81,7 @@ class ArchitectureBoundaryTests(unittest.TestCase):
                     "research_os.application",
                     "research_os.research",
                     "research_os.benchmark",
+                    "research_os.security_benchmark",
                     "research_os.integrations",
                 ),
             ),
@@ -112,6 +114,7 @@ class ArchitectureBoundaryTests(unittest.TestCase):
                     "research_os.platform",
                     "research_os.application",
                     "research_os.benchmark",
+                    "research_os.security_benchmark",
                     "research_os.integrations",
                     "google.generativeai",
                     "google.genai",
@@ -132,6 +135,7 @@ class ArchitectureBoundaryTests(unittest.TestCase):
                     "research_os.platform.local_process_worker",
                     "research_os.workers",
                     "research_os.benchmark",
+                    "research_os.security_benchmark",
                     "integrations",
                     "research_os.integrations",
                     "google.generativeai",
@@ -155,6 +159,31 @@ class ArchitectureBoundaryTests(unittest.TestCase):
                     "research_os.workers",
                     "research_os.platform",
                     "research_os.integrations",
+                    "research_os.security_benchmark",
+                    "google.generativeai",
+                    "google.genai",
+                ),
+            ),
+            [],
+        )
+
+    def test_security_benchmark_does_not_import_pipeline_or_research_benchmark(self) -> None:
+        self.assertEqual(
+            _violations(
+                SECURITY_BENCHMARK_DIR,
+                forbidden_roots=EXECUTION_ROOTS
+                + PERSISTENCE_LIBS
+                + SCHEMA_LIBS
+                + ("openai", "anthropic", "google", "langchain", "llama_index", "litellm"),
+                forbidden_prefixes=(
+                    "research_os.data",
+                    "research_os.application",
+                    "research_os.workers",
+                    "research_os.platform",
+                    "research_os.integrations",
+                    "research_os.benchmark",
+                    "research_os.research",
+                    "research_os.core",
                     "google.generativeai",
                     "google.genai",
                 ),

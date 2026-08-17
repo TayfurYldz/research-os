@@ -82,6 +82,7 @@ class StatusQuotaSafetyTests(unittest.TestCase):
         self.assertTrue(any(argv[-1] == "--version" for argv in calls))
         self.assertEqual(snapshot.gate_04b, "PENDING")
         self.assertEqual(snapshot.gate_14, "PASS")
+        self.assertEqual(snapshot.gate_15, "PENDING")
 
 
 if __name__ == "__main__":
