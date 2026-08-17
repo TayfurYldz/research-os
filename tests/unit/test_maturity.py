@@ -1,4 +1,4 @@
-"""Maturity flags. GATE 14 PASS is not SECURITY_RESEARCH_VALIDATED or PRODUCTION_READY."""
+"""Maturity flags. GATE 14/15 PASS is not SECURITY_RESEARCH_VALIDATED or PRODUCTION_READY."""
 
 from __future__ import annotations
 
@@ -21,9 +21,9 @@ from research_os.maturity import (
 
 
 class Gate14MaturityTests(unittest.TestCase):
-    def test_gate14_pass_does_not_advance_research_or_production_flags(self) -> None:
+    def test_gate14_and_gate15_pass_do_not_advance_research_or_production_flags(self) -> None:
         self.assertEqual(GATE_14_STATUS, "PASS")
-        self.assertEqual(GATE_15_STATUS, "PENDING")
+        self.assertEqual(GATE_15_STATUS, "PASS")
         self.assertEqual(GATE_12_STATUS, "PASS")
         self.assertEqual(GATE_13_STATUS, "PASS")
         self.assertEqual(GATE_04B_STATUS, "PENDING")
@@ -32,13 +32,13 @@ class Gate14MaturityTests(unittest.TestCase):
         self.assertFalse(PRODUCTION_READY)
         mapping = maturity_mapping()
         self.assertEqual(mapping["GATE_14"], "PASS")
-        self.assertEqual(mapping["GATE_15"], "PENDING")
+        self.assertEqual(mapping["GATE_15"], "PASS")
         self.assertEqual(mapping["GATE_04B"], "PENDING")
         self.assertIs(mapping["LIVE_MODEL_VALIDATED"], False)
         self.assertIs(mapping["SECURITY_RESEARCH_VALIDATED"], False)
         self.assertIs(mapping["PRODUCTION_READY"], False)
 
-    def test_operator_status_reports_gate14_pass_without_production_ready(self) -> None:
+    def test_operator_status_reports_gate14_and_gate15_pass_without_production_ready(self) -> None:
         text = render_operator_status(
             OperatorStatusSnapshot(
                 postgresql="HEALTHY",
@@ -60,7 +60,7 @@ class Gate14MaturityTests(unittest.TestCase):
         self.assertIn(f"PRODUCTION_READY: {PRODUCTION_READY}", text)
         self.assertIn(f"LIVE_MODEL_VALIDATED: {LIVE_MODEL_VALIDATED}", text)
         self.assertEqual(GATE_14_STATUS, "PASS")
-        self.assertEqual(GATE_15_STATUS, "PENDING")
+        self.assertEqual(GATE_15_STATUS, "PASS")
         self.assertFalse(SECURITY_RESEARCH_VALIDATED)
         self.assertFalse(PRODUCTION_READY)
         self.assertFalse(LIVE_MODEL_VALIDATED)

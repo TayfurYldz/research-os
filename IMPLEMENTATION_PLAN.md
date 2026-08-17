@@ -662,9 +662,23 @@ GATE 14 proved one controlled BOLA/IDOR path end-to-end. GATE 15 tests whether t
 
 This is **not** GATE 04B (live model comparison) and **not** a new security capability. It reuses `http.authorization.differential` and the existing ExperimentPlan → Core → Worker → Transition A → Evidence → Candidate → Verification → Human Review / Finding path.
 
-**GATE 15 status: PENDING.** Do not set PASS because tests were authored. Authoritative close requires Kali + dedicated real PostgreSQL + 0 skipped.
+**GATE 15 status: PASS** (2026-08-17) on Kali Linux against dedicated real PostgreSQL (`RESEARCH_OS_TEST_DATABASE_URL`), Alembic head `a18_001_http_auth_class`. GATE 14 regression **19 OK / 0 skipped**. GATE 15 ground-truth benchmark `tests.e2e.test_gate15_security_ground_truth` **21 OK / 0 skipped**. Localhost-only security ground-truth lab. No Codex / LLM / Strix.
 
-GATE 15 would prove only: controlled multi-scenario ground-truth false-positive security benchmark passed.
+GATE 15 proves only: controlled multi-scenario ground-truth / false-positive security benchmark passed for HTTP authorization differential semantics.
+
+Preserved benchmark guarantees:
+
+- true BOLA validated
+- independent verification required
+- `false_finding = 0`
+- secure / public / delegated / shared cases produced no Finding
+- deceptive 200 / insufficient evidence produced no Finding
+- contradictory verification did not VALIDATE
+- timeout became INCONCLUSIVE
+- redirect boundary was not crossed
+- out-of-scope target did not reach Worker
+- Human/Core approval remained mandatory
+- no ground-truth leakage
 
 GATE 15 does **not** prove autonomous vulnerability discovery quality, real-world bug bounty performance, multi-model live validation, production readiness, or broad security-research validation.
 
@@ -674,7 +688,7 @@ Primary mission: few correct reproducible findings; **zero false Findings on neg
 
 Hidden evaluation (`expected_class`, canaries, expected promotion) must never enter WorkerRequest, Observation, Evidence evaluator input, Candidate, or Verification.
 
-**Verify:** `python -m unittest tests.e2e.test_gate15_security_ground_truth` on Kali with `RESEARCH_OS_TEST_DATABASE_URL` set. If the test DB is unset, the suite must SKIP (PENDING), never PASS. Do not set `SECURITY_RESEARCH_VALIDATED` or `PRODUCTION_READY` if this gate later passes.
+**Verify:** `python -m unittest tests.e2e.test_gate15_security_ground_truth` on Kali with `RESEARCH_OS_TEST_DATABASE_URL` set. Do not set `SECURITY_RESEARCH_VALIDATED` or `PRODUCTION_READY` because this gate passed.
 
 ---
 

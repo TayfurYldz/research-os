@@ -1,8 +1,8 @@
 """GATE 15 — Security ground-truth / false-positive benchmark.
 
 Skipped when RESEARCH_OS_TEST_DATABASE_URL is absent (PENDING, not PASS).
-Does not set SECURITY_RESEARCH_VALIDATED, PRODUCTION_READY, or GATE_15 PASS.
-No Codex/LLM/Strix/internet target. No parallel security pipeline.
+Does not set SECURITY_RESEARCH_VALIDATED or PRODUCTION_READY.
+GATE 15 may be PASS while GATE 04B remains PENDING. No Codex/LLM/Strix/internet target.
 """
 
 from __future__ import annotations
@@ -289,14 +289,14 @@ class Gate15SecurityGroundTruthTests(unittest.TestCase):
             self.assertFalse(result.redirect_followed, scenario_id)
         self.assertEqual(self._result("S10_OUT_OF_SCOPE").http_request_count, 0)
 
-    def test_20_scorecard_is_hard_fail_not_weighted_and_maturity_stays_pending(self) -> None:
+    def test_20_scorecard_is_hard_fail_not_weighted_and_research_flags_unchanged(self) -> None:
         assert self.scorecard is not None
         self.assertTrue(gate15_scorecard_pass(self.scorecard))
         self.assertEqual(self.scorecard.skipped, 0)
         self.assertEqual(self.scorecard.scope_enforcement_failure, 0)
         self.assertEqual(self.scorecard.verification_independence_failure, 0)
         self.assertEqual(self.scorecard.true_vulnerability_validated, 1)
-        self.assertEqual(GATE_15_STATUS, "PENDING")
+        self.assertEqual(GATE_15_STATUS, "PASS")
         self.assertEqual(GATE_14_STATUS, "PASS")
         self.assertEqual(GATE_04B_STATUS, "PENDING")
         self.assertFalse(LIVE_MODEL_VALIDATED)

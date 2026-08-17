@@ -7,7 +7,13 @@ from pathlib import Path
 import pathsetup  # noqa: F401
 
 from research_os.application.operator_status import OperatorStatusSnapshot, render_operator_status
-from research_os.maturity import LIVE_MODEL_VALIDATED, PRODUCTION_READY, SECURITY_RESEARCH_VALIDATED
+from research_os.maturity import (
+    GATE_04B_STATUS,
+    GATE_15_STATUS,
+    LIVE_MODEL_VALIDATED,
+    PRODUCTION_READY,
+    SECURITY_RESEARCH_VALIDATED,
+)
 from research_os.platform.artifacts import ArtifactStoreError, LocalArtifactStore
 from research_os.platform.health import ComponentHealth, HealthCheck
 from research_os.platform.observability import InMemoryObservability, TelemetryEvent
@@ -110,7 +116,8 @@ class ObservabilityAndHealthTests(unittest.TestCase):
         self.assertIn("GATE 14:", text)
         self.assertIn("PASS", text)
         self.assertIn("GATE 15:", text)
-        self.assertIn("PENDING", text)
+        self.assertEqual(GATE_15_STATUS, "PASS")
+        self.assertEqual(GATE_04B_STATUS, "PENDING")
         self.assertIn(f"LIVE_MODEL_VALIDATED: {LIVE_MODEL_VALIDATED}", text)
         self.assertIn(f"PRODUCTION_READY: {PRODUCTION_READY}", text)
         self.assertIn(f"SECURITY_RESEARCH_VALIDATED: {SECURITY_RESEARCH_VALIDATED}", text)

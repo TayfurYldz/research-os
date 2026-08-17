@@ -144,37 +144,51 @@ If `RESEARCH_OS_TEST_DATABASE_URL` is unset, the suite must SKIP, never fabricat
 
 ## GATE 15 — security ground-truth / false-positive benchmark
 
-**GATE 15 status: PENDING.**
+**GATE 15 status: PASS** (2026-08-17).
+
+Authoritative environment:
+
+- Kali Linux
+- dedicated real PostgreSQL test database
+- `RESEARCH_OS_TEST_DATABASE_URL`
+- Alembic head `a18_001_http_auth_class`
+- GATE 14 regression: 19 OK, 0 skipped
+- GATE 15 ground-truth benchmark: 21 OK, 0 skipped
+- localhost-only security ground-truth lab
+- no Codex / LLM / Strix
 
 GATE 14 is a single controlled security-semantics E2E. GATE 15 is a multi-scenario ground-truth / false-positive benchmark on the same `http.authorization.differential` pipeline. GATE 04B is live model comparison. These gates do not imply each other.
 
-Do not set GATE 15 PASS because tests were authored. Authoritative close requires:
+GATE 15 proves only: controlled multi-scenario ground-truth / false-positive security benchmark passed for HTTP authorization differential semantics.
 
-- Kali Linux
-- real PostgreSQL
-- dedicated `RESEARCH_OS_TEST_DATABASE_URL`
-- Alembic head `a18_001_http_auth_class` (no new migration)
-- `python -m unittest tests.e2e.test_gate15_security_ground_truth`
-- 0 skipped
+Preserved benchmark guarantees:
+
+- true BOLA validated
+- independent verification required
 - `false_finding = 0`
-- no Codex / LLM / Strix
+- secure / public / delegated / shared cases produced no Finding
+- deceptive 200 / insufficient evidence produced no Finding
+- contradictory verification did not VALIDATE
+- timeout became INCONCLUSIVE
+- redirect boundary was not crossed
+- out-of-scope target did not reach Worker
+- Human/Core approval remained mandatory
+- no ground-truth leakage
 
-If the test DB is unset, GATE 15 is SKIPPED / PENDING, never PASS.
-
-Would prove: controlled multi-scenario ground-truth false-positive security benchmark for HTTP authorization differential / BOLA semantics.
-
-Does **not** prove autonomous vulnerability discovery quality, real-world bug bounty performance, multi-model live validation, production readiness, or broad security-research validation. Do not set `SECURITY_RESEARCH_VALIDATED` or `PRODUCTION_READY`.
+Does **not** prove autonomous vulnerability discovery quality, real-world bug bounty performance, multi-model live validation, production readiness, or broad security-research validation. Do not set `SECURITY_RESEARCH_VALIDATED` or `PRODUCTION_READY`. GATE 04B remains PENDING.
 
 ```
 python -m unittest tests.e2e.test_gate15_security_ground_truth
 ```
+
+If `RESEARCH_OS_TEST_DATABASE_URL` is unset, the suite must SKIP, never fabricate PASS.
 
 ## Maturity
 
 - ARCHITECTURE_VALIDATED: architecture package complete
 - DIAGNOSTIC_E2E_VALIDATED: yes after Gate 12/13 PASS on real PostgreSQL, process crash/restart, and clean install. Not live-model validation.
 - LIVE_MODEL_VALIDATED: no while GATE 04B is PENDING
-- SECURITY_RESEARCH_VALIDATED: no; GATE 14 PASS is local authorized lab pipeline E2E; GATE 15 PENDING is a local ground-truth benchmark, not real-world research validation
+- SECURITY_RESEARCH_VALIDATED: no; GATE 14/15 PASS are local authorized lab pipeline E2E and a local ground-truth false-positive benchmark, not real-world research validation
 - PRODUCTION_READY: no until operational and live-research gates that have not passed actually pass
 - GATE 14: PASS (2026-08-17, Kali, dedicated PostgreSQL, 19 E2E OK / 0 skipped)
-- GATE 15: PENDING (do not set PASS because tests were authored)
+- GATE 15: PASS (2026-08-17, Kali, dedicated PostgreSQL, GATE14 regression 19 OK / 0 skipped, GATE15 21 OK / 0 skipped)
