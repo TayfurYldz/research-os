@@ -7,6 +7,7 @@ from datetime import datetime
 from typing import Any
 
 from research_os.data.errors import (
+    BudgetOverspendError,
     PersistenceConflictError,
     PersistenceError,
     PersistenceInputError,
@@ -20,6 +21,7 @@ from research_os.data.records import (
     ApprovalRecord,
     AuditEventRecord,
     AuthorizationSourceRecord,
+    BudgetConsumptionRecord,
     CandidateAdmissionRecord,
     CandidateRecord,
     ChainHypothesisRecord,
@@ -40,7 +42,9 @@ from research_os.data.records import (
     ObservationRecord,
     ProgramRecord,
     ResearchAdmissionRecord,
+    ResearchCycleRecord,
     ResearchOpportunityRecord,
+    ResearchOrchestrationRecord,
     ResearchReasoningRecord,
     ResearchRunRecord,
     ResearchSelectionRecord,
@@ -48,14 +52,10 @@ from research_os.data.records import (
     SnapshotRecord,
     TargetInferenceRecord,
     ChangeEventRecord,
-    ProgramRecord,
-    ResearchAdmissionRecord,
-    ResearchReasoningRecord,
-    ResearchRunRecord,
-    TargetInferenceRecord,
     VerificationRecord,
     WorkerResultRecord,
 )
+from research_os.data.budget_ledger import assert_within_allowance
 
 
 class _Store:
@@ -94,6 +94,9 @@ class _Store:
         self.snapshots: dict[str, SnapshotRecord] = {}
         self.snapshot_members: dict[str, SnapshotMemberRecord] = {}
         self.change_events: dict[str, ChangeEventRecord] = {}
+        self.research_orchestrations: dict[str, ResearchOrchestrationRecord] = {}
+        self.research_cycles: dict[str, ResearchCycleRecord] = {}
+        self.budget_consumptions: dict[str, BudgetConsumptionRecord] = {}
         self.audit_events: dict[str, AuditEventRecord] = {}
         self.open_transactions = 0
         self.set_state_calls = 0
@@ -114,6 +117,19 @@ class _Repo:
 
     def get(self, record_id: str) -> Any | None:
         return self._store.get(record_id)
+
+
+class _IssuedBudgetRepo(_Repo):
+    def __init__(self, store: _Store) -> None:
+        super().__init__(store.issued_budgets)
+        self._root = store
+
+    def list_for_research_run(self, research_run_id: str) -> list[IssuedBudgetRecord]:
+        return [
+            record
+            for record in self._root.issued_budgets.values()
+            if record.research_run_id == research_run_id
+        ]
 
 
 def _id_of(record: Any) -> str:
@@ -181,6 +197,12 @@ def _id_of(record: Any) -> str:
         return f"{record.snapshot_id}:{record.observation_id}"
     if isinstance(record, ChangeEventRecord):
         return record.change_event_id
+    if isinstance(record, ResearchOrchestrationRecord):
+        return record.research_run_id
+    if isinstance(record, ResearchCycleRecord):
+        return record.cycle_id
+    if isinstance(record, BudgetConsumptionRecord):
+        return record.consumption_id
     if isinstance(record, AuditEventRecord):
         return record.audit_event_id
     raise PersistenceError("unknown record identity")
@@ -259,6 +281,13 @@ class _ExecutionAttemptRepo(_Repo):
             record
             for record in self._root.execution_attempts.values()
             if record.experiment_id == experiment_id
+        ]
+
+    def list_for_research_run(self, research_run_id: str) -> list[ExecutionAttemptRecord]:
+        return [
+            record
+            for record in self._root.execution_attempts.values()
+            if record.research_run_id == research_run_id
         ]
 
     def set_state(
@@ -962,6 +991,92 @@ class _ChangeEventRepo(_Repo):
         )
 
 
+class _ResearchOrchestrationRepo:
+    def __init__(self, store: _Store) -> None:
+        self._root = store
+
+    def insert(self, record: ResearchOrchestrationRecord) -> None:
+        if record.research_run_id in self._root.research_orchestrations:
+            raise PersistenceConflictError("duplicate id")
+        self._root.research_orchestrations[record.research_run_id] = record
+
+    def get(self, research_run_id: str) -> ResearchOrchestrationRecord | None:
+        return self._root.research_orchestrations.get(research_run_id)
+
+    def save(self, record: ResearchOrchestrationRecord) -> None:
+        if record.research_run_id not in self._root.research_orchestrations:
+            raise PersistenceError("research_orchestration not found for checkpoint")
+        self._root.research_orchestrations[record.research_run_id] = record
+
+
+class _ResearchCycleRepo(_Repo):
+    def __init__(self, store: _Store, fail_on_insert: bool = False) -> None:
+        super().__init__(store.research_cycles, fail_on_insert=fail_on_insert)
+        self._root = store
+
+    def list_for_research_run(self, research_run_id: str) -> list[ResearchCycleRecord]:
+        return sorted(
+            [
+                record
+                for record in self._root.research_cycles.values()
+                if record.research_run_id == research_run_id
+            ],
+            key=lambda record: record.cycle_number,
+        )
+
+
+class _BudgetConsumptionRepo(_Repo):
+    def __init__(self, store: _Store) -> None:
+        super().__init__(store.budget_consumptions)
+        self._root = store
+
+    def insert_within_allowance(
+        self,
+        record: BudgetConsumptionRecord,
+        issued: IssuedBudgetRecord,
+    ) -> None:
+        del issued
+        locked = self._root.issued_budgets.get(record.budget_id)
+        if locked is None:
+            raise PersistenceError("issued budget not found for consumption")
+        if locked.research_run_id != record.research_run_id:
+            raise PersistenceError("locked budget research_run_id mismatch")
+        existing = self.list_for_budget(record.budget_id)
+        if any(
+            item.request_id == record.request_id
+            and item.resource_type == record.resource_type
+            and record.request_id is not None
+            for item in existing
+        ):
+            return
+        orchestration = None
+        if record.resource_type == "MODEL_CALL":
+            orchestration = self._root.research_orchestrations.get(record.research_run_id)
+            if orchestration is None:
+                raise BudgetOverspendError("MODEL_CALL requires locked orchestration allowance")
+        assert_within_allowance(
+            locked, existing, record, orchestration=orchestration
+        )
+        try:
+            self.insert(record)
+        except PersistenceConflictError:
+            return
+
+    def list_for_budget(self, budget_id: str) -> list[BudgetConsumptionRecord]:
+        return [
+            record
+            for record in self._root.budget_consumptions.values()
+            if record.budget_id == budget_id
+        ]
+
+    def list_for_research_run(self, research_run_id: str) -> list[BudgetConsumptionRecord]:
+        return [
+            record
+            for record in self._root.budget_consumptions.values()
+            if record.research_run_id == research_run_id
+        ]
+
+
 class FakeUnitOfWork:
     def __init__(self, store: _Store | None = None, fail_on: str | None = None) -> None:
         self._store = store or _Store()
@@ -971,7 +1086,7 @@ class FakeUnitOfWork:
         self.programs = _Repo(self._store.programs)
         self.authorization_sources = _Repo(self._store.authorization_sources)
         self.research_runs = _Repo(self._store.research_runs)
-        self.issued_budgets = _Repo(self._store.issued_budgets)
+        self.issued_budgets = _IssuedBudgetRepo(self._store)
         self.hypotheses = _HypothesisRepo(
             self._store, fail_on_insert=fail_on == "hypotheses"
         )
@@ -1050,6 +1165,11 @@ class FakeUnitOfWork:
         self.change_events = _ChangeEventRepo(
             self._store, fail_on_insert=fail_on == "change_events"
         )
+        self.research_orchestrations = _ResearchOrchestrationRepo(self._store)
+        self.research_cycles = _ResearchCycleRepo(
+            self._store, fail_on_insert=fail_on == "research_cycles"
+        )
+        self.budget_consumptions = _BudgetConsumptionRepo(self._store)
         self.audit_events = _Repo(
             self._store.audit_events, fail_on_insert=fail_on == "audit_events"
         )
@@ -1148,6 +1268,12 @@ class FakeUnitOfWork:
         self._store.snapshot_members.update(snapshot.snapshot_members)
         self._store.change_events.clear()
         self._store.change_events.update(snapshot.change_events)
+        self._store.research_orchestrations.clear()
+        self._store.research_orchestrations.update(snapshot.research_orchestrations)
+        self._store.research_cycles.clear()
+        self._store.research_cycles.update(snapshot.research_cycles)
+        self._store.budget_consumptions.clear()
+        self._store.budget_consumptions.update(snapshot.budget_consumptions)
         self._store.audit_events.clear()
         self._store.audit_events.update(snapshot.audit_events)
 

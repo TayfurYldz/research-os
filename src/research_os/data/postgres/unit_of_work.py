@@ -37,6 +37,9 @@ from research_os.data.postgres.repositories import (
     PostgresResearchSelectionRepository,
     PostgresSnapshotRepository,
     PostgresChangeEventRepository,
+    PostgresResearchOrchestrationRepository,
+    PostgresResearchCycleRepository,
+    PostgresBudgetConsumptionRepository,
 )
 
 
@@ -76,6 +79,9 @@ class PostgresUnitOfWork:
         self.research_selections: PostgresResearchSelectionRepository
         self.snapshots: PostgresSnapshotRepository
         self.change_events: PostgresChangeEventRepository
+        self.research_orchestrations: PostgresResearchOrchestrationRepository
+        self.research_cycles: PostgresResearchCycleRepository
+        self.budget_consumptions: PostgresBudgetConsumptionRepository
         self.audit_events: PostgresAuditEventRepository
 
     def __enter__(self) -> PostgresUnitOfWork:
@@ -118,6 +124,11 @@ class PostgresUnitOfWork:
         self.research_selections = PostgresResearchSelectionRepository(self._connection)
         self.snapshots = PostgresSnapshotRepository(self._connection)
         self.change_events = PostgresChangeEventRepository(self._connection)
+        self.research_orchestrations = PostgresResearchOrchestrationRepository(
+            self._connection
+        )
+        self.research_cycles = PostgresResearchCycleRepository(self._connection)
+        self.budget_consumptions = PostgresBudgetConsumptionRepository(self._connection)
         self.audit_events = PostgresAuditEventRepository(self._connection)
         return self
 

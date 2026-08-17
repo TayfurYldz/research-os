@@ -1,1 +1,3 @@
-"""Strix Integration package. Not imported by Research or Core."""
+"""Compatibility shim. Canonical code lives in research_os.integrations.strix."""
+
+from research_os.integrations.strix import *  # noqa: F403

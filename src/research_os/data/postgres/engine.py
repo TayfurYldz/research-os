@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import os
 
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, text
 from sqlalchemy.engine import Engine, make_url
 
 from research_os.data.errors import PersistenceInputError
@@ -85,3 +85,11 @@ def create_sync_engine(url: str) -> Engine:
         hide_parameters=True,
         pool_pre_ping=True,
     )
+
+
+def ping_database(engine: Engine) -> bool:
+    """Connection health only. Does not log credentials."""
+
+    with engine.connect() as connection:
+        connection.execute(text("SELECT 1"))
+    return True

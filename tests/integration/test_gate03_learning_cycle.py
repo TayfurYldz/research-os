@@ -424,7 +424,7 @@ class Gate03LearningCycleTests(unittest.TestCase):
                     )
                 )
             }
-        self.assertEqual(version, "a15_001_exploration_temporal")
+        self.assertEqual(version, "a17_001_qa_remediation")
         self.assertIn("research_admission", tables)
         self.assertIn("experiment_plan", tables)
         self.assertIn("hypothesis_assessment", tables)

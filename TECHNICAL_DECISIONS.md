@@ -7783,6 +7783,408 @@ If Strix is not installed: UNAVAILABLE / PENDING. Architecture tests may still P
 - Persistent budget consumption ledger for Strix execution
 
 
+# Decision 047 — Runtime Routing / Model Selection Policy
+
+Status: **accepted with constraints** (GATE 11)
+
+Date: 2026-08-17
+
+Does not rewrite Decisions 001–046. Does not declare a universal model winner, introduce a weighted magic score, let a model choose itself, or bypass provider/runtime safety refusals.
+
+## Strategy
+
+Routing asks which **configured** runtime should handle this reasoning role. It does not ask which runtime is always best. It does not decide vulnerability truth, scope, authorization, Evidence, Candidate, or Finding.
+
+Policy version: `runtime.routing.v1`.
+
+Research owns the deterministic policy (`select_runtime` / `reconsider_runtime`). Application coordinates and audits. Integrations remain concrete adapters. Core authorization is unchanged. The model is not a routing principal.
+
+## Hard filters
+
+Mandatory constraints are applied before any quality preference. A cheaper or faster runtime cannot bypass them.
+
+Reject when:
+
+- unavailable
+- missing authentication
+- wrong runtime class
+- agent tools not permitted for an inference-only role
+- unrestricted capability exposure
+- side-effect capabilities on the reasoning path
+- no structured-output compatibility when required
+- explicit operator prohibition
+- privacy/locality mismatch (`LOCAL_REQUIRED` vs remote)
+- Strix presented as a ModelRuntime
+- already attempted in this routing episode
+
+## Role-specific routing
+
+Generator and Falsifier are separate `RoutingRequest`s. Architecture permits Runtime A for Generator and Runtime B for Falsifier, or the same runtime for both, based on measured/operator configuration. This is routing-ready architecture, not automatic multi-model hype.
+
+## Preference semantics
+
+After hard filters, compare surviving candidates with ordered Decision 030/031 dimensions:
+
+1. grounding/safety hard failures
+2. research usefulness failures
+3. falsifier quality failures
+4. instability
+5. latency/cost only when actually known for both
+
+No `score = 0.37 quality + 0.22 cost`. Operator preference order, when present, is applied after hard filters and before quality comparison. Quality ties require operator selection unless the operator explicitly allows a stable adapter-id tie-break.
+
+## Fallback
+
+Unavailable-before-invocation may reconsider another configured runtime within `RoutingBudget`.
+
+- `max_runtime_attempts` / `max_fallback_attempts`
+- 0 = no allowance
+- negative is invalid
+
+`CONTENT_POLICY_BLOCKED` records `BLOCKED_POLICY` and does **not** hop to another runtime to evade a safeguard. Route attempts are recorded. There is no infinite fallback loop.
+
+## Agent-runtime handling
+
+Codex CLI and similar `AGENT_RUNTIME`s are not automatically selected for inference-only roles. If an agent runtime is explicitly allowed:
+
+- capability set must be explicit
+- unrestricted tools are rejected
+- side-effect capabilities are disabled on the Research reasoning path
+- authenticated session ≠ Core authorization
+- Research reasoning does not inherit Worker authority
+
+## Provenance
+
+`RuntimeSelectionDecision` records policy version, selected identity if any, considered identities, reason codes, attempted runtimes, and attempt counters. Application writes this to AuditEvent. No secrets. No winner field. No aggregate model score.
+
+## Confidence
+
+**HIGH** that hard filters must precede preference and that policy-block must not bypass.
+
+**HIGH** that routing is not authorization or Finding authority.
+
+**MEDIUM** for later learned preference weights if empirical GATE 04B data justifies them.
+
+## Constraints
+
+1. Do not let the model vote for itself.
+2. Do not introduce a scalar magic score.
+3. Do not select an unavailable runtime.
+4. Do not hop after `CONTENT_POLICY_BLOCKED`.
+5. Do not treat Strix as a ModelRuntime.
+6. Do not scrape credentials to make a runtime look available.
+
+## Revisit triggers
+
+- Empirical calibration of preference order from GATE 04B
+- Explicit OAuth subscription adapter
+- Local-model product transport
+- Persistent routing attempt ledger beyond AuditEvent
+
+
+# Decision 048 — Live Runtime Activation / GATE 04B
+
+Status: **accepted with constraints** (GATE 11)
+
+Date: 2026-08-17
+
+Does not rewrite Decisions 001–047. Does not fabricate availability, auto-install CLIs, clone undocumented tokens, or count Strix as a ModelRuntime.
+
+## Strategy
+
+Discover whatever legitimate runtimes are actually present. If ≥2 ModelRuntime configurations are AVAILABLE, run the existing GATE 04A/04B-PREP harness as a paired comparison. If fewer than 2, GATE 04B remains PENDING. ScriptedModelPort does not count.
+
+## Runtime discovery
+
+Explicit probes only:
+
+- API: SDK + SecretReference + model id
+- SUBSCRIPTION_OAUTH: only if an explicit adapter exists (none in this gate)
+- CLI/session: documented executable + `--version`; no credential scraping
+- LOCAL_MODEL: configured endpoint env only; no localhost scanning
+- EXTERNAL_AGENT: configured endpoint/process only
+- STRIX: executable probe, reported separately, `counts_as_model_runtime=false`
+
+Readiness: `AVAILABLE` / `UNAVAILABLE` / `CONFIGURED_NOT_READY`.
+
+## CLI/session activation
+
+Codex CLI is first-class. If present: documented version, constructed env, `shell=False`, diagnostic capability only, no unrestricted tools, no security execution during benchmark. If absent: UNAVAILABLE. Do not auto-install.
+
+## API/OAuth/local/external handling
+
+API adapters remain composition-root SecretReference based. OAuth is unimplemented and therefore UNAVAILABLE. Local and external contracts remain CONFIGURED_NOT_READY when an endpoint is named but product transport is deferred.
+
+## Benchmark execution
+
+`--discover` prints the matrix. `--discover-and-compare` executes a paired live comparison only when ≥2 ModelRuntime configurations are AVAILABLE. Same suite fingerprint, instruction fingerprints, evaluator versions. Repeated runs required for authoritative PASS. No `WINNER`. Provider/runtime failures stay separated from research quality. Immutable reports unchanged.
+
+## GATE 04B criteria
+
+- **PASS:** ≥2 legitimate real runtime configurations executed comparably with repeated runs and no harness leakage
+- **PENDING:** fewer than 2 available or executed
+- **NEEDS_REVIEW:** leaked/incomparable comparison
+
+Do not weaken this to finish the roadmap. Availability without execution is not PASS.
+
+## Availability reporting
+
+Kind matrix plus per-configuration reasons. Development suite comparison must be labelled development; sealed holdout remains external or UNAVAILABLE and is not unseen generalization.
+
+## Confidence
+
+**HIGH** that GATE 04B must not PASS on one live runtime or on scripted baselines.
+
+**HIGH** that Strix must not contaminate the model comparison.
+
+**MEDIUM** for later OAuth and local-model product activation.
+
+## Constraints
+
+1. Do not fabricate AVAILABLE.
+2. Do not auto-install Codex/Strix.
+3. Do not scrape undocumented credentials.
+4. Do not call a development suite an unseen holdout.
+5. Do not print secrets or `WINNER`.
+6. Do not count Strix as a ModelRuntime configuration.
+
+## Revisit triggers
+
+- Second live runtime actually present in the developer environment
+- Sealed holdout path configured outside the workspace
+- Local-model product transport
+- OAuth subscription adapter
+
+
+
+# Decision 049 — Mature Autonomous Research Orchestration
+
+Status: **accepted with constraints** (GATE 12)
+
+Date: 2026-08-17
+
+Does not rewrite Decisions 001–048. Autonomous != unbounded. This is not `while True: attack()`.
+
+## Strategy
+
+Research OS can repeatedly observe → reason → select → plan → authorize → execute → evaluate → remember under explicit bounded policy. The controller coordinates existing use cases and does not duplicate domain logic. Model output cannot recursively spawn agents; a new hypothesis/experiment becomes explicit domain state and re-enters the same pipeline.
+
+## Ownership
+
+- Research: reasoning, opportunities, hypotheses, invariant/chain/differential semantics, next-direction proposals, orchestration *policy* (`next_cycle_action`)
+- Application: `AutonomousResearchController` — one controller, one ResearchRun
+- Core: authorization / scope / budget / approval only
+- Platform: scheduling/process infrastructure
+- Workers / Strix: execution only, after Core ALLOW
+
+The orchestrator is not inside Research Brain. Research cannot become execution authority. The orchestrator cannot send arbitrary shell strings.
+
+## Controller
+
+Name: **AutonomousResearchController**.
+
+Cycle: reload durable state → ResearchContext (via existing propose path) → select opportunities → generate/falsify/admit where needed → ExperimentPlan → Core authorize → Worker/Integration → Transition A → assessment → Transition B only when the evidence path warrants it → persist checkpoint → CONTINUE / PAUSE / COMPLETE / BLOCKED / REQUIRE_HUMAN_REVIEW.
+
+No shortcut around existing gates. Candidate/Verification/Finding remain separate use cases.
+
+## State machine
+
+Durable `research_orchestration` checkpoint (mutable status) plus append-only `research_cycle`. AuditEvent is not workflow state. PostgreSQL is not a message broker. No giant mutable JSON blob.
+
+States: READY, RUNNING, PAUSED, WAITING_HUMAN, BLOCKED, BUDGET_EXHAUSTED, COMPLETED, FAILED_OPERATIONAL.
+
+FAILED_OPERATIONAL is not a research conclusion. `VULNERABILITY_FOUND` is not an orchestration state. Finding existence is separate domain state and does not automatically stop the run unless policy says so.
+
+## Bounds
+
+Hard limits, required, no unlimited defaults. 0 = no allowance. Negative is invalid.
+
+max cycles, max experiments, max model calls, max Worker invocations, max elapsed duration, max selected opportunities, max chain depth (existing), max runtime fallback, side-effect ceiling, budget ceiling (IssuedBudget + ledger).
+
+## Stop conditions
+
+COMPLETED_NO_MORE_OPPORTUNITIES, BUDGET_EXHAUSTED, MAX_CYCLES_REACHED, MAX_DURATION_REACHED, REQUIRE_HUMAN_REVIEW, NO_COMPATIBLE_RUNTIME, CORE_BLOCKED, OPERATOR_PAUSED, OPERATOR_CANCELLED, OPERATIONAL_FAILURE, CONTENT_POLICY_BLOCKED (no bypass hop).
+
+## Human control
+
+PAUSE / RESUME / CANCEL are permanent. Cancel must not fabricate completed execution. UNKNOWN_OUTCOME must not be treated as “side effect did not occur”. Human Review gates remain mandatory.
+
+## Crash / restart / idempotency
+
+Reload durable state. Do not trust RAM. AUTHORIZED never dispatched may resume the same attempt. DISPATCHING uses existing UNKNOWN_OUTCOME semantics. Do not blindly repeat side-effectful work. Existing per-entity uniqueness prevents duplicate Experiment/Attempt/Observation/Evidence/Candidate/Finding. No global payload-hash dedup.
+
+## Runtime / Strix
+
+Decision 047 routing: the orchestrator asks routing policy; it does not pick “GPT/Codex/Claude”. CONTENT_POLICY_BLOCKED is a normal runtime outcome, not a fallback loop. Strix is invoked only after Core ALLOW, allowlisted capabilities only. Scope change requires Core re-evaluation.
+
+## Confidence
+
+**HIGH** that autonomy must stay bounded and that Core remains the execution gate.
+
+**HIGH** that orchestration state is not Finding state.
+
+**MEDIUM** for later multi-run campaign controllers.
+
+## Constraints
+
+1. Do not put the controller in Research Brain.
+2. Do not give orchestration Core authority.
+3. Do not unbounded-loop.
+4. Do not auto-retry UNKNOWN_OUTCOME.
+5. Do not let models spawn hidden child agents.
+
+## Revisit triggers
+
+- Multi-run campaign controller
+- Non-diagnostic capability packs
+- Automatic Transition B / Candidate creation under explicit policy
+
+
+# Decision 050 — Production Hardening / Operational Readiness
+
+Status: **accepted with constraints** (GATE 13)
+
+Date: 2026-08-17
+
+Does not rewrite Decisions 001–049. GATE 13 PASS is diagnostic operational architecture, not production-ready security research.
+
+## Strategy
+
+Move from “correct in integration tests” toward operationally survivable diagnostic runs. Do not claim PRODUCTION_READY unless operational *and* live-research gates that this environment has not passed actually pass.
+
+## Budget ledger
+
+Append-only `BudgetConsumption` reconstructs usage. IssuedBudget remains the immutable envelope. Resource types: MODEL_CALL, WORKER_INVOCATION, REQUEST, EXECUTION_TIME, ARTIFACT_BYTES. COST is not recorded without an issued cost unit. 0 allowance remains no allowance. Duplicate `(budget_id, request_id, resource_type)` does not double-charge. PostgreSQL uses row lock + ledger sum before insert.
+
+## Secrets
+
+Decision 013 stands. `SecretPort`: SecretReference → resolver. Values never SoR, Evidence, ResearchContext, AuditEvent, or benchmark reports. Adapters: LOCAL_DEV, ENV_REFERENCE. ENV is not a production secret manager. Future: OS credential store / external manager. OAuth/CLI sessions stay runtime-owned; tokens are not copied.
+
+## Runtime supervision
+
+Health: HEALTHY, DEGRADED, UNAVAILABLE, AUTH_REQUIRED, RATE_LIMITED, BLOCKED_POLICY, UNKNOWN. Health != research truth. No secret output.
+
+Strix supervisor: detect/version/invoke envelope, timeout, cancel, bounded output, exit classification, cleanup. Do not auto-install. Unavailable = UNAVAILABLE. No production scanning claim.
+
+Codex CLI supervisor: detect/version/auth readiness, harmless probe, controlled cwd, bounded output, cancel, process classification. Do not scrape private tokens.
+
+SUBSCRIPTION_OAUTH = NOT_IMPLEMENTED. Compatibility/support risk: a future adapter must be explicit and must not clone undocumented Strix subscription backends.
+
+## Observability
+
+Decision 012. Structured events with correlation/run/experiment/request/runtime/cycle/duration/outcome. No secrets. AuditEvent remains separate. Evidence remains separate. In-memory metrics are not authoritative domain state.
+
+## Reconciliation
+
+Classify AUTHORIZED-never-dispatched, DISPATCHING unknown, stale RUNNING checkpoints, runtime unavailable. Resolutions: SAFE_TO_RETRY, UNKNOWN_OUTCOME, REQUIRE_HUMAN_REVIEW, MARK_OPERATIONAL_FAILURE, NO_ACTION. Side-effectful UNKNOWN remains fail-closed. Do not guess external side effects.
+
+## DB / artifact operations
+
+`scripts/research_os_db.py`: migrate to head, schema version, ping. Backup/restore remain operator procedures, not a DBA product. No SQLite fallback.
+
+Local artifact store: bounded paths, no traversal, content hash, atomic write, size limits, evidence-linked delete refusal. Bytes stay off the DB.
+
+## Operator status
+
+`research-os status` prints PostgreSQL, Worker, Model Runtimes (including SUBSCRIPTION_OAUTH=NOT_IMPLEMENTED), Strix, Auth, Orchestrator, Budget, Reconciliation, Observability, GATE 04B, and maturity flags. No secrets.
+
+## Confidence
+
+**HIGH** that GATE 13 must not be called real security validation.
+
+**HIGH** that PRODUCTION_READY stays no while GATE 04B is PENDING and no authorized security target has been exercised.
+
+**MEDIUM** for later external secret managers and OAuth adapters.
+
+## Constraints
+
+1. Do not use a mutable counter as sole budget truth.
+2. Do not put secrets in SoR/logs/context.
+3. Do not scrape OAuth/CLI tokens.
+4. Do not auto-install Strix or Codex.
+5. Do not treat health as a research conclusion.
+6. Do not use AuditEvent as a queue.
+
+## Revisit triggers
+
+- External secret manager adapter
+- Explicit subscription OAuth adapter
+- Production scheduler / process supervisor product
+- Real authorized security-research campaign
+
+
+# Independent QA addendum (2026-08-17)
+
+Independent full-repository QA discovered implementation gaps after GATE 12/13 diagnostic architecture PASS. Decisions 001–050 remain locked history. They are not rewritten as though the defects never existed.
+
+GATE 12 and GATE 13 return to **VALIDATION_PENDING** until the required PostgreSQL, clean-install, and runtime tests actually run. GATE 04B remains PENDING. Do not fabricate PASS.
+
+
+# Decision 051 — Durable Orchestration Recovery
+
+Status: **accepted with constraints** (QA remediation; GATE 12 VALIDATION_PENDING)
+
+Date: 2026-08-17
+
+Does not rewrite Decisions 001–050.
+
+After orchestration creation, `ResearchOrchestrationRecord` is the authoritative configuration. `step`/`resume`/restart reconstruct `EffectiveOrchestrationConfiguration` → `OrchestrationBounds` from the persisted row. Subsequent commands may assert bounds; exact mismatch fails closed. Silent widening is forbidden.
+
+Immutable control fields include max cycles/experiments/model calls/worker invocations/elapsed duration/selected opportunities/runtime fallback, side-effect ceiling, budget id, routing policy version, ResearchRun binding, and scope fingerprint.
+
+A canonical SHA-256 `configuration_fingerprint` is persisted and verified on reload. Fingerprint mismatch is an operational integrity error. The fingerprint is not authorization.
+
+Durable cycle phases are explicit (CYCLE_READY through CYCLE_COMPLETE). Materialized Hypothesis/Experiment/Attempt advancement commits with the corresponding checkpoint where practical. Restart reloads phase first and resumes existing objects. DISPATCHING remains UNKNOWN_OUTCOME. Orphans are classified, never auto-deleted.
+
+
+# Decision 052 — Pre-invocation Budget Enforcement
+
+Status: **accepted with constraints** (QA remediation; GATE 13 VALIDATION_PENDING)
+
+Date: 2026-08-17
+
+Does not rewrite Decision 050.
+
+Every ModelPort `complete()` used by autonomous orchestration reserves one MODEL_CALL on the append-only ledger **before** the external invocation. Generator and Falsifier are separate identities. Failed attempts still consume. Replay of the same invocation identity does not double-charge. A reserved attempt that crashes before the network may conservatively consume one allowance.
+
+MODEL_CALL accounting is independent from Worker REQUEST accounting. Autonomous `max_model_calls` derives only from MODEL_CALL ledger rows.
+
+PostgreSQL `insert_within_allowance` uses the locked issued-budget row (and locked orchestration row for MODEL_CALL) as allowance authority. The caller object is identity/context, not allowance truth.
+
+Typed runtime outcomes are preserved. Generic MODEL_INVOCATION_FAILED is not mapped to CONTENT_POLICY_BLOCKED. CONTENT_POLICY_BLOCKED does not cause safety-bypass runtime hopping.
+
+
+# Decision 053 — Installable Runtime Distribution
+
+Status: **accepted with constraints** (QA remediation; GATE 13 VALIDATION_PENDING)
+
+Date: 2026-08-17
+
+The installed wheel/sdist must not depend on repository-root layout. Concrete integrations live under `research_os.integrations`. The diagnostic Python Worker is invoked as `python -m research_os.worker_runtime.python`. Canonical contracts and development benchmark fixtures are package resources loaded with `importlib.resources`. SEALED_HOLDOUT is not bundled.
+
+Research must not import concrete integrations. Application depends on ports/contracts. Composition root may import integrations.
+
+`scripts/export_source.py` / `research-os export-source` produces a deterministic archive excluding `.git`, `.venv`, secrets, coverage, and runtime artifacts. Clean-install smoke is mandatory for final GATE 13 PASS.
+
+
+# Decision 054 — Runtime Operational Truthfulness
+
+Status: **accepted with constraints** (QA remediation; GATE 13 VALIDATION_PENDING)
+
+Date: 2026-08-17
+
+Readiness is structured: INSTALLED, VERSION_KNOWN, AUTH_READY, DEPENDENCIES_READY, DIAGNOSTIC_READY, MODELPORT_COMPATIBLE, BENCHMARK_COMPATIBLE. One `available=True` is not sufficient. Only BENCHMARK_COMPATIBLE ModelRuntime configurations count toward GATE 04B. ScriptedModelPort never counts. Strix is not a ModelRuntime.
+
+Codex `--version` is not AUTH_READY and not BENCHMARK_COMPATIBLE. A diagnostic adapter that ignores `ModelCallRequest` is not MODELPORT_COMPATIBLE. Documented Codex exec uses stdin prompt, `--sandbox read-only`, structured JSON validation, timeout/cancel, and process-tree supervision. Tokens are not scraped. Codex/Strix are not auto-installed. `SUBSCRIPTION_OAUTH` remains NOT_IMPLEMENTED.
+
+Worker HEALTHY requires a real diagnostic protocol probe. Strix executable without sandbox/dependency readiness is not full HEALTHY.
+
+Secret protection is recursive. Safe opaque `SecretReference` / `SessionReference` values are permitted. Exception serialization omits headers/tokens/bodies.
+
+Process-tree supervision terminates descendants (POSIX process group; Windows Job Object). Operator status uses `RESEARCH_OS_DATABASE_URL` for POSTGRESQL and reports TEST_POSTGRESQL separately. Benchmark provenance records dirty/untracked source; dirty runs are DEVELOPMENT / NON_AUTHORITATIVE.
+
+Provider error classification prefers structured class/code over HTTP-status heuristics. HTTP 403 is not automatically AUTH_FAILED.
+
 
 
 

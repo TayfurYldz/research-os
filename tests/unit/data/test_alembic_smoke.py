@@ -23,6 +23,8 @@ A12_MIGRATION = ALEMBIC_VERSIONS / "a12_001_finding_acceptance.py"
 A13_MIGRATION = ALEMBIC_VERSIONS / "a13_001_target_differential.py"
 A14_MIGRATION = ALEMBIC_VERSIONS / "a14_001_invariant_chain.py"
 A15_MIGRATION = ALEMBIC_VERSIONS / "a15_001_exploration_temporal.py"
+A16_MIGRATION = ALEMBIC_VERSIONS / "a16_001_orchestration_operations.py"
+A17_MIGRATION = ALEMBIC_VERSIONS / "a17_001_qa_remediation.py"
 
 
 def _imported_modules(tree: ast.AST) -> set[str]:
@@ -78,6 +80,9 @@ class AlembicSmokeTests(unittest.TestCase):
                 "snapshot",
                 "snapshot_member",
                 "change_event",
+                "research_orchestration",
+                "research_cycle",
+                "budget_consumption",
             },
         )
         self.assertEqual(set(metadata.tables), names)
@@ -237,6 +242,31 @@ class AlembicSmokeTests(unittest.TestCase):
         a3 = MIGRATION.read_text(encoding="utf-8")
         self.assertNotIn("CREATE TABLE research_opportunity", a3)
         self.assertNotIn("CREATE TABLE snapshot", a3)
+
+    def test_a16_migration_is_append_only_revision(self) -> None:
+        source = A16_MIGRATION.read_text(encoding="utf-8")
+        self.assertIn("a16_001_orchestration_operations", source)
+        self.assertIn("a15_001_exploration_temporal", source)
+        self.assertIn("research_orchestration", source)
+        self.assertIn("research_cycle", source)
+        self.assertIn("budget_consumption", source)
+        self.assertNotIn("create_all", source)
+        a15 = A15_MIGRATION.read_text(encoding="utf-8")
+        self.assertNotIn("CREATE TABLE research_orchestration", a15)
+        self.assertNotIn("CREATE TABLE budget_consumption", a15)
+        a3 = MIGRATION.read_text(encoding="utf-8")
+        self.assertNotIn("CREATE TABLE research_orchestration", a3)
+        self.assertNotIn("CREATE TABLE budget_consumption", a3)
+
+    def test_a17_migration_does_not_edit_a16(self) -> None:
+        source = A17_MIGRATION.read_text(encoding="utf-8")
+        self.assertIn("a17_001_qa_remediation", source)
+        self.assertIn("a16_001_orchestration_operations", source)
+        self.assertIn("configuration_fingerprint", source)
+        self.assertIn("current_phase", source)
+        self.assertNotIn("create_all", source)
+        a16 = A16_MIGRATION.read_text(encoding="utf-8")
+        self.assertNotIn("configuration_fingerprint", a16)
 
 
 if __name__ == "__main__":

@@ -20,6 +20,7 @@ from research_os.data.records import (
     WorkerResultRecord,
 )
 from research_os.research.assessment import (
+    AssessmentOutcome,
     ExperimentEvaluatorRegistry,
     ResearchFeedback,
     default_evaluator_registry,
@@ -63,6 +64,23 @@ class EvaluateExperimentFeedback:
             results = uow.worker_results.list_for_experiment(experiment.experiment_id)
             worker_result = results[0] if results else None
             observations = uow.observations.list_for_experiment(experiment.experiment_id)
+            existing_assessments = uow.hypothesis_assessments.list_for_experiment(
+                experiment.experiment_id
+            )
+            if existing_assessments:
+                record = existing_assessments[0]
+                uow.rollback()
+                outcome = AssessmentOutcome(record.assessment_outcome)
+                return ResearchFeedback(
+                    hypothesis_id=record.hypothesis_id,
+                    experiment_id=record.experiment_id,
+                    assessment_id=record.assessment_id,
+                    assessment_outcome=outcome,
+                    observation_ids=tuple(record.observation_ids),
+                    execution_usable=outcome is not AssessmentOutcome.EXECUTION_UNUSABLE,
+                    evaluation_strategy=record.evaluation_strategy,
+                    research_run_id=record.research_run_id,
+                )
             feedback = reconstruct_experiment_feedback(
                 experiment=experiment,
                 plan=plan,

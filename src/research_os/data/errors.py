@@ -11,3 +11,7 @@ class PersistenceConflictError(PersistenceError):
 
 class PersistenceInputError(PersistenceError):
     """Invalid record passed to a repository. Not a policy decision."""
+
+
+class BudgetOverspendError(PersistenceError):
+    """Append would exceed IssuedBudget. Not a research conclusion."""

@@ -11,6 +11,7 @@ from sqlalchemy.engine import Connection
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 
 from research_os.data.errors import (
+    BudgetOverspendError,
     PersistenceConflictError,
     PersistenceError,
     PersistenceInputError,
@@ -26,6 +27,7 @@ from research_os.data.records import (
     ApprovalRecord,
     AuditEventRecord,
     AuthorizationSourceRecord,
+    BudgetConsumptionRecord,
     CandidateAdmissionRecord,
     CandidateRecord,
     ChainHypothesisRecord,
@@ -46,6 +48,8 @@ from research_os.data.records import (
     ObservationRecord,
     ProgramRecord,
     ResearchAdmissionRecord,
+    ResearchCycleRecord,
+    ResearchOrchestrationRecord,
     ResearchReasoningRecord,
     ResearchRunRecord,
     TargetInferenceRecord,
@@ -58,6 +62,7 @@ from research_os.data.records import (
     SnapshotMemberRecord,
     ChangeEventRecord,
 )
+from research_os.data.budget_ledger import assert_within_allowance
 
 
 T = TypeVar("T")
@@ -210,6 +215,18 @@ class PostgresIssuedBudgetRepository:
             map_row.issued_budget_from_row,
         )
 
+    def list_for_research_run(self, research_run_id: str) -> list[IssuedBudgetRecord]:
+        require_opaque_id(research_run_id, "research_run_id")
+        try:
+            rows = self._connection.execute(
+                select(tables.issued_budget)
+                .where(tables.issued_budget.c.research_run_id == research_run_id)
+                .order_by(tables.issued_budget.c.budget_id)
+            ).mappings().all()
+        except SQLAlchemyError as exc:
+            raise PersistenceError("persistence read failed") from exc
+        return [map_row.issued_budget_from_row(row) for row in rows]
+
 
 class PostgresHypothesisRepository:
     def __init__(self, connection: Connection) -> None:
@@ -356,6 +373,18 @@ class PostgresExecutionAttemptRepository:
                 select(tables.execution_attempt).where(
                     tables.execution_attempt.c.experiment_id == experiment_id
                 )
+            ).mappings().all()
+        except SQLAlchemyError as exc:
+            raise PersistenceError("persistence read failed") from exc
+        return [map_row.execution_attempt_from_row(row) for row in rows]
+
+    def list_for_research_run(self, research_run_id: str) -> list[ExecutionAttemptRecord]:
+        require_opaque_id(research_run_id, "research_run_id")
+        try:
+            rows = self._connection.execute(
+                select(tables.execution_attempt)
+                .where(tables.execution_attempt.c.research_run_id == research_run_id)
+                .order_by(tables.execution_attempt.c.attempt_id)
             ).mappings().all()
         except SQLAlchemyError as exc:
             raise PersistenceError("persistence read failed") from exc
@@ -1707,3 +1736,242 @@ class PostgresAuditEventRepository:
             audit_event_id,
             map_row.audit_event_from_row,
         )
+
+
+class PostgresResearchOrchestrationRepository:
+    def __init__(self, connection: Connection) -> None:
+        self._connection = connection
+
+    def insert(self, record: ResearchOrchestrationRecord) -> None:
+        _execute_write(
+            self._connection,
+            tables.research_orchestration.insert().values(
+                **_orchestration_values(record)
+            ),
+        )
+
+    def get(self, research_run_id: str) -> ResearchOrchestrationRecord | None:
+        require_opaque_id(research_run_id, "research_run_id")
+        return _fetch_one(
+            self._connection,
+            tables.research_orchestration,
+            tables.research_orchestration.c.research_run_id,
+            research_run_id,
+            map_row.research_orchestration_from_row,
+        )
+
+    def save(self, record: ResearchOrchestrationRecord) -> None:
+        require_opaque_id(record.research_run_id, "research_run_id")
+        values = _orchestration_values(record)
+        values.pop("research_run_id")
+        try:
+            result = self._connection.execute(
+                update(tables.research_orchestration)
+                .where(
+                    tables.research_orchestration.c.research_run_id
+                    == record.research_run_id
+                )
+                .values(**values)
+            )
+        except SQLAlchemyError as exc:
+            raise PersistenceError("persistence write failed") from exc
+        if result.rowcount != 1:
+            raise PersistenceError("research_orchestration not found for checkpoint")
+
+
+class PostgresResearchCycleRepository:
+    def __init__(self, connection: Connection) -> None:
+        self._connection = connection
+
+    def insert(self, record: ResearchCycleRecord) -> None:
+        _execute_write(
+            self._connection,
+            tables.research_cycle.insert().values(
+                cycle_id=record.cycle_id,
+                research_run_id=record.research_run_id,
+                cycle_number=record.cycle_number,
+                phase_completed=record.phase_completed,
+                outcome=record.outcome,
+                stop_reason=record.stop_reason,
+                opportunity_id=record.opportunity_id,
+                hypothesis_id=record.hypothesis_id,
+                experiment_id=record.experiment_id,
+                created_at=record.created_at,
+            ),
+        )
+
+    def get(self, cycle_id: str) -> ResearchCycleRecord | None:
+        require_opaque_id(cycle_id, "cycle_id")
+        return _fetch_one(
+            self._connection,
+            tables.research_cycle,
+            tables.research_cycle.c.cycle_id,
+            cycle_id,
+            map_row.research_cycle_from_row,
+        )
+
+    def list_for_research_run(self, research_run_id: str) -> list[ResearchCycleRecord]:
+        require_opaque_id(research_run_id, "research_run_id")
+        try:
+            rows = self._connection.execute(
+                select(tables.research_cycle)
+                .where(tables.research_cycle.c.research_run_id == research_run_id)
+                .order_by(tables.research_cycle.c.cycle_number)
+            ).mappings().all()
+        except SQLAlchemyError as exc:
+            raise PersistenceError("persistence read failed") from exc
+        return [map_row.research_cycle_from_row(row) for row in rows]
+
+
+class PostgresBudgetConsumptionRepository:
+    def __init__(self, connection: Connection) -> None:
+        self._connection = connection
+
+    def insert(self, record: BudgetConsumptionRecord) -> None:
+        _execute_write(
+            self._connection,
+            tables.budget_consumption.insert().values(**_consumption_values(record)),
+        )
+
+    def insert_within_allowance(
+        self,
+        record: BudgetConsumptionRecord,
+        issued: IssuedBudgetRecord,
+    ) -> None:
+        del issued
+        try:
+            locked = self._connection.execute(
+                select(tables.issued_budget)
+                .where(tables.issued_budget.c.budget_id == record.budget_id)
+                .with_for_update()
+            ).mappings().one_or_none()
+        except SQLAlchemyError as exc:
+            raise PersistenceError("persistence read failed") from exc
+        if locked is None:
+            raise PersistenceError("issued budget not found for consumption")
+        mapped_issued = map_row.issued_budget_from_row(locked)
+        if mapped_issued.budget_id != record.budget_id:
+            raise PersistenceError("locked budget id mismatch")
+        if mapped_issued.research_run_id != record.research_run_id:
+            raise PersistenceError("locked budget research_run_id mismatch")
+        existing = self.list_for_budget(record.budget_id)
+        if any(
+            item.request_id == record.request_id
+            and item.resource_type == record.resource_type
+            and record.request_id is not None
+            for item in existing
+        ):
+            return
+        orchestration = None
+        if record.resource_type == "MODEL_CALL":
+            try:
+                orch_row = self._connection.execute(
+                    select(tables.research_orchestration)
+                    .where(
+                        tables.research_orchestration.c.research_run_id
+                        == record.research_run_id
+                    )
+                    .with_for_update()
+                ).mappings().one_or_none()
+            except SQLAlchemyError as exc:
+                raise PersistenceError("persistence read failed") from exc
+            if orch_row is None:
+                raise BudgetOverspendError("MODEL_CALL requires locked orchestration allowance")
+            orchestration = map_row.research_orchestration_from_row(orch_row)
+        assert_within_allowance(
+            mapped_issued, existing, record, orchestration=orchestration
+        )
+        try:
+            self.insert(record)
+        except PersistenceConflictError:
+            return
+
+    def get(self, consumption_id: str) -> BudgetConsumptionRecord | None:
+        require_opaque_id(consumption_id, "consumption_id")
+        return _fetch_one(
+            self._connection,
+            tables.budget_consumption,
+            tables.budget_consumption.c.consumption_id,
+            consumption_id,
+            map_row.budget_consumption_from_row,
+        )
+
+    def list_for_budget(self, budget_id: str) -> list[BudgetConsumptionRecord]:
+        require_opaque_id(budget_id, "budget_id")
+        try:
+            rows = self._connection.execute(
+                select(tables.budget_consumption)
+                .where(tables.budget_consumption.c.budget_id == budget_id)
+                .order_by(tables.budget_consumption.c.consumption_id)
+            ).mappings().all()
+        except SQLAlchemyError as exc:
+            raise PersistenceError("persistence read failed") from exc
+        return [map_row.budget_consumption_from_row(row) for row in rows]
+
+    def list_for_research_run(
+        self, research_run_id: str
+    ) -> list[BudgetConsumptionRecord]:
+        require_opaque_id(research_run_id, "research_run_id")
+        try:
+            rows = self._connection.execute(
+                select(tables.budget_consumption)
+                .where(tables.budget_consumption.c.research_run_id == research_run_id)
+                .order_by(tables.budget_consumption.c.consumption_id)
+            ).mappings().all()
+        except SQLAlchemyError as exc:
+            raise PersistenceError("persistence read failed") from exc
+        return [map_row.budget_consumption_from_row(row) for row in rows]
+
+
+def _orchestration_values(record: ResearchOrchestrationRecord) -> dict[str, object]:
+    return {
+        "research_run_id": record.research_run_id,
+        "state": record.state,
+        "cycle_number": record.cycle_number,
+        "last_phase": record.last_phase,
+        "last_opportunity_id": record.last_opportunity_id,
+        "last_hypothesis_id": record.last_hypothesis_id,
+        "last_experiment_id": record.last_experiment_id,
+        "pause_reason": record.pause_reason,
+        "stop_reason": record.stop_reason,
+        "policy_version": record.policy_version,
+        "max_cycles": record.max_cycles,
+        "max_experiments": record.max_experiments,
+        "max_model_calls": record.max_model_calls,
+        "max_worker_invocations": record.max_worker_invocations,
+        "max_elapsed_ms": record.max_elapsed_ms,
+        "max_selected_opportunities": record.max_selected_opportunities,
+        "max_runtime_fallback": record.max_runtime_fallback,
+        "side_effect_ceiling": record.side_effect_ceiling,
+        "allow_repeated_control_experiments": record.allow_repeated_control_experiments,
+        "budget_id": record.budget_id,
+        "target_reference": record.target_reference,
+        "research_question": record.research_question,
+        "configuration_fingerprint": record.configuration_fingerprint,
+        "current_phase": record.current_phase,
+        "active_cycle_id": record.active_cycle_id,
+        "last_attempt_id": record.last_attempt_id,
+        "last_observation_id": record.last_observation_id,
+        "last_assessment_id": record.last_assessment_id,
+        "last_worker_result_id": record.last_worker_result_id,
+        "routing_policy_version": record.routing_policy_version,
+        "scope_fingerprint": record.scope_fingerprint,
+        "created_at": record.created_at,
+        "updated_at": record.updated_at,
+        "checkpoint_at": record.checkpoint_at,
+    }
+
+
+def _consumption_values(record: BudgetConsumptionRecord) -> dict[str, object]:
+    return {
+        "consumption_id": record.consumption_id,
+        "budget_id": record.budget_id,
+        "research_run_id": record.research_run_id,
+        "experiment_id": record.experiment_id,
+        "request_id": record.request_id,
+        "resource_type": record.resource_type,
+        "amount": record.amount,
+        "unit": record.unit,
+        "occurred_at": record.occurred_at,
+        "provenance": record.provenance,
+    }

@@ -237,7 +237,8 @@ class EvaluateExperimentFeedbackTests(unittest.TestCase):
             EvaluateExperimentFeedbackCommand(experiment_id="exp-1")
         )
         self.assertEqual(first.assessment_outcome, second.assessment_outcome)
-        self.assertEqual(len(store.hypothesis_assessments), 2)
+        self.assertEqual(first.assessment_id, second.assessment_id)
+        self.assertEqual(len(store.hypothesis_assessments), 1)
         self.assertEqual(len(store.evidence), 0)
         self.assertEqual(store.hypotheses["hyp-1"].claim, DIAGNOSTIC_CLAIM)
 

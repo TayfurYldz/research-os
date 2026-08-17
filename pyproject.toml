@@ -22,6 +22,9 @@ anthropic = ["anthropic>=0.49"]
 gemini = ["google-genai>=1.0"]
 models = ["openai>=1.40", "anthropic>=0.49", "google-genai>=1.0"]
 
+[project.scripts]
+research-os = "research_os.interface.cli:main"
+
 [tool.hatch.build.targets.wheel]
 packages = ["src/research_os"]
 
@@ -29,4 +32,11 @@ packages = ["src/research_os"]
 include = [
     "/src/research_os",
     "/docs/README.md",
+]
+exclude = [
+    "/.venv",
+    "/.git",
+    "/var",
+    "/.pytest_cache",
+    "/htmlcov",
 ]

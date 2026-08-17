@@ -166,7 +166,15 @@ class LocalProcessWorkerTests(unittest.TestCase):
         self.assertNotIn("RESEARCH_OS_DATABASE_URL", env)
         self.assertNotIn("RESEARCH_OS_TEST_DATABASE_URL", env)
         self.assertEqual(env["RESEARCH_OS_WORKER_ID"], "local-python-diagnostic")
-        self.assertEqual(env["PYTHONPATH"], str(WORKERS_PYTHON))
+        self.assertIn(str(WORKERS_PYTHON), env["PYTHONPATH"])
+
+    def test_packaged_worker_health_probe_is_healthy(self) -> None:
+        from research_os.platform.health import ComponentHealth
+        from research_os.platform.worker_health import probe_local_python_worker
+
+        check = probe_local_python_worker()
+        self.assertEqual(check.health, ComponentHealth.HEALTHY)
+        self.assertFalse(check.contains_secrets)
 
 
 if __name__ == "__main__":

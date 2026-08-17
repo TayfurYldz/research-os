@@ -885,6 +885,143 @@ change_event = Table(
     ),
 )
 
+research_orchestration = Table(
+    "research_orchestration",
+    metadata,
+    Column("research_run_id", Text, ForeignKey("research_run.research_run_id"), primary_key=True),
+    Column("state", Text, nullable=False),
+    Column("cycle_number", Integer, nullable=False),
+    Column("last_phase", Text, nullable=False),
+    Column("last_opportunity_id", Text, nullable=True),
+    Column("last_hypothesis_id", Text, nullable=True),
+    Column("last_experiment_id", Text, nullable=True),
+    Column("pause_reason", Text, nullable=True),
+    Column("stop_reason", Text, nullable=True),
+    Column("policy_version", Text, nullable=False),
+    Column("max_cycles", Integer, nullable=False),
+    Column("max_experiments", Integer, nullable=False),
+    Column("max_model_calls", Integer, nullable=False),
+    Column("max_worker_invocations", Integer, nullable=False),
+    Column("max_elapsed_ms", Integer, nullable=False),
+    Column("max_selected_opportunities", Integer, nullable=False),
+    Column("max_runtime_fallback", Integer, nullable=False),
+    Column("side_effect_ceiling", Integer, nullable=False),
+    Column("allow_repeated_control_experiments", Boolean, nullable=False),
+    Column("budget_id", Text, nullable=False),
+    Column("target_reference", Text, nullable=False),
+    Column("research_question", Text, nullable=False),
+    Column("configuration_fingerprint", Text, nullable=False),
+    Column("current_phase", Text, nullable=False),
+    Column("active_cycle_id", Text, nullable=True),
+    Column("last_attempt_id", Text, nullable=True),
+    Column("last_observation_id", Text, nullable=True),
+    Column("last_assessment_id", Text, nullable=True),
+    Column("last_worker_result_id", Text, nullable=True),
+    Column("routing_policy_version", Text, nullable=True),
+    Column("scope_fingerprint", Text, nullable=True),
+    Column("created_at", DateTime(timezone=True), nullable=False),
+    Column("updated_at", DateTime(timezone=True), nullable=False),
+    Column("checkpoint_at", DateTime(timezone=True), nullable=False),
+    CheckConstraint(
+        "state IN ("
+        "'READY', 'RUNNING', 'PAUSED', 'WAITING_HUMAN', 'BLOCKED', "
+        "'BUDGET_EXHAUSTED', 'COMPLETED', 'FAILED_OPERATIONAL')",
+        name="ck_research_orchestration_state",
+    ),
+    CheckConstraint("cycle_number >= 0", name="ck_research_orchestration_cycle_number"),
+    CheckConstraint("max_cycles >= 0", name="ck_research_orchestration_max_cycles"),
+    CheckConstraint("max_experiments >= 0", name="ck_research_orchestration_max_experiments"),
+    CheckConstraint("max_model_calls >= 0", name="ck_research_orchestration_max_model_calls"),
+    CheckConstraint(
+        "max_worker_invocations >= 0",
+        name="ck_research_orchestration_max_worker_invocations",
+    ),
+    CheckConstraint("max_elapsed_ms >= 0", name="ck_research_orchestration_max_elapsed_ms"),
+    CheckConstraint(
+        "max_selected_opportunities >= 0",
+        name="ck_research_orchestration_max_selected_opportunities",
+    ),
+    CheckConstraint(
+        "max_runtime_fallback >= 0",
+        name="ck_research_orchestration_max_runtime_fallback",
+    ),
+    CheckConstraint(
+        "side_effect_ceiling IN (0, 1, 2, 3)",
+        name="ck_research_orchestration_side_effect_ceiling",
+    ),
+    CheckConstraint(
+        "current_phase IN ("
+        "'CYCLE_READY', 'OPPORTUNITY_SELECTED', 'HYPOTHESIS_ADMITTED', "
+        "'EXPERIMENT_PLANNED', 'AUTHORIZATION_REQUESTED', 'ATTEMPT_AUTHORIZED', "
+        "'DISPATCHING', 'WORKER_RESULT_RECORDED', 'TRANSITION_A_COMPLETE', "
+        "'ASSESSMENT_COMPLETE', 'TRANSITION_B_COMPLETE', 'CYCLE_COMPLETE')",
+        name="ck_research_orchestration_current_phase",
+    ),
+)
+
+research_cycle = Table(
+    "research_cycle",
+    metadata,
+    Column("cycle_id", Text, primary_key=True),
+    Column("research_run_id", Text, ForeignKey("research_run.research_run_id"), nullable=False),
+    Column("cycle_number", Integer, nullable=False),
+    Column("phase_completed", Text, nullable=False),
+    Column("outcome", Text, nullable=False),
+    Column("stop_reason", Text, nullable=True),
+    Column("opportunity_id", Text, nullable=True),
+    Column("hypothesis_id", Text, nullable=True),
+    Column("experiment_id", Text, nullable=True),
+    Column("created_at", DateTime(timezone=True), nullable=False),
+    UniqueConstraint(
+        "research_run_id",
+        "cycle_number",
+        name="uq_research_cycle_run_number",
+    ),
+    CheckConstraint("cycle_number >= 0", name="ck_research_cycle_number"),
+    CheckConstraint(
+        "outcome IN ("
+        "'CONTINUE', 'PAUSE', 'COMPLETE', 'BLOCKED', 'REQUIRE_HUMAN_REVIEW')",
+        name="ck_research_cycle_outcome",
+    ),
+)
+
+budget_consumption = Table(
+    "budget_consumption",
+    metadata,
+    Column("consumption_id", Text, primary_key=True),
+    Column("budget_id", Text, nullable=False),
+    Column("research_run_id", Text, nullable=False),
+    Column("experiment_id", Text, nullable=True),
+    Column("request_id", Text, nullable=True),
+    Column("resource_type", Text, nullable=False),
+    Column("amount", Integer, nullable=False),
+    Column("unit", Text, nullable=False),
+    Column("occurred_at", DateTime(timezone=True), nullable=False),
+    Column("provenance", Text, nullable=False),
+    ForeignKeyConstraint(
+        ["budget_id", "research_run_id"],
+        ["issued_budget.budget_id", "issued_budget.research_run_id"],
+        name="fk_budget_consumption_issued_budget_same_run",
+    ),
+    UniqueConstraint(
+        "budget_id",
+        "request_id",
+        "resource_type",
+        name="uq_budget_consumption_request_resource",
+    ),
+    CheckConstraint("amount > 0", name="ck_budget_consumption_amount_positive"),
+    CheckConstraint(
+        "resource_type IN ("
+        "'MODEL_CALL', 'WORKER_INVOCATION', 'REQUEST', "
+        "'EXECUTION_TIME', 'ARTIFACT_BYTES', 'COST')",
+        name="ck_budget_consumption_resource_type",
+    ),
+    CheckConstraint(
+        "unit IN ('count', 'milliseconds', 'bytes')",
+        name="ck_budget_consumption_unit",
+    ),
+)
+
 SPINE_TABLES = (
     program,
     authorization_source,
@@ -922,6 +1059,9 @@ SPINE_TABLES = (
     snapshot,
     snapshot_member,
     change_event,
+    research_orchestration,
+    research_cycle,
+    budget_consumption,
 )
 
 APPEND_ONLY_TABLES = (
@@ -950,4 +1090,6 @@ APPEND_ONLY_TABLES = (
     "snapshot",
     "snapshot_member",
     "change_event",
+    "research_cycle",
+    "budget_consumption",
 )

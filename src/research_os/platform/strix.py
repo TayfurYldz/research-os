@@ -86,3 +86,38 @@ class StrixIntegration(Protocol):
     """Replaceable Strix runtime. Implementations must not live in Research or Core."""
 
     def execute(self, request: StrixExecutionRequest) -> StrixExecutionOutcome: ...
+
+
+class StrixProcessClass(Enum):
+    """Process classification. Not Observation and not a research conclusion."""
+
+    COMPLETED = "COMPLETED"
+    UNAVAILABLE = "UNAVAILABLE"
+    TIMED_OUT = "TIMED_OUT"
+    CANCELLED = "CANCELLED"
+    CRASHED = "CRASHED"
+    PROTOCOL_ERROR = "PROTOCOL_ERROR"
+
+
+def classify_strix_process(
+    *,
+    executable_found: bool,
+    exit_code: int | None,
+    timed_out: bool,
+    cancelled: bool,
+) -> StrixProcessClass:
+    """Classify a Strix child process. Does not auto-install Strix."""
+
+    if not executable_found:
+        return StrixProcessClass.UNAVAILABLE
+    if cancelled:
+        return StrixProcessClass.CANCELLED
+    if timed_out:
+        return StrixProcessClass.TIMED_OUT
+    if exit_code is None:
+        return StrixProcessClass.CRASHED
+    if exit_code == 0:
+        return StrixProcessClass.COMPLETED
+    if exit_code < 0:
+        return StrixProcessClass.CRASHED
+    return StrixProcessClass.PROTOCOL_ERROR

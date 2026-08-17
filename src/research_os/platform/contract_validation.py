@@ -1,7 +1,7 @@
 """Runtime Draft 2020-12 validation of canonical Worker contracts.
 
-Loads `contracts/` JSON Schema files. Resolves URN `$id` locally.
-Never fetches schemas from the network. Does not replace `contracts/` as truth.
+Loads packaged `research_os.resources.contracts.v1` JSON Schema files via
+importlib.resources. Resolves URN `$id` locally. Never fetches the network.
 """
 
 from __future__ import annotations
@@ -15,6 +15,8 @@ from jsonschema.validators import Draft202012Validator
 from referencing import Registry, Resource
 from referencing.exceptions import Unresolvable
 from referencing.jsonschema import DRAFT202012
+
+from research_os.platform.package_resources import contract_schema_documents
 
 WORKER_REQUEST_ID = "urn:research-os:contracts:v1:worker-request"
 WORKER_RESULT_ID = "urn:research-os:contracts:v1:worker-result"
@@ -32,33 +34,33 @@ class ContractValidationError(Exception):
     """Instance failed canonical schema or local $ref resolution."""
 
 
-def _repo_root() -> Path:
-    return Path(__file__).resolve().parents[3]
-
-
-def default_contracts_root() -> Path:
-    return _repo_root() / "contracts" / "v1"
-
-
 def _no_network_retrieve(uri: str):
     raise Unresolvable(uri)
 
 
-class ContractValidator:
-    """Draft 2020-12 instance validator over the local URN registry."""
-
-    def __init__(self, contracts_root: Path | None = None) -> None:
-        self._root = contracts_root or default_contracts_root()
-        self._schemas: dict[str, dict[str, Any]] = {}
-        registry: Registry = Registry(retrieve=_no_network_retrieve)
-        for path in sorted(self._root.rglob("*.schema.json")):
+def _load_schema_documents(contracts_root: Path | None) -> dict[str, dict[str, Any]]:
+    if contracts_root is not None:
+        schemas: dict[str, dict[str, Any]] = {}
+        for path in sorted(contracts_root.rglob("*.schema.json")):
             contents = json.loads(path.read_text(encoding="utf-8"))
             schema_id = contents.get("$id")
-            if not isinstance(schema_id, str) or not schema_id.startswith(
-                "urn:research-os:contracts:v1:"
-            ):
+            if isinstance(schema_id, str):
+                schemas[schema_id] = contents
+        return schemas
+    return contract_schema_documents()
+
+
+class ContractValidator:
+    """Draft 2020-12 instance validator over the packaged URN registry."""
+
+    def __init__(self, contracts_root: Path | None = None) -> None:
+        self._root = contracts_root
+        self._schemas: dict[str, dict[str, Any]] = {}
+        registry: Registry = Registry(retrieve=_no_network_retrieve)
+        for schema_id, contents in _load_schema_documents(contracts_root).items():
+            if not schema_id.startswith("urn:research-os:contracts:v1:"):
                 raise ContractValidationError(
-                    f"refusing schema without local v1 $id: {path}"
+                    f"refusing schema without local v1 $id: {schema_id}"
                 )
             self._schemas[schema_id] = contents
             registry = registry.with_resource(

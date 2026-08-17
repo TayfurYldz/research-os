@@ -13,6 +13,7 @@ from typing import Any, Mapping
 
 from research_os.core.enums import ActorType, AuthorizationSourceState
 from research_os.data.errors import PersistenceInputError
+from research_os.safe_data import SecretMaterialError, reject_secret_keys as reject_secret_structure
 
 SECRET_VALUE_KEYS = {
     "token",
@@ -302,11 +303,10 @@ def _reject_secret_keys(payload: Mapping[str, Any] | None, field_name: str) -> N
         return
     if not isinstance(payload, Mapping):
         raise PersistenceInputError(f"{field_name} must be a mapping")
-    found = SECRET_VALUE_KEYS.intersection(payload.keys())
-    if found:
-        raise PersistenceInputError(
-            f"{field_name} must not contain secret-value keys: {sorted(found)}"
-        )
+    try:
+        reject_secret_structure(payload, field_name)
+    except SecretMaterialError as exc:
+        raise PersistenceInputError(str(exc)) from exc
 
 
 def _optional_mapping(
@@ -1663,3 +1663,233 @@ class AuditEventRecord:
         object.__setattr__(self, "payload", dict(self.payload))
         if self.correlation_id is not None:
             require_opaque_id(self.correlation_id, "correlation_id")
+
+
+ALLOWED_ORCHESTRATION_STATES = frozenset(
+    {
+        "READY",
+        "RUNNING",
+        "PAUSED",
+        "WAITING_HUMAN",
+        "BLOCKED",
+        "BUDGET_EXHAUSTED",
+        "COMPLETED",
+        "FAILED_OPERATIONAL",
+    }
+)
+ALLOWED_ORCHESTRATION_PHASES = frozenset(
+    {
+        "CYCLE_READY",
+        "OPPORTUNITY_SELECTED",
+        "HYPOTHESIS_ADMITTED",
+        "EXPERIMENT_PLANNED",
+        "AUTHORIZATION_REQUESTED",
+        "ATTEMPT_AUTHORIZED",
+        "DISPATCHING",
+        "WORKER_RESULT_RECORDED",
+        "TRANSITION_A_COMPLETE",
+        "ASSESSMENT_COMPLETE",
+        "TRANSITION_B_COMPLETE",
+        "CYCLE_COMPLETE",
+    }
+)
+ALLOWED_CYCLE_OUTCOMES = frozenset(
+    {
+        "CONTINUE",
+        "PAUSE",
+        "COMPLETE",
+        "BLOCKED",
+        "REQUIRE_HUMAN_REVIEW",
+    }
+)
+ALLOWED_BUDGET_RESOURCE_TYPES = frozenset(
+    {
+        "MODEL_CALL",
+        "WORKER_INVOCATION",
+        "REQUEST",
+        "EXECUTION_TIME",
+        "ARTIFACT_BYTES",
+        "COST",
+    }
+)
+ALLOWED_BUDGET_UNITS = frozenset(
+    {
+        "count",
+        "milliseconds",
+        "bytes",
+    }
+)
+
+
+@dataclass(frozen=True)
+class ResearchOrchestrationRecord:
+    """Durable checkpoint for one ResearchRun controller. Not AuditEvent workflow state."""
+
+    research_run_id: str
+    state: str
+    cycle_number: int
+    last_phase: str
+    policy_version: str
+    max_cycles: int
+    max_experiments: int
+    max_model_calls: int
+    max_worker_invocations: int
+    max_elapsed_ms: int
+    max_selected_opportunities: int
+    max_runtime_fallback: int
+    side_effect_ceiling: int
+    allow_repeated_control_experiments: bool
+    created_at: datetime
+    updated_at: datetime
+    checkpoint_at: datetime
+    budget_id: str
+    target_reference: str
+    research_question: str
+    configuration_fingerprint: str
+    current_phase: str
+    last_opportunity_id: str | None = None
+    last_hypothesis_id: str | None = None
+    last_experiment_id: str | None = None
+    pause_reason: str | None = None
+    stop_reason: str | None = None
+    active_cycle_id: str | None = None
+    last_attempt_id: str | None = None
+    last_observation_id: str | None = None
+    last_assessment_id: str | None = None
+    last_worker_result_id: str | None = None
+    routing_policy_version: str | None = None
+    scope_fingerprint: str | None = None
+
+    def __post_init__(self) -> None:
+        require_opaque_id(self.research_run_id, "research_run_id")
+        require_opaque_id(self.budget_id, "budget_id")
+        if self.state not in ALLOWED_ORCHESTRATION_STATES:
+            raise PersistenceInputError("state is not an orchestration state")
+        require_non_negative_int(self.cycle_number, "cycle_number")
+        require_non_negative_int(self.max_cycles, "max_cycles")
+        require_non_negative_int(self.max_experiments, "max_experiments")
+        require_non_negative_int(self.max_model_calls, "max_model_calls")
+        require_non_negative_int(self.max_worker_invocations, "max_worker_invocations")
+        require_non_negative_int(self.max_elapsed_ms, "max_elapsed_ms")
+        require_non_negative_int(self.max_selected_opportunities, "max_selected_opportunities")
+        require_non_negative_int(self.max_runtime_fallback, "max_runtime_fallback")
+        if self.side_effect_ceiling not in (0, 1, 2, 3):
+            raise PersistenceInputError("side_effect_ceiling must be 0, 1, 2, or 3")
+        if not isinstance(self.last_phase, str) or not self.last_phase.strip():
+            raise PersistenceInputError("last_phase must be a non-empty string")
+        if self.current_phase not in ALLOWED_ORCHESTRATION_PHASES:
+            raise PersistenceInputError("current_phase is not an orchestration phase")
+        if not isinstance(self.policy_version, str) or not self.policy_version.strip():
+            raise PersistenceInputError("policy_version must be a non-empty string")
+        if not isinstance(self.allow_repeated_control_experiments, bool):
+            raise PersistenceInputError("allow_repeated_control_experiments must be bool")
+        if not isinstance(self.target_reference, str) or not self.target_reference.strip():
+            raise PersistenceInputError("target_reference must be a non-empty string")
+        if not isinstance(self.research_question, str) or not self.research_question.strip():
+            raise PersistenceInputError("research_question must be a non-empty string")
+        if (
+            not isinstance(self.configuration_fingerprint, str)
+            or len(self.configuration_fingerprint) != 64
+        ):
+            raise PersistenceInputError("configuration_fingerprint must be a SHA-256 hex digest")
+        require_aware_datetime(self.created_at, "created_at")
+        require_aware_datetime(self.updated_at, "updated_at")
+        require_aware_datetime(self.checkpoint_at, "checkpoint_at")
+        require_optional_opaque_id(self.last_opportunity_id, "last_opportunity_id")
+        require_optional_opaque_id(self.last_hypothesis_id, "last_hypothesis_id")
+        require_optional_opaque_id(self.last_experiment_id, "last_experiment_id")
+        require_optional_opaque_id(self.active_cycle_id, "active_cycle_id")
+        require_optional_opaque_id(self.last_attempt_id, "last_attempt_id")
+        require_optional_opaque_id(self.last_observation_id, "last_observation_id")
+        require_optional_opaque_id(self.last_assessment_id, "last_assessment_id")
+        require_optional_opaque_id(self.last_worker_result_id, "last_worker_result_id")
+        if self.pause_reason is not None and (
+            not isinstance(self.pause_reason, str) or not self.pause_reason.strip()
+        ):
+            raise PersistenceInputError("pause_reason must be a non-empty string when set")
+        if self.stop_reason is not None and (
+            not isinstance(self.stop_reason, str) or not self.stop_reason.strip()
+        ):
+            raise PersistenceInputError("stop_reason must be a non-empty string when set")
+        if self.routing_policy_version is not None and (
+            not isinstance(self.routing_policy_version, str)
+            or not self.routing_policy_version.strip()
+        ):
+            raise PersistenceInputError("routing_policy_version must be a non-empty string when set")
+        if self.scope_fingerprint is not None and (
+            not isinstance(self.scope_fingerprint, str) or len(self.scope_fingerprint) != 64
+        ):
+            raise PersistenceInputError("scope_fingerprint must be a SHA-256 hex digest when set")
+
+
+@dataclass(frozen=True)
+class ResearchCycleRecord:
+    """Append-only cycle history. Not a message queue and not a Finding."""
+
+    cycle_id: str
+    research_run_id: str
+    cycle_number: int
+    phase_completed: str
+    outcome: str
+    created_at: datetime
+    stop_reason: str | None = None
+    opportunity_id: str | None = None
+    hypothesis_id: str | None = None
+    experiment_id: str | None = None
+
+    def __post_init__(self) -> None:
+        require_opaque_id(self.cycle_id, "cycle_id")
+        require_opaque_id(self.research_run_id, "research_run_id")
+        require_non_negative_int(self.cycle_number, "cycle_number")
+        if not isinstance(self.phase_completed, str) or not self.phase_completed.strip():
+            raise PersistenceInputError("phase_completed must be a non-empty string")
+        if self.outcome not in ALLOWED_CYCLE_OUTCOMES:
+            raise PersistenceInputError("outcome is not a cycle outcome")
+        require_aware_datetime(self.created_at, "created_at")
+        if self.stop_reason is not None and (
+            not isinstance(self.stop_reason, str) or not self.stop_reason.strip()
+        ):
+            raise PersistenceInputError("stop_reason must be a non-empty string when set")
+        require_optional_opaque_id(self.opportunity_id, "opportunity_id")
+        require_optional_opaque_id(self.hypothesis_id, "hypothesis_id")
+        require_optional_opaque_id(self.experiment_id, "experiment_id")
+
+
+@dataclass(frozen=True)
+class BudgetConsumptionRecord:
+    """Append-only consumption ledger row. Not IssuedBudget and not a mutable counter."""
+
+    consumption_id: str
+    budget_id: str
+    research_run_id: str
+    resource_type: str
+    amount: int
+    unit: str
+    occurred_at: datetime
+    provenance: str
+    experiment_id: str | None = None
+    request_id: str | None = None
+
+    def __post_init__(self) -> None:
+        require_opaque_id(self.consumption_id, "consumption_id")
+        require_opaque_id(self.budget_id, "budget_id")
+        require_opaque_id(self.research_run_id, "research_run_id")
+        if self.resource_type not in ALLOWED_BUDGET_RESOURCE_TYPES:
+            raise PersistenceInputError("resource_type is not a budget resource type")
+        if self.unit not in ALLOWED_BUDGET_UNITS:
+            raise PersistenceInputError("unit is not a known budget unit")
+        if not isinstance(self.amount, int) or isinstance(self.amount, bool) or self.amount <= 0:
+            raise PersistenceInputError("amount must be a positive int")
+        require_aware_datetime(self.occurred_at, "occurred_at")
+        if not isinstance(self.provenance, str) or not self.provenance.strip():
+            raise PersistenceInputError("provenance must be a non-empty string")
+        require_optional_opaque_id(self.experiment_id, "experiment_id")
+        require_optional_opaque_id(self.request_id, "request_id")
+        if self.resource_type in {"REQUEST", "MODEL_CALL", "WORKER_INVOCATION"} and self.unit != "count":
+            raise PersistenceInputError("count resources must use unit count")
+        if self.resource_type == "EXECUTION_TIME" and self.unit != "milliseconds":
+            raise PersistenceInputError("EXECUTION_TIME must use milliseconds")
+        if self.resource_type == "ARTIFACT_BYTES" and self.unit != "bytes":
+            raise PersistenceInputError("ARTIFACT_BYTES must use bytes")
+        if self.resource_type == "COST":
+            raise PersistenceInputError("COST is not recorded without an issued cost unit")

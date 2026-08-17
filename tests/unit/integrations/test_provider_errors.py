@@ -1,0 +1,136 @@
+from __future__ import annotations
+
+import unittest
+
+import pathsetup  # noqa: F401
+
+from research_os.integrations.models.cli_session import (
+    CodexCliSessionAdapter,
+    CodexDiagnosticEchoAdapter,
+    probe_codex_cli,
+)
+from research_os.integrations.models.errors import classify_provider_exception
+from research_os.platform.argv_process import ArgvProcessResult, ArgvProcessStatus
+from research_os.platform.readiness import ReadinessStage
+from research_os.research.model_port import (
+    ContentPolicyBlockedError,
+    ModelCallRequest,
+    ModelPortError,
+    ModelRole,
+    ProviderAuthError,
+    ProviderRateLimitError,
+    ProviderRuntimeError,
+)
+from research_os.tools.capabilities import CODEX_DIAGNOSTIC_STRUCTURED_OUTPUT_CAPABILITY
+
+
+class _Structured(Exception):
+    def __init__(self, status: int, code: str, message: str) -> None:
+        super().__init__(message)
+        self.status_code = status
+        self.code = code
+        self.body = {"error": {"code": code, "type": code}}
+
+
+class ProviderErrorClassificationTests(unittest.TestCase):
+    def test_structured_policy_403_is_content_policy(self) -> None:
+        mapped = classify_provider_exception(
+            _Structured(403, "content_policy", "safety refusal")
+        )
+        self.assertIsInstance(mapped, ContentPolicyBlockedError)
+
+    def test_structured_auth_403_is_auth(self) -> None:
+        mapped = classify_provider_exception(
+            _Structured(403, "invalid_api_key", "key rejected")
+        )
+        self.assertIsInstance(mapped, ProviderAuthError)
+
+    def test_429_is_rate_limited(self) -> None:
+        mapped = classify_provider_exception(_Structured(429, "rate_limit_error", "slow down"))
+        self.assertIsInstance(mapped, ProviderRateLimitError)
+
+    def test_unknown_403_is_conservative_runtime(self) -> None:
+        mapped = classify_provider_exception(_Structured(403, "forbidden", "nope"))
+        self.assertIsInstance(mapped, ProviderRuntimeError)
+        self.assertNotIsInstance(mapped, ProviderAuthError)
+
+
+class CodexReadinessTests(unittest.TestCase):
+    def test_version_only_is_not_benchmark_compatible(self) -> None:
+        calls = []
+
+        def runner(argv, stdin_bytes=None):
+            calls.append(argv)
+            if argv[-1] == "--version":
+                return ArgvProcessResult(
+                    status=ArgvProcessStatus.COMPLETED,
+                    argv=argv,
+                    exit_code=0,
+                    stdout="codex-cli 0.0.0",
+                )
+            return ArgvProcessResult(
+                status=ArgvProcessStatus.PROCESS_FAILED,
+                argv=argv,
+                exit_code=1,
+                stderr="not logged in",
+            )
+
+        availability = probe_codex_cli(runner=runner)
+        self.assertIsNotNone(availability.readiness)
+        assert availability.readiness is not None
+        self.assertTrue(availability.readiness.installed)
+        self.assertTrue(availability.readiness.version_known)
+        self.assertFalse(availability.readiness.auth_ready)
+        self.assertFalse(availability.readiness.benchmark_compatible)
+        self.assertEqual(availability.readiness.stage, ReadinessStage.VERSION_KNOWN)
+
+    def test_diagnostic_echo_adapter_is_not_modelport_compatible(self) -> None:
+        adapter = CodexDiagnosticEchoAdapter()
+        self.assertFalse(adapter.MODELPORT_COMPATIBLE)
+        with self.assertRaises(ModelPortError):
+            adapter.complete(
+                ModelCallRequest(
+                    role=ModelRole.GENERATOR,
+                    correlation_id="c1",
+                    context_fingerprint="fp",
+                    instructions="propose",
+                    payload={"note": "ok"},
+                )
+            )
+
+    def test_real_adapter_consumes_request_via_stdin(self) -> None:
+        captured = {}
+
+        def runner(argv, stdin_bytes=None):
+            captured["argv"] = argv
+            captured["stdin"] = stdin_bytes
+            return ArgvProcessResult(
+                status=ArgvProcessStatus.COMPLETED,
+                argv=argv,
+                exit_code=0,
+                stdout='{"ok": true}',
+            )
+
+        adapter = CodexCliSessionAdapter(
+            allowed_capabilities=(CODEX_DIAGNOSTIC_STRUCTURED_OUTPUT_CAPABILITY,),
+            executable="codex",
+            runner=runner,
+        )
+        result = adapter.complete(
+            ModelCallRequest(
+                role=ModelRole.GENERATOR,
+                correlation_id="c1",
+                context_fingerprint="fp",
+                instructions="unique-instruction-text",
+                payload={"note": "payload-marker"},
+            )
+        )
+        self.assertEqual(result.structured_output["ok"], True)
+        self.assertIn(b"unique-instruction-text", captured["stdin"] or b"")
+        self.assertIn(b"payload-marker", captured["stdin"] or b"")
+        self.assertNotIn("unique-instruction-text", captured["argv"])
+        self.assertTrue(adapter.MODELPORT_COMPATIBLE)
+
+
+if __name__ == "__main__":
+    unittest.main()

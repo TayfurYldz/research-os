@@ -4,7 +4,7 @@ Core owns execution **authorization semantics**:
 
 - authorization source eligibility
 - scope decision semantics over pre-evaluated rule matches
-- budget authority / eligibility (no persistent decrement)
+- budget authority / eligibility (IssuedBudget envelope; consumption ledger is Data)
 - human Approval eligibility, including evaluation of a recorded Approval for an explicit subject
 - final `ExecutionDecision`
 
@@ -17,6 +17,7 @@ Core does **not** own:
 - model execution
 - Strix
 - transport
+- model routing / runtime selection (Research policy; not authorization truth)
 - Target Model / differential reasoning / invariant mining / chain composition / exploration selection / temporal snapshots (Research; not authorization truth)
 - model runtime adapters, CLI processes, OAuth sessions, or Strix internals
 

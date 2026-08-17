@@ -7,3 +7,7 @@ class ApplicationError(Exception):
 
 class IngestionRejected(ApplicationError):
     """Invocation/result was not admitted. Not a vulnerability verdict."""
+
+
+class OrchestrationIntegrityError(ApplicationError):
+    """Persisted orchestration configuration or fingerprint is inconsistent."""

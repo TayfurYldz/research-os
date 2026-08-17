@@ -556,6 +556,62 @@ Replaceable ModelRuntime below ModelPort; Strix as Integration only.
 
 **Verify:** unit + contract + `scripts/check_contracts.py` + integration (0 skipped).
 
+## GATE 11 — Runtime Routing Integrity
+
+Research `select_runtime` → Application audit provenance; live discovery may execute GATE 04B if ≥2 ModelRuntime configurations are actually available.
+
+- Hard filters before quality preference; no magic aggregate score
+- Role-specific Generator/Falsifier selection is permitted
+- Bounded fallback; 0 means none; `CONTENT_POLICY_BLOCKED` does not hop
+- Agent runtime is not auto-selected for inference-only roles; unrestricted capabilities rejected
+- Routing provenance is audited; no secrets
+- Unavailable runtime is never selected
+- Strix is not counted as a ModelRuntime
+- GATE 04B PASS still requires ≥2 executed comparable live configurations; discovery alone is not PASS
+- GATE 11 can PASS while GATE 04B remains PENDING
+- No new Alembic; head remains `a15_001_exploration_temporal`
+
+**GATE 11 status: PASS** for architecture (2026-08-17) on real PostgreSQL. GATE 04B remains PENDING unless ≥2 real comparable runtime configurations actually execute. GATE 01–10 remain PASS.
+
+**Verify:** unit + contract + `scripts/check_contracts.py` + `uv run python scripts/run_research_benchmark.py --discover` + integration (0 skipped).
+
+## GATE 12 — Autonomous Orchestration Integrity
+
+`AutonomousResearchController` coordinates existing use cases for one ResearchRun. Autonomous != unbounded.
+
+- Durable `research_orchestration` checkpoint + append-only `research_cycle`
+- Explicit states: READY / RUNNING / PAUSED / WAITING_HUMAN / BLOCKED / BUDGET_EXHAUSTED / COMPLETED / FAILED_OPERATIONAL
+- Hard bounds; 0 = no allowance; `max_cycles=0` executes none
+- PAUSE / RESUME / CANCEL; cancel does not fabricate completed Worker execution
+- Restart reloads durable state; DISPATCHING/UNKNOWN_OUTCOME is not blindly retried
+- Core still gates execution; Research does not execute; no recursive child-agent spawn
+- Finding created is not an orchestration state and does not auto-stop
+- New Alembic `a16_001_orchestration_operations` only; a3–a15 are not edited
+
+**GATE 12 status: PASS** (2026-08-17) on real PostgreSQL 18, including process-kill/restart crash matrix at opportunity selected, hypothesis, experiment, authorization requested, AUTHORIZED, DISPATCHING, WorkerResult, Transition A, and Assessment. DISPATCHING remains UNKNOWN_OUTCOME / human-safe reconciliation. Bounds cannot widen after reload. GATE 04B remains PENDING.
+
+**Verify:** unit + contract + integration including `tests/integration/test_gate12.py` and `tests/integration/test_qa_remediation.py` (0 skipped). Do not mark PASS merely because code was edited.
+
+## GATE 13 — Operational Readiness
+
+Hardening from “correct in integration tests” toward operationally survivable diagnostic architecture.
+
+- Append-only `budget_consumption` ledger; IssuedBudget remains the immutable envelope
+- SecretPort (`ENV_REFERENCE` / `LOCAL_DEV`); values never SoR/Evidence/ResearchContext/AuditEvent
+- Runtime health registry; Strix/Codex supervision without auto-install or token scraping
+- `SUBSCRIPTION_OAUTH = NOT_IMPLEMENTED`
+- Structured observability (not AuditEvent, not Evidence, not domain truth)
+- Bounded reconciliation classifier; side-effectful UNKNOWN remains fail-closed
+- Artifact store path/hash/size/atomic write; evidence-linked artifacts are not silently deleted
+- DB ops: `scripts/research_os_db.py` migrate/version/ping; no SQLite fallback
+- Operator view: `research-os status` / `scripts/research_os_status.py`
+- Bounded endurance test with restart midway
+- Maturity flags: LIVE_MODEL_VALIDATED=no, SECURITY_RESEARCH_VALIDATED=no, PRODUCTION_READY=no while GATE 04B is PENDING
+
+**GATE 13 status: PASS** (2026-08-17) for diagnostic operational readiness: real PostgreSQL MODEL_CALL budget (including concurrent reservation), clean wheel install from an empty CWD, Windows process-tree timeout cleanup, secret redaction, status DB separation, live dirty-tree provenance, worker diagnostic HEALTHY, missing Codex/Strix UNAVAILABLE, `SUBSCRIPTION_OAUTH=NOT_IMPLEMENTED`, Alembic head `a17_001_qa_remediation`. This does **not** mean production-ready autonomous security research. GATE 04B remains PENDING.
+
+**Verify:** unit + contract + `scripts/research_os_status.py status` + `scripts/clean_install_smoke.py` + integration including `tests/integration/test_gate13.py` and `tests/integration/test_endurance.py` (0 skipped). Do not mark PASS merely because code was edited.
+
 ---
 
 ## Research Brain (Research capability — not Core)
@@ -583,7 +639,7 @@ After the first Human Review loop exists and metrics can be read from the SoR:
 
 - chain search (N2)
 - temporal prioritization beyond diagnostic snapshots
-- persistent exploration budget ledger
+- persistent exploration-specific budget ledger beyond IssuedBudget consumption
 - novelty / information-gain factors (conceptual; no fake formula)
 - duplicate reduction (duplicate semantics still an open domain question)
 - empirical calibration of claims (Decision 018 anti-hype metrics)

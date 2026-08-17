@@ -1,18 +1,18 @@
 """Argv process runner for CLI/session runtimes. First transport, not architecture.
 
 Does not import Research. Does not copy database URLs or provider API keys.
-shell=False always.
+Delegates to ProcessTreeSupervisor with shell=False.
 """
 
 from __future__ import annotations
 
 import os
 import shutil
-import subprocess
-import threading
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
+
+from research_os.platform.process_tree import run_supervised
 
 DEFAULT_MAX_STDOUT_BYTES = 1_048_576
 DEFAULT_MAX_STDERR_BYTES = 65_536
@@ -68,6 +68,8 @@ class ArgvProcessResult:
     stderr: str = ""
     stderr_truncated: bool = False
     reason: str | None = None
+    cleanup_failed: bool = False
+    cleanup_reason: str | None = None
 
 
 @dataclass(frozen=True)
@@ -106,29 +108,6 @@ def _decode(data: bytes) -> str:
     return data.decode("utf-8", errors="replace")
 
 
-def _read_stream(stream, max_bytes: int, *, truncate: bool, collected: dict[str, object]) -> None:
-    buf = bytearray()
-    exceeded = False
-    while True:
-        chunk = stream.read(4096)
-        if not chunk:
-            break
-        if len(buf) + len(chunk) > max_bytes:
-            exceeded = True
-            if truncate:
-                remain = max_bytes - len(buf)
-                if remain > 0:
-                    buf.extend(chunk[:remain])
-            while True:
-                extra = stream.read(65536)
-                if not extra:
-                    break
-            break
-        buf.extend(chunk)
-    collected["data"] = bytes(buf)
-    collected["exceeded"] = exceeded
-
-
 def run_argv(
     argv: tuple[str, ...],
     *,
@@ -136,7 +115,7 @@ def run_argv(
     stdin_bytes: bytes | None = None,
     timeout_ms: int | None = None,
 ) -> ArgvProcessResult:
-    """Run one argv vector. Never uses a shell."""
+    """Run one argv vector. Never uses a shell. Terminates the process tree on timeout."""
 
     if not argv or not argv[0].strip():
         return ArgvProcessResult(
@@ -149,14 +128,14 @@ def run_argv(
     env = build_cli_environment(cfg.extra_env)
     cwd = str(cfg.working_directory) if cfg.working_directory is not None else None
     try:
-        process = subprocess.Popen(
-            list(argv),
-            stdin=subprocess.PIPE,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
+        result = run_supervised(
+            argv,
             env=env,
-            shell=False,
             cwd=cwd,
+            stdin_bytes=stdin_bytes,
+            timeout_seconds=timeout / 1000.0,
+            max_stdout_bytes=cfg.max_stdout_bytes,
+            max_stderr_bytes=cfg.max_stderr_bytes,
         )
     except FileNotFoundError:
         return ArgvProcessResult(
@@ -171,87 +150,63 @@ def run_argv(
             reason=str(exc),
         )
 
-    stdout_box: dict[str, object] = {}
-    stderr_box: dict[str, object] = {}
-    assert process.stdout is not None
-    assert process.stderr is not None
-    stdout_thread = threading.Thread(
-        target=_read_stream,
-        args=(process.stdout, cfg.max_stdout_bytes),
-        kwargs={"truncate": False, "collected": stdout_box},
-        daemon=True,
-    )
-    stderr_thread = threading.Thread(
-        target=_read_stream,
-        args=(process.stderr, cfg.max_stderr_bytes),
-        kwargs={"truncate": True, "collected": stderr_box},
-        daemon=True,
-    )
-    stdout_thread.start()
-    stderr_thread.start()
-    try:
-        if stdin_bytes is not None and process.stdin is not None:
-            try:
-                process.stdin.write(stdin_bytes)
-            except OSError:
-                pass
-        if process.stdin is not None:
-            process.stdin.close()
-        try:
-            exit_code = process.wait(timeout=timeout / 1000.0)
-        except subprocess.TimeoutExpired:
-            process.kill()
-            try:
-                process.wait(timeout=1.0)
-            except subprocess.TimeoutExpired:
-                pass
-            stdout_thread.join(timeout=1.0)
-            stderr_thread.join(timeout=1.0)
-            return ArgvProcessResult(
-                status=ArgvProcessStatus.TIMED_OUT,
-                argv=argv,
-                exit_code=process.returncode,
-                stdout=_decode(stdout_box.get("data", b"") or b""),
-                stderr=_decode(stderr_box.get("data", b"") or b""),
-                stderr_truncated=bool(stderr_box.get("exceeded")),
-                reason="process exceeded timeout",
-            )
-        stdout_thread.join(timeout=1.0)
-        stderr_thread.join(timeout=1.0)
-    finally:
-        for pipe in (process.stdin, process.stdout, process.stderr):
-            if pipe is not None:
-                try:
-                    pipe.close()
-                except OSError:
-                    pass
-    stdout_text = _decode(stdout_box.get("data", b"") or b"")
-    stderr_text = _decode(stderr_box.get("data", b"") or b"")
-    if stdout_box.get("exceeded"):
+    stdout_text = _decode(result.stdout)
+    stderr_text = _decode(result.stderr)
+    if result.timed_out:
+        return ArgvProcessResult(
+            status=ArgvProcessStatus.TIMED_OUT,
+            argv=argv,
+            exit_code=result.exit_code,
+            stdout=stdout_text,
+            stderr=stderr_text,
+            stderr_truncated=result.stderr_truncated,
+            reason=result.cleanup_reason or "process exceeded timeout",
+            cleanup_failed=result.cleanup_failed,
+            cleanup_reason=result.cleanup_reason,
+        )
+    if result.cancelled:
+        return ArgvProcessResult(
+            status=ArgvProcessStatus.CANCELLED,
+            argv=argv,
+            exit_code=result.exit_code,
+            stdout=stdout_text,
+            stderr=stderr_text,
+            stderr_truncated=result.stderr_truncated,
+            reason=result.cleanup_reason or "process cancelled",
+            cleanup_failed=result.cleanup_failed,
+            cleanup_reason=result.cleanup_reason,
+        )
+    if result.stdout_truncated:
         return ArgvProcessResult(
             status=ArgvProcessStatus.PROTOCOL_ERROR,
             argv=argv,
-            exit_code=exit_code,
+            exit_code=result.exit_code,
             stdout="",
             stderr=stderr_text,
-            stderr_truncated=bool(stderr_box.get("exceeded")),
+            stderr_truncated=result.stderr_truncated,
             reason="stdout exceeded max_stdout_bytes",
+            cleanup_failed=result.cleanup_failed,
+            cleanup_reason=result.cleanup_reason,
         )
-    if exit_code != 0:
+    if result.exit_code != 0:
         return ArgvProcessResult(
             status=ArgvProcessStatus.PROCESS_FAILED,
             argv=argv,
-            exit_code=exit_code,
+            exit_code=result.exit_code,
             stdout=stdout_text,
             stderr=stderr_text,
-            stderr_truncated=bool(stderr_box.get("exceeded")),
+            stderr_truncated=result.stderr_truncated,
             reason="non-zero exit",
+            cleanup_failed=result.cleanup_failed,
+            cleanup_reason=result.cleanup_reason,
         )
     return ArgvProcessResult(
         status=ArgvProcessStatus.COMPLETED,
         argv=argv,
-        exit_code=exit_code,
+        exit_code=result.exit_code,
         stdout=stdout_text,
         stderr=stderr_text,
-        stderr_truncated=bool(stderr_box.get("exceeded")),
+        stderr_truncated=result.stderr_truncated,
+        cleanup_failed=result.cleanup_failed,
+        cleanup_reason=result.cleanup_reason,
     )

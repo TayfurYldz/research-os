@@ -8,6 +8,7 @@ from research_os.data.ports import (
     ApprovalRepository,
     AuditEventRepository,
     AuthorizationSourceRepository,
+    BudgetConsumptionRepository,
     CandidateAdmissionRepository,
     CandidateRepository,
     ChainHypothesisRepository,
@@ -27,6 +28,8 @@ from research_os.data.ports import (
     ObservationRepository,
     ProgramRepository,
     ResearchAdmissionRepository,
+    ResearchCycleRepository,
+    ResearchOrchestrationRepository,
     ResearchReasoningRepository,
     ResearchRunRepository,
     TargetInferenceRepository,
@@ -72,6 +75,9 @@ class UnitOfWork(Protocol):
     research_selections: ResearchSelectionRepository
     snapshots: SnapshotRepository
     change_events: ChangeEventRepository
+    research_orchestrations: ResearchOrchestrationRepository
+    research_cycles: ResearchCycleRepository
+    budget_consumptions: BudgetConsumptionRepository
     audit_events: AuditEventRepository
 
     def commit(self) -> None: ...

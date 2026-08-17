@@ -63,7 +63,7 @@ class RuntimeAdapterTests(unittest.TestCase):
         adapter = CodexCliSessionAdapter(
             allowed_capabilities=(CODEX_DIAGNOSTIC_STRUCTURED_OUTPUT_CAPABILITY,),
             executable="codex",
-            runner=lambda argv: ArgvProcessResult(
+            runner=lambda argv, stdin_bytes=None: ArgvProcessResult(
                 status=ArgvProcessStatus.UNAVAILABLE, argv=argv, reason="missing"
             ),
         )
@@ -74,7 +74,7 @@ class RuntimeAdapterTests(unittest.TestCase):
         adapter = CodexCliSessionAdapter(
             allowed_capabilities=(CODEX_DIAGNOSTIC_STRUCTURED_OUTPUT_CAPABILITY,),
             executable="codex",
-            runner=lambda argv: ArgvProcessResult(
+            runner=lambda argv, stdin_bytes=None: ArgvProcessResult(
                 status=ArgvProcessStatus.COMPLETED, argv=argv, exit_code=0, stdout="not-json"
             ),
         )
@@ -85,7 +85,7 @@ class RuntimeAdapterTests(unittest.TestCase):
         adapter = CodexCliSessionAdapter(
             allowed_capabilities=(CODEX_DIAGNOSTIC_STRUCTURED_OUTPUT_CAPABILITY,),
             executable="codex",
-            runner=lambda argv: ArgvProcessResult(
+            runner=lambda argv, stdin_bytes=None: ArgvProcessResult(
                 status=ArgvProcessStatus.TIMED_OUT, argv=argv, reason="timeout"
             ),
         )
@@ -96,7 +96,7 @@ class RuntimeAdapterTests(unittest.TestCase):
         adapter = CodexCliSessionAdapter(
             allowed_capabilities=(CODEX_DIAGNOSTIC_STRUCTURED_OUTPUT_CAPABILITY,),
             executable="codex",
-            runner=lambda argv: ArgvProcessResult(
+            runner=lambda argv, stdin_bytes=None: ArgvProcessResult(
                 status=ArgvProcessStatus.PROCESS_FAILED,
                 argv=argv,
                 exit_code=1,

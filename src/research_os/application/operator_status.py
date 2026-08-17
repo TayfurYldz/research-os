@@ -1,0 +1,109 @@
+"""Operator-facing readiness rendering. No secrets. Not research truth."""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from typing import Mapping
+
+from research_os.maturity import (
+    ARCHITECTURE_VALIDATED,
+    DIAGNOSTIC_E2E_VALIDATED,
+    GATE_04B_STATUS,
+    LIVE_MODEL_VALIDATED,
+    PRODUCTION_READY,
+    SECURITY_RESEARCH_VALIDATED,
+)
+
+
+@dataclass(frozen=True)
+class OperatorStatusSnapshot:
+    postgresql: str
+    worker: Mapping[str, str]
+    model_runtimes: Mapping[str, str]
+    strix: str
+    auth: str
+    orchestrator: str
+    budget_ledger: str
+    reconciliation: str
+    observability: str
+    gate_04b: str = GATE_04B_STATUS
+    test_postgresql: str = "not configured"
+    application_dsn: str = "unset"
+    test_dsn: str = "unset"
+
+    def __post_init__(self) -> None:
+        for name in (
+            "postgresql",
+            "test_postgresql",
+            "application_dsn",
+            "test_dsn",
+            "strix",
+            "auth",
+            "orchestrator",
+            "budget_ledger",
+            "reconciliation",
+            "observability",
+        ):
+            value = getattr(self, name)
+            if not isinstance(value, str) or not value.strip():
+                raise ValueError(f"{name} must be a non-empty string")
+        lowered = " ".join(
+            [
+                self.postgresql,
+                self.test_postgresql,
+                self.application_dsn,
+                self.test_dsn,
+                self.strix,
+                self.auth,
+                *self.worker.values(),
+                *self.model_runtimes.values(),
+            ]
+        ).lower()
+        for marker in ("sk-", "token=", "password", "api_key", "secret_value"):
+            if marker in lowered:
+                raise ValueError("operator status must not contain secret material")
+
+
+def render_operator_status(snapshot: OperatorStatusSnapshot) -> str:
+    worker_lines = "\n".join(
+        f"  {name}: {health}" for name, health in snapshot.worker.items()
+    )
+    runtime_lines = "\n".join(
+        f"  {name}: {health}" for name, health in snapshot.model_runtimes.items()
+    )
+    return "\n".join(
+        [
+            "ARCHITECTURE:",
+            "  Decisions 001-050 accepted with GATE 01-13 diagnostic architecture",
+            "POSTGRESQL:",
+            f"  {snapshot.postgresql}",
+            f"  dsn: {snapshot.application_dsn}",
+            "TEST_POSTGRESQL:",
+            f"  {snapshot.test_postgresql}",
+            f"  dsn: {snapshot.test_dsn}",
+            "WORKER:",
+            worker_lines or "  none",
+            "MODEL RUNTIMES:",
+            runtime_lines or "  none",
+            "STRIX:",
+            f"  {snapshot.strix}",
+            "AUTH:",
+            f"  {snapshot.auth}",
+            "ORCHESTRATOR:",
+            f"  {snapshot.orchestrator}",
+            "BUDGET LEDGER:",
+            f"  {snapshot.budget_ledger}",
+            "RECONCILIATION:",
+            f"  {snapshot.reconciliation}",
+            "OBSERVABILITY:",
+            f"  {snapshot.observability}",
+            "GATE 04B:",
+            f"  {snapshot.gate_04b}",
+            "MATURITY:",
+            f"  ARCHITECTURE_VALIDATED: {ARCHITECTURE_VALIDATED}",
+            f"  DIAGNOSTIC_E2E_VALIDATED: {DIAGNOSTIC_E2E_VALIDATED}",
+            f"  LIVE_MODEL_VALIDATED: {LIVE_MODEL_VALIDATED}",
+            f"  SECURITY_RESEARCH_VALIDATED: {SECURITY_RESEARCH_VALIDATED}",
+            f"  PRODUCTION_READY: {PRODUCTION_READY}",
+        ]
+    )

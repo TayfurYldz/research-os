@@ -80,6 +80,7 @@ class ArchitectureBoundaryTests(unittest.TestCase):
                     "research_os.application",
                     "research_os.research",
                     "research_os.benchmark",
+                    "research_os.integrations",
                 ),
             ),
             [],
@@ -111,6 +112,7 @@ class ArchitectureBoundaryTests(unittest.TestCase):
                     "research_os.platform",
                     "research_os.application",
                     "research_os.benchmark",
+                    "research_os.integrations",
                     "google.generativeai",
                     "google.genai",
                 ),
@@ -131,6 +133,7 @@ class ArchitectureBoundaryTests(unittest.TestCase):
                     "research_os.workers",
                     "research_os.benchmark",
                     "integrations",
+                    "research_os.integrations",
                     "google.generativeai",
                     "google.genai",
                 ),
@@ -151,6 +154,7 @@ class ArchitectureBoundaryTests(unittest.TestCase):
                     "research_os.application",
                     "research_os.workers",
                     "research_os.platform",
+                    "research_os.integrations",
                     "google.generativeai",
                     "google.genai",
                 ),
@@ -174,6 +178,20 @@ class ArchitectureBoundaryTests(unittest.TestCase):
                 WORKERS_DIR,
                 forbidden_roots=PERSISTENCE_LIBS + SCHEMA_LIBS + ("research_os",),
                 forbidden_prefixes=("research_os.data", "research_os.application"),
+            ),
+            [],
+        )
+        self.assertEqual(
+            _violations(
+                SRC_ROOT / "worker_runtime",
+                forbidden_roots=PERSISTENCE_LIBS + SCHEMA_LIBS,
+                forbidden_prefixes=(
+                    "research_os.data",
+                    "research_os.application",
+                    "research_os.core",
+                    "research_os.research",
+                    "research_os.integrations",
+                ),
             ),
             [],
         )
@@ -224,7 +242,7 @@ class ArchitectureBoundaryTests(unittest.TestCase):
         self.assertEqual(found, [])
 
     def test_strix_adapter_does_not_import_data_or_core(self) -> None:
-        path = REPO_ROOT / "integrations" / "strix" / "adapter.py"
+        path = SRC_ROOT / "integrations" / "strix" / "adapter.py"
         tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
         found = []
         for name in _imported_modules(tree):
@@ -234,8 +252,8 @@ class ArchitectureBoundaryTests(unittest.TestCase):
 
     def test_agent_runtime_adapters_do_not_import_core(self) -> None:
         paths = [
-            REPO_ROOT / "integrations" / "models" / "cli_session.py",
-            REPO_ROOT / "integrations" / "models" / "external_agent.py",
+            SRC_ROOT / "integrations" / "models" / "cli_session.py",
+            SRC_ROOT / "integrations" / "models" / "external_agent.py",
         ]
         found = []
         for path in paths:

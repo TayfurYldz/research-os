@@ -36,6 +36,9 @@ Hypothesis / Experiment
 + ResearchSelectionRecord (append-only selection decision; not Core ALLOW)
 + SnapshotRecord / SnapshotMemberRecord (immutable point-in-time references; not a full SoR copy)
 + ChangeEventRecord (append-only deterministic delta; not Evidence and not a vulnerability)
++ ResearchOrchestrationRecord (mutable checkpoint for one ResearchRun controller; not a Finding)
++ ResearchCycleRecord (append-only cycle history; not a message queue)
++ BudgetConsumptionRecord (append-only usage ledger; not IssuedBudget)
 ```
 
 This is **not** a database copy of DOMAIN_MODEL.md.
@@ -90,6 +93,9 @@ This is **not** a database copy of DOMAIN_MODEL.md.
 - `research_selection` is append-only policy decision provenance. SELECT is not Core ALLOW.
 - `snapshot` / `snapshot_member` are immutable point-in-time observation references. They are not a second SoR and not a vulnerability picture.
 - `change_event` is append-only deterministic snapshot delta. Inserting it does not create Evidence, Candidate, or Finding. Snapshot retention/compaction is deferred and must never delete Evidence/Verification/Finding provenance.
+- `research_orchestration` is the durable controller checkpoint for one ResearchRun. It is not AuditEvent workflow state and not a Finding.
+- `research_cycle` is append-only cycle history. PostgreSQL is not a message broker.
+- `budget_consumption` is append-only usage. IssuedBudget remains the immutable envelope. Replay of the same request/resource must not double-charge.
 - WorkerResult stores first-class request-envelope provenance (`request_id`, correlation, capability/action, authorization decision reference, budget reference). `request_id` is unique (idempotency). Correlation is not JSON-only.
 - IssuedBudget is immutable after insert (0 = no allowance).
 - AuditEvent is append-only reconstructive history, not Evidence, not a log substitute, and not a dispatch queue.

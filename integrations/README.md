@@ -17,7 +17,9 @@ Research, Core, Application, and the benchmark package must not import provider 
 
 Missing SDK, credential, or CLI is **UNAVAILABLE**, not a benchmark failure and not a research-quality failure. Secrets/session material are composition-root references and must not enter ResearchContext, ModelCallRequest content, SoR, logs, or benchmark reports. Do not scrape undocumented credentials from another application.
 
-Same underlying model through API vs CLI is two different runtime identities. GATE 04B comparative PASS still requires >=2 real comparable runtime configurations.
+Same underlying model through API vs CLI is two different runtime identities. GATE 04B comparative PASS still requires >=2 real comparable runtime configurations actually executed. `--discover` / `--discover-and-compare` report availability without fabricating PASS. Strix is not a ModelRuntime configuration.
+
+Discovery lives in `models/discovery.py`. It does not scan localhost, clone undocumented OAuth tokens, or auto-install CLIs. States: AVAILABLE / UNAVAILABLE / CONFIGURED_NOT_READY.
 
 ## `strix/`
 

@@ -13,6 +13,8 @@ from enum import Enum
 from typing import Any, Mapping
 
 from research_os.research.types import ResearchInputError
+from research_os.safe_data import SecretMaterialError
+from research_os.safe_data import reject_secret_keys as reject_secret_structure
 
 RUNTIME_SECRET_KEYS = frozenset(
     {
@@ -78,15 +80,12 @@ def _require_text(value: object, field_name: str) -> str:
 def reject_secret_keys(payload: Mapping[str, Any], field_name: str) -> dict[str, Any]:
     if not isinstance(payload, Mapping):
         raise ResearchInputError(f"{field_name} must be a mapping")
-    found = RUNTIME_SECRET_KEYS.intersection(key.lower() for key in payload.keys())
-    if found:
-        raise ResearchInputError(f"{field_name} must not contain secret keys: {sorted(found)}")
-    cleaned: dict[str, Any] = {}
-    for key, value in payload.items():
-        if isinstance(value, Mapping):
-            cleaned[key] = reject_secret_keys(value, f"{field_name}.{key}")
-        else:
-            cleaned[key] = value
+    try:
+        cleaned = reject_secret_structure(payload, field_name)
+    except SecretMaterialError as exc:
+        raise ResearchInputError(str(exc)) from exc
+    if not isinstance(cleaned, dict):
+        raise ResearchInputError(f"{field_name} must be a mapping")
     return cleaned
 
 

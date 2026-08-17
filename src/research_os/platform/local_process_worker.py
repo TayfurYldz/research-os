@@ -1,4 +1,7 @@
-"""One-shot local process Worker adapter. First transport, not architecture."""
+"""One-shot local process Worker adapter. First transport, not architecture.
+
+Process-tree supervision uses shell=False. Timeout/cancel terminates descendants.
+"""
 
 from __future__ import annotations
 
@@ -16,6 +19,7 @@ from research_os.platform.contract_validation import (
     ContractValidationError,
     ContractValidator,
 )
+from research_os.platform.process_tree import release_supervision, spawn_supervised, terminate_tree
 from research_os.platform.worker import InvocationStatus, WorkerInvocationOutcome
 
 DEFAULT_MAX_STDOUT_BYTES = 1_048_576
@@ -54,30 +58,54 @@ def _utc_now() -> datetime:
     return datetime.now(timezone.utc)
 
 
-def _repo_root() -> Path:
-    return Path(__file__).resolve().parents[3]
+PACKAGED_WORKER_MODULE = "research_os.worker_runtime.python"
 
 
 @dataclass(frozen=True)
 class LocalProcessWorkerConfig:
     worker_id: str = "local-python-diagnostic"
     python_executable: str = sys.executable
-    workers_python_path: Path = _repo_root() / "workers" / "python"
-    module: str = "research_os_worker"
+    workers_python_path: Path | None = None
+    module: str = PACKAGED_WORKER_MODULE
     max_stdout_bytes: int = DEFAULT_MAX_STDOUT_BYTES
     max_stderr_bytes: int = DEFAULT_MAX_STDERR_BYTES
     default_timeout_ms: int = DEFAULT_TIMEOUT_MS
     argv_override: tuple[str, ...] | None = None
+    working_directory: Path | None = None
 
 
-def build_worker_environment(pythonpath: Path, worker_id: str) -> dict[str, str]:
+def checkout_src_pythonpath() -> Path | None:
+    """If running from a source checkout, return src/ so the child can import research_os.
+
+    Installed wheels already have the package on sys.path and return None.
+    """
+
+    import research_os
+
+    root = Path(research_os.__file__).resolve().parent.parent
+    if root.name == "src" and (root / "research_os").is_dir():
+        return root
+    return None
+
+
+def build_worker_environment(
+    pythonpath: Path | None,
+    worker_id: str,
+) -> dict[str, str]:
     """Explicit child env. Does not copy application secrets or database URLs."""
     env: dict[str, str] = {}
     for key in PASSTHROUGH_ENV:
         value = os.environ.get(key)
         if value:
             env[key] = value
-    env["PYTHONPATH"] = str(pythonpath)
+    resolved_parts: list[str] = []
+    if pythonpath is not None:
+        resolved_parts.append(str(pythonpath))
+    checkout = checkout_src_pythonpath()
+    if checkout is not None and str(checkout) not in resolved_parts:
+        resolved_parts.append(str(checkout))
+    if resolved_parts:
+        env["PYTHONPATH"] = os.pathsep.join(resolved_parts)
     env["PYTHONIOENCODING"] = "utf-8"
     env["PYTHONUTF8"] = "1"
     env["RESEARCH_OS_WORKER_ID"] = worker_id
@@ -175,17 +203,19 @@ class LocalProcessWorkerAdapter:
             self._config.workers_python_path, self._config.worker_id
         )
         payload = json.dumps(request, separators=(",", ":")).encode("utf-8")
+        cwd = (
+            str(self._config.working_directory)
+            if self._config.working_directory is not None
+            else (
+                str(self._config.workers_python_path)
+                if self._config.workers_python_path is not None
+                else None
+            )
+        )
 
         try:
-            process = subprocess.Popen(
-                argv,
-                stdin=subprocess.PIPE,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                env=env,
-                shell=False,
-                cwd=str(self._config.workers_python_path),
-            )
+            supervised = spawn_supervised(argv, env=env, cwd=cwd)
+            process = supervised.process
         except OSError as exc:
             return WorkerInvocationOutcome(
                 invocation_status=InvocationStatus.START_FAILED,
@@ -218,13 +248,13 @@ class LocalProcessWorkerAdapter:
                 process.stdin.write(payload)
                 process.stdin.close()
             except OSError:
-                self._terminate(process)
+                terminate_tree(supervised)
 
             timeout_s = effective_timeout / 1000.0
             try:
                 exit_code = process.wait(timeout=timeout_s)
             except subprocess.TimeoutExpired:
-                self._terminate(process)
+                terminate_tree(supervised)
                 stdout_thread.join(timeout=1.0)
                 stderr_thread.join(timeout=1.0)
                 return WorkerInvocationOutcome(
@@ -241,6 +271,7 @@ class LocalProcessWorkerAdapter:
             stderr_thread.join(timeout=1.0)
         finally:
             self._close_pipes(process)
+            release_supervision(supervised)
         completed = _utc_now()
         stderr_text = _decode(stderr_box.get("data", b"") or b"")
         stderr_truncated = bool(stderr_box.get("exceeded"))
@@ -357,13 +388,3 @@ class LocalProcessWorkerAdapter:
                 stream.close()
             except OSError:
                 pass
-
-    def _terminate(self, process: subprocess.Popen[bytes]) -> None:
-        if process.poll() is not None:
-            return
-        process.terminate()
-        try:
-            process.wait(timeout=1.0)
-        except subprocess.TimeoutExpired:
-            process.kill()
-            process.wait(timeout=1.0)

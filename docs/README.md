@@ -10,4 +10,4 @@ Constitutional documents stay at the repository root:
 - `TECHNICAL_REQUIREMENTS.md`
 - `TECHNICAL_DECISIONS.md`
 - `REPOSITORY_LAYOUT.md`
-- `IMPLEMENTATION_PLAN.md`
+- `docs/OPERATIONS.md`

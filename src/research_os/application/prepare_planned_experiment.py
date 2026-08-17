@@ -11,6 +11,7 @@ from research_os.application.errors import ApplicationError
 from research_os.application.plan_records import experiment_plan_record_for
 from research_os.application.ports import Clock, SystemClock, UnitOfWorkFactory
 from research_os.data.records import ExperimentExecutionState, ExperimentRecord
+from research_os.data.unit_of_work import UnitOfWork
 from research_os.research.types import ExperimentPlan
 
 
@@ -39,11 +40,15 @@ class PreparePlannedExperiment:
         self._clock = clock or SystemClock()
 
     def execute(
-        self, command: PreparePlannedExperimentCommand
+        self,
+        command: PreparePlannedExperimentCommand,
+        *,
+        unit_of_work: UnitOfWork | None = None,
     ) -> PreparePlannedExperimentResult:
         now = self._clock.now()
         plan = command.plan
-        with self._uow_factory.open() as uow:
+
+        def _write(uow: UnitOfWork) -> PreparePlannedExperimentResult:
             run = uow.research_runs.get(command.research_run_id)
             if run is None:
                 raise ApplicationError("research run not found")
@@ -53,21 +58,29 @@ class PreparePlannedExperiment:
             budget = uow.issued_budgets.get(plan.requested_budget_id)
             if budget is None or budget.research_run_id != command.research_run_id:
                 raise ApplicationError("issued budget not found for research run")
-            experiment = ExperimentRecord(
+            existing = uow.experiments.get(command.experiment_id)
+            if existing is None:
+                experiment = ExperimentRecord(
+                    experiment_id=command.experiment_id,
+                    research_run_id=command.research_run_id,
+                    hypothesis_id=plan.hypothesis_id,
+                    budget_id=plan.requested_budget_id,
+                    execution_state=ExperimentExecutionState.PLANNED.value,
+                    created_at=now,
+                )
+                uow.experiments.insert(experiment)
+                uow.experiment_plans.insert(
+                    experiment_plan_record_for(experiment, plan, created_at=now)
+                )
+            return PreparePlannedExperimentResult(
                 experiment_id=command.experiment_id,
-                research_run_id=command.research_run_id,
                 hypothesis_id=plan.hypothesis_id,
-                budget_id=plan.requested_budget_id,
-                execution_state=ExperimentExecutionState.PLANNED.value,
-                created_at=now,
+                evaluation_strategy=plan.evaluation_strategy,
             )
-            uow.experiments.insert(experiment)
-            uow.experiment_plans.insert(
-                experiment_plan_record_for(experiment, plan, created_at=now)
-            )
-            uow.commit()
-        return PreparePlannedExperimentResult(
-            experiment_id=command.experiment_id,
-            hypothesis_id=plan.hypothesis_id,
-            evaluation_strategy=plan.evaluation_strategy,
-        )
+
+        if unit_of_work is None:
+            with self._uow_factory.open() as uow:
+                result = _write(uow)
+                uow.commit()
+            return result
+        return _write(unit_of_work)

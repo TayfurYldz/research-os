@@ -38,6 +38,9 @@ from research_os.data.records import (
     SnapshotRecord,
     SnapshotMemberRecord,
     ChangeEventRecord,
+    ResearchOrchestrationRecord,
+    ResearchCycleRecord,
+    BudgetConsumptionRecord,
 )
 
 
@@ -588,4 +591,76 @@ def change_event_from_row(row: Mapping[str, Any]) -> ChangeEventRecord:
         source_refs=_id_tuple(data["source_refs"]),
         strategy_version=data["strategy_version"],
         created_at=data["created_at"],
+    )
+
+
+def research_orchestration_from_row(row: Mapping[str, Any]) -> ResearchOrchestrationRecord:
+    data = _mapping(row)
+    return ResearchOrchestrationRecord(
+        research_run_id=data["research_run_id"],
+        state=data["state"],
+        cycle_number=data["cycle_number"],
+        last_phase=data["last_phase"],
+        last_opportunity_id=data["last_opportunity_id"],
+        last_hypothesis_id=data["last_hypothesis_id"],
+        last_experiment_id=data["last_experiment_id"],
+        pause_reason=data["pause_reason"],
+        stop_reason=data["stop_reason"],
+        policy_version=data["policy_version"],
+        max_cycles=data["max_cycles"],
+        max_experiments=data["max_experiments"],
+        max_model_calls=data["max_model_calls"],
+        max_worker_invocations=data["max_worker_invocations"],
+        max_elapsed_ms=data["max_elapsed_ms"],
+        max_selected_opportunities=data["max_selected_opportunities"],
+        max_runtime_fallback=data["max_runtime_fallback"],
+        side_effect_ceiling=data["side_effect_ceiling"],
+        allow_repeated_control_experiments=bool(data["allow_repeated_control_experiments"]),
+        created_at=data["created_at"],
+        updated_at=data["updated_at"],
+        checkpoint_at=data["checkpoint_at"],
+        budget_id=data["budget_id"],
+        target_reference=data["target_reference"],
+        research_question=data["research_question"],
+        configuration_fingerprint=data["configuration_fingerprint"],
+        current_phase=data["current_phase"],
+        active_cycle_id=data["active_cycle_id"],
+        last_attempt_id=data["last_attempt_id"],
+        last_observation_id=data["last_observation_id"],
+        last_assessment_id=data["last_assessment_id"],
+        last_worker_result_id=data["last_worker_result_id"],
+        routing_policy_version=data["routing_policy_version"],
+        scope_fingerprint=data["scope_fingerprint"],
+    )
+
+
+def research_cycle_from_row(row: Mapping[str, Any]) -> ResearchCycleRecord:
+    data = _mapping(row)
+    return ResearchCycleRecord(
+        cycle_id=data["cycle_id"],
+        research_run_id=data["research_run_id"],
+        cycle_number=data["cycle_number"],
+        phase_completed=data["phase_completed"],
+        outcome=data["outcome"],
+        stop_reason=data["stop_reason"],
+        opportunity_id=data["opportunity_id"],
+        hypothesis_id=data["hypothesis_id"],
+        experiment_id=data["experiment_id"],
+        created_at=data["created_at"],
+    )
+
+
+def budget_consumption_from_row(row: Mapping[str, Any]) -> BudgetConsumptionRecord:
+    data = _mapping(row)
+    return BudgetConsumptionRecord(
+        consumption_id=data["consumption_id"],
+        budget_id=data["budget_id"],
+        research_run_id=data["research_run_id"],
+        experiment_id=data["experiment_id"],
+        request_id=data["request_id"],
+        resource_type=data["resource_type"],
+        amount=data["amount"],
+        unit=data["unit"],
+        occurred_at=data["occurred_at"],
+        provenance=data["provenance"],
     )

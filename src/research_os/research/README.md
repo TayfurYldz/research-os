@@ -21,6 +21,8 @@ Types:
 - `ResearchOpportunity` / `select_research_opportunities` — GATE 09. Exploration/exploitation policy. Priority is not truth, authorization, or Evidence. Selection is not Core ALLOW.
 - `ResearchSnapshot` / `ChangeEvent` — GATE 09. Temporal Intelligence. Change is not a vulnerability. TIME differentials require snapshot provenance.
 - `ModelRuntimeIdentity` / `RuntimeOutcome` — GATE 10. Runtime classification and operational outcomes. Not a provider SDK and not process execution.
+- `RuntimeSelectionDecision` / `select_runtime` — GATE 11. Role-specific routing policy. Hard filters before preference. Not a magic model score and not Core authorization.
+- `OrchestrationBounds` / `next_cycle_action` — GATE 12. Bounded autonomy policy. Not execution authority and not a Finding.
 
 Admission (`admit_hypothesis`) is Research-domain logic. Generator output is not a Hypothesis until admitted.
 
@@ -52,3 +54,5 @@ Invariant admission (`admit_invariant`) and bounded chain composition (`compose_
 Opportunity selection (`select_research_opportunities`) and temporal comparison (`capture_diagnostic_snapshot` / `compare_diagnostic_snapshots`) are Research-domain logic. Selection cannot dispatch a Worker or alter Core authorization. A ChangeEvent cannot become Evidence, Candidate, or Finding. Snapshot retention/compaction is deferred and must never delete Evidence/Verification/Finding provenance.
 
 `ModelPort` remains provider-neutral. Runtime kinds (`API`, `SUBSCRIPTION_OAUTH`, `CLI_SESSION`, `LOCAL_MODEL`, `EXTERNAL_AGENT`) and `INFERENCE_RUNTIME` vs `AGENT_RUNTIME` are Research classifications. Concrete adapters, argv execution, OAuth, and local transports live outside Research. Codex CLI is an agent runtime, not an ordinary inference-only ModelPort. Strix is not Research Brain.
+
+`select_runtime` is Research-domain policy. It does not invoke a provider, spawn a CLI, or let a model choose itself. `CONTENT_POLICY_BLOCKED` does not trigger a safeguard-bypass fallback loop. Agent runtimes are not selected for inference-only roles unless explicitly allowed with a restricted capability set.

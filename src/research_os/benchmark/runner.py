@@ -7,6 +7,8 @@ import json
 import sys
 from pathlib import Path
 
+from importlib.resources import as_file, files
+
 from research_os.benchmark.baselines import BASELINE_NAMES, create_baseline
 from research_os.benchmark.errors import BenchmarkError
 from research_os.benchmark.evaluate import evaluate_suite, format_scorecard
@@ -33,17 +35,42 @@ from research_os.research.cycle import (
 from research_os.research.model_port import ModelPortError
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
-DEFAULT_SCENARIO_DIR = REPO_ROOT / "benchmarks" / "research" / "scenarios"
-DEFAULT_RESULTS_DIR = REPO_ROOT / "var" / "benchmark-results"
+DEFAULT_RESULTS_DIR = Path.cwd() / "var" / "benchmark-results"
 
 
-def scenario_directory(explicit: str | None) -> Path:
+def packaged_scenario_directory_context():
+    return as_file(files("research_os.resources").joinpath("benchmarks", "research", "scenarios"))
+
+
+def load_cli_scenarios(
+    explicit: str | None,
+    *,
+    include_calibration: bool = False,
+    include_holdout: bool = False,
+    include_sealed: bool = False,
+):
     if explicit:
-        return Path(explicit)
+        return load_scenarios(
+            Path(explicit),
+            include_calibration=include_calibration,
+            include_holdout=include_holdout,
+            include_sealed=include_sealed,
+        )
     cwd = Path.cwd() / "benchmarks" / "research" / "scenarios"
     if cwd.is_dir():
-        return cwd
-    return DEFAULT_SCENARIO_DIR
+        return load_scenarios(
+            cwd,
+            include_calibration=include_calibration,
+            include_holdout=include_holdout,
+            include_sealed=include_sealed,
+        )
+    with packaged_scenario_directory_context() as packaged:
+        return load_scenarios(
+            Path(packaged),
+            include_calibration=include_calibration,
+            include_holdout=include_holdout,
+            include_sealed=include_sealed,
+        )
 
 
 def identity_for_scripted(name: str) -> ModelConfigurationIdentity:
@@ -112,6 +139,8 @@ def run_cli(
     *,
     git_commit: str = "unknown",
     resolve_live=None,
+    discover_runtimes=None,
+    evaluate_live_status=None,
 ) -> int:
     parser = argparse.ArgumentParser(
         description=(
@@ -175,7 +204,7 @@ def run_cli(
     parser.add_argument(
         "--adapter",
         default=None,
-        help="scripted baseline name or live adapter id (openai, anthropic, gemini)",
+        help="scripted baseline name or live adapter id (openai, anthropic, gemini, codex-cli)",
     )
     parser.add_argument(
         "--model",
@@ -192,6 +221,16 @@ def run_cli(
         default=None,
         help="provider model id for --compare-adapter when that adapter is live",
     )
+    parser.add_argument(
+        "--discover",
+        action="store_true",
+        help="print configured runtime availability; does not fabricate GATE 04B PASS",
+    )
+    parser.add_argument(
+        "--discover-and-compare",
+        action="store_true",
+        help="if >=2 live ModelRuntime configurations are AVAILABLE, run a paired GATE 04B comparison",
+    )
     args = parser.parse_args(argv)
 
     if args.include_holdout:
@@ -202,9 +241,18 @@ def run_cli(
         )
         return 2
 
+    if args.discover or args.discover_and_compare:
+        return _run_discovery(
+            args,
+            git_commit=git_commit.strip() or "unknown",
+            resolve_live=resolve_live,
+            discover_runtimes=discover_runtimes,
+            evaluate_live_status=evaluate_live_status,
+        )
+
     try:
-        scenarios = load_scenarios(
-            scenario_directory(args.scenarios),
+        scenarios = load_cli_scenarios(
+            args.scenarios,
             include_calibration=args.include_calibration,
         )
         holdout = load_sealed_holdout(resolve_holdout_path(args.sealed_holdout_path))
@@ -317,6 +365,104 @@ def run_cli(
         )
         if events:
             return 1
+    return 0
+
+
+def _run_discovery(
+    args,
+    *,
+    git_commit: str,
+    resolve_live,
+    discover_runtimes,
+    evaluate_live_status,
+) -> int:
+    if discover_runtimes is None:
+        print(
+            "runtime discovery UNAVAILABLE: resolved by scripts/run_research_benchmark.py "
+            "(not a GATE 04B PASS)",
+            file=sys.stderr,
+        )
+        return 0
+    discovery = discover_runtimes()
+    mapping = discovery.to_mapping() if hasattr(discovery, "to_mapping") else discovery
+    print("RUNTIME DISCOVERY")
+    print(json.dumps(mapping, indent=2, ensure_ascii=True))
+    available = tuple(mapping.get("available_model_configurations") or ())
+    holdout = load_sealed_holdout(resolve_holdout_path(args.sealed_holdout_path))
+    print(
+        "sealed holdout: "
+        + (
+            "available (external path)"
+            if holdout.available
+            else f"UNAVAILABLE ({holdout.reason}); development comparison is not unseen generalization"
+        )
+    )
+    executed: tuple[str, ...] = ()
+    comparable = False
+    leaked = False
+    if args.discover_and_compare and len(available) >= 2:
+        scenarios = load_cli_scenarios(
+            args.scenarios,
+            include_calibration=args.include_calibration,
+        )
+        config = BenchmarkExperimentConfig(
+            suite_id=DEFAULT_SUITE_ID,
+            runs_per_scenario=args.runs_per_scenario,
+            include_calibration=args.include_calibration,
+        )
+        loaded = []
+        for adapter_id in available[:2]:
+            resolved = _load_configured_adapter(
+                adapter_id, None, resolve_live=resolve_live
+            )
+            if resolved is None or isinstance(resolved, str):
+                print(
+                    f"live configuration {adapter_id!r} UNAVAILABLE at execution time",
+                    file=sys.stderr,
+                )
+                continue
+            loaded.append((adapter_id, resolved))
+        if len(loaded) >= 2:
+            reports = []
+            for adapter_id, (port, identity) in loaded:
+                report = run_experiment(
+                    scenarios,
+                    port,
+                    config=config,
+                    model_identity=identity,
+                    git_commit=git_commit,
+                    holdout=holdout,
+                )
+                print()
+                print(format_experiment_scorecard(report))
+                reports.append((adapter_id, report))
+            comparison = compare_experiments(reports[0][1], reports[1][1])
+            print()
+            print(format_paired(comparison))
+            executed = tuple(item[0] for item in reports)
+            comparable = comparison.comparable
+            leaked = any(item[1].harness_invariant_failed for item in reports)
+    if evaluate_live_status is None:
+        status = {
+            "status": "PENDING" if len(executed) < 2 else "NEEDS_REVIEW",
+            "reason": "live status evaluator is composition-root only",
+            "available_model_configurations": list(available),
+            "executed_live_configurations": list(executed),
+            "no_automatic_winner": True,
+        }
+    else:
+        status = evaluate_live_status(
+            available_model_configurations=available,
+            executed_live_configurations=executed,
+            comparable=comparable,
+            harness_invariant_failed=leaked,
+            runs_per_scenario=args.runs_per_scenario,
+            development_suite=not holdout.available,
+        )
+    print("GATE 04B")
+    print(json.dumps(status, indent=2, ensure_ascii=True))
+    if status.get("status") == "NEEDS_REVIEW":
+        return 2
     return 0
 
 

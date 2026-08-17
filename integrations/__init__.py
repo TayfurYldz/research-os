@@ -1,1 +1,3 @@
-"""Replaceable adapters. Not Core, not Research, not authorization, not Evidence."""
+"""Compatibility shim. Canonical code lives in research_os.integrations."""
+
+from research_os.integrations import *  # noqa: F403

@@ -370,7 +370,7 @@ class ResultAndFalsePositiveTests(unittest.TestCase):
         self.assertEqual(port.calls[0]["request"]["worker_capability"], "diagnostic.echo")
         self.assertEqual(factory.store.hypotheses["hyp-1"].claim, draft.statement)
         self.assertIsNone(getattr(outcome, "finding_id", None))
-        self.assertFalse(BUDGET_CONSUMPTION_LEDGER_IMPLEMENTED)
+        self.assertTrue(BUDGET_CONSUMPTION_LEDGER_IMPLEMENTED)
 
     def test_hypothesis_is_not_fact_after_execution_success(self) -> None:
         use_case, factory, _ = _use_case()

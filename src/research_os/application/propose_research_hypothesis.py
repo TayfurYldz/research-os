@@ -6,12 +6,20 @@ Rejected proposals never become a Hypothesis. Does not execute a Worker.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any, Mapping
 
 from research_os.application.errors import ApplicationError
 from research_os.application.identity import new_opaque_id
 from research_os.application.ports import Clock, SystemClock, UnitOfWorkFactory
+from research_os.application.runtime_outcomes import runtime_outcome_from_exception
+from research_os.data.records import (
+    HypothesisRecord,
+    ResearchAdmissionRecord,
+    ResearchReasoningRecord,
+)
+from research_os.data.unit_of_work import UnitOfWork
 from research_os.data.records import (
     HypothesisRecord,
     ResearchAdmissionRecord,
@@ -35,6 +43,7 @@ from research_os.research.context import (
 )
 from research_os.research.cycle import generate_challenge, generate_proposal
 from research_os.research.model_port import ModelCallResult, ModelPort, ModelPortError, ModelRole, ContentPolicyBlockedError
+from research_os.research.model_runtime import RuntimeOutcome
 from research_os.research.planning import plan_admitted_hypothesis
 from research_os.research.proposals import (
     HypothesisChallenge,
@@ -73,6 +82,11 @@ class ProposeResearchHypothesisResult:
     admission_record_id: str | None
     generator_calls: int
     falsifier_calls: int
+    failed_role: ModelRole | None = None
+    runtime_outcome: RuntimeOutcome | None = None
+    runtime_identity: str | None = None
+    invocation_reference: str | None = None
+    reason_code: str | None = None
 
     @property
     def outcome(self) -> AdmissionOutcome:
@@ -92,8 +106,25 @@ class ProposeResearchHypothesis:
         self._model = model
         self._clock = clock or SystemClock()
         self._builder = context_builder or ResearchContextBuilder()
+        self._cycle_uow: UnitOfWork | None = None
+        self._persist_hook: Callable[..., None] | None = None
 
     def execute(
+        self,
+        command: ProposeResearchHypothesisCommand,
+        *,
+        unit_of_work: UnitOfWork | None = None,
+        persist_hook: Callable[..., None] | None = None,
+    ) -> ProposeResearchHypothesisResult:
+        self._cycle_uow = unit_of_work
+        self._persist_hook = persist_hook
+        try:
+            return self._execute_body(command)
+        finally:
+            self._cycle_uow = None
+            self._persist_hook = None
+
+    def _execute_body(
         self, command: ProposeResearchHypothesisCommand
     ) -> ProposeResearchHypothesisResult:
         with self._uow_factory.open() as uow:
@@ -241,7 +272,7 @@ class ProposeResearchHypothesis:
                         },
                     ),
                 )
-            uow.commit()
+            uow.rollback()
 
         context = self._builder.build(
             research_run_id=command.research_run_id,
@@ -288,12 +319,19 @@ class ProposeResearchHypothesis:
                 admission,
                 generator_calls=generator_calls,
                 falsifier_calls=falsifier_calls,
+                failed_role=ModelRole.GENERATOR,
+                runtime_outcome=runtime_outcome_from_exception(exc),
             )
         except ModelPortError as exc:
+            outcome = runtime_outcome_from_exception(exc)
             admission = AdmissionDecision(
                 outcome=AdmissionOutcome.MODEL_INVOCATION_FAILED,
                 reason=str(exc),
-                reason_code="MODEL_INVOCATION_FAILED",
+                reason_code=(
+                    "CONTENT_POLICY_BLOCKED"
+                    if outcome is RuntimeOutcome.CONTENT_POLICY_BLOCKED
+                    else "MODEL_INVOCATION_FAILED"
+                ),
                 proposal=None,
                 challenge=None,
             )
@@ -303,6 +341,8 @@ class ProposeResearchHypothesis:
                 admission,
                 generator_calls=generator_calls,
                 falsifier_calls=falsifier_calls,
+                failed_role=ModelRole.GENERATOR,
+                runtime_outcome=outcome,
             )
         except ProposalAuthorityError as exc:
             generator_result = getattr(exc, "model_result", None)
@@ -370,12 +410,19 @@ class ProposeResearchHypothesis:
                 generator_structured=proposal.to_mapping(),
                 generator_calls=generator_calls,
                 falsifier_calls=falsifier_calls,
+                failed_role=ModelRole.FALSIFIER,
+                runtime_outcome=runtime_outcome_from_exception(exc),
             )
         except ModelPortError as exc:
+            outcome = runtime_outcome_from_exception(exc)
             admission = AdmissionDecision(
                 outcome=AdmissionOutcome.MODEL_INVOCATION_FAILED,
                 reason=str(exc),
-                reason_code="MODEL_INVOCATION_FAILED",
+                reason_code=(
+                    "CONTENT_POLICY_BLOCKED"
+                    if outcome is RuntimeOutcome.CONTENT_POLICY_BLOCKED
+                    else "MODEL_INVOCATION_FAILED"
+                ),
                 proposal=proposal,
                 challenge=None,
             )
@@ -388,6 +435,8 @@ class ProposeResearchHypothesis:
                 generator_structured=proposal.to_mapping(),
                 generator_calls=generator_calls,
                 falsifier_calls=falsifier_calls,
+                failed_role=ModelRole.FALSIFIER,
+                runtime_outcome=runtime_outcome_from_exception(exc),
             )
         except ProposalAuthorityError as exc:
             falsifier_result = getattr(exc, "model_result", None)
@@ -463,6 +512,10 @@ class ProposeResearchHypothesis:
         falsifier_structured: Mapping[str, Any] | None = None,
         generator_calls: int,
         falsifier_calls: int,
+        failed_role: ModelRole | None = None,
+        runtime_outcome: RuntimeOutcome | None = None,
+        runtime_identity: str | None = None,
+        invocation_reference: str | None = None,
     ) -> ProposeResearchHypothesisResult:
         now = self._clock.now()
         admitted = admission.admitted
@@ -480,62 +533,39 @@ class ProposeResearchHypothesis:
                 target_reference=command.target_reference,
                 message=command.echo_message,
             )
-        with self._uow_factory.open() as uow:
-            if hypothesis_id is not None and proposal is not None:
-                uow.hypotheses.insert(
-                    HypothesisRecord(
-                        hypothesis_id=hypothesis_id,
-                        research_run_id=command.research_run_id,
-                        claim=proposal.proposed_claim,
-                        created_at=now,
-                        origin_reference=generator_reasoning_id,
-                    )
-                )
-            if generator_reasoning_id is not None and generator_result is not None:
-                uow.research_reasoning.insert(
-                    self._reasoning_record(
-                        reasoning_record_id=generator_reasoning_id,
-                        research_run_id=command.research_run_id,
-                        hypothesis_id=hypothesis_id,
-                        role=ModelRole.GENERATOR,
-                        generated=generator_result,
-                        structured_output=dict(generator_structured or generator_result.structured_output),
-                        fingerprint=context.fingerprint,
-                        correlation_id=command.correlation_id,
-                        created_at=now,
-                    )
-                )
-            if falsifier_reasoning_id is not None and falsifier_result is not None:
-                uow.research_reasoning.insert(
-                    self._reasoning_record(
-                        reasoning_record_id=falsifier_reasoning_id,
-                        research_run_id=command.research_run_id,
-                        hypothesis_id=hypothesis_id,
-                        role=ModelRole.FALSIFIER,
-                        generated=falsifier_result,
-                        structured_output=dict(
-                            falsifier_structured or falsifier_result.structured_output
-                        ),
-                        fingerprint=context.fingerprint,
-                        correlation_id=command.correlation_id,
-                        created_at=now,
-                    )
-                )
-            uow.research_admissions.insert(
-                ResearchAdmissionRecord(
-                    admission_record_id=admission_record_id,
-                    research_run_id=command.research_run_id,
-                    outcome=admission.outcome.value,
-                    reason=admission.reason,
-                    reason_code=admission.reason_code,
-                    context_fingerprint=context.fingerprint,
-                    created_at=now,
-                    generator_reasoning_record_id=generator_reasoning_id,
-                    falsifier_reasoning_record_id=falsifier_reasoning_id,
-                    admitted_hypothesis_id=hypothesis_id,
-                )
+        identity = runtime_identity
+        if identity is None:
+            source = generator_result or falsifier_result
+            if source is not None:
+                identity = source.adapter_identity
+        reference = invocation_reference or command.correlation_id
+
+        def _persist(uow: UnitOfWork) -> None:
+            self._write_cycle(
+                uow,
+                command,
+                context,
+                admission,
+                now,
+                hypothesis_id,
+                proposal,
+                generator_reasoning_id,
+                generator_result,
+                generator_structured,
+                falsifier_reasoning_id,
+                falsifier_result,
+                falsifier_structured,
+                admission_record_id,
             )
-            uow.commit()
+            if self._persist_hook is not None:
+                self._persist_hook(uow, hypothesis_id=hypothesis_id)
+
+        if self._cycle_uow is None:
+            with self._uow_factory.open() as uow:
+                _persist(uow)
+                uow.commit()
+        else:
+            _persist(self._cycle_uow)
         return ProposeResearchHypothesisResult(
             admission=admission,
             context=context,
@@ -546,6 +576,83 @@ class ProposeResearchHypothesis:
             admission_record_id=admission_record_id,
             generator_calls=generator_calls,
             falsifier_calls=falsifier_calls,
+            failed_role=failed_role,
+            runtime_outcome=runtime_outcome,
+            runtime_identity=identity,
+            invocation_reference=reference,
+            reason_code=admission.reason_code,
+        )
+
+    def _write_cycle(
+        self,
+        uow: UnitOfWork,
+        command: ProposeResearchHypothesisCommand,
+        context: ResearchContext,
+        admission: AdmissionDecision,
+        now,
+        hypothesis_id: str | None,
+        proposal: HypothesisProposal | None,
+        generator_reasoning_id: str | None,
+        generator_result: ModelCallResult | None,
+        generator_structured: Mapping[str, Any] | None,
+        falsifier_reasoning_id: str | None,
+        falsifier_result: ModelCallResult | None,
+        falsifier_structured: Mapping[str, Any] | None,
+        admission_record_id: str,
+    ) -> None:
+        if hypothesis_id is not None and proposal is not None:
+            uow.hypotheses.insert(
+                HypothesisRecord(
+                    hypothesis_id=hypothesis_id,
+                    research_run_id=command.research_run_id,
+                    claim=proposal.proposed_claim,
+                    created_at=now,
+                    origin_reference=generator_reasoning_id,
+                )
+            )
+        if generator_reasoning_id is not None and generator_result is not None:
+            uow.research_reasoning.insert(
+                self._reasoning_record(
+                    reasoning_record_id=generator_reasoning_id,
+                    research_run_id=command.research_run_id,
+                    hypothesis_id=hypothesis_id,
+                    role=ModelRole.GENERATOR,
+                    generated=generator_result,
+                    structured_output=dict(generator_structured or generator_result.structured_output),
+                    fingerprint=context.fingerprint,
+                    correlation_id=command.correlation_id,
+                    created_at=now,
+                )
+            )
+        if falsifier_reasoning_id is not None and falsifier_result is not None:
+            uow.research_reasoning.insert(
+                self._reasoning_record(
+                    reasoning_record_id=falsifier_reasoning_id,
+                    research_run_id=command.research_run_id,
+                    hypothesis_id=hypothesis_id,
+                    role=ModelRole.FALSIFIER,
+                    generated=falsifier_result,
+                    structured_output=dict(
+                        falsifier_structured or falsifier_result.structured_output
+                    ),
+                    fingerprint=context.fingerprint,
+                    correlation_id=command.correlation_id,
+                    created_at=now,
+                )
+            )
+        uow.research_admissions.insert(
+            ResearchAdmissionRecord(
+                admission_record_id=admission_record_id,
+                research_run_id=command.research_run_id,
+                outcome=admission.outcome.value,
+                reason=admission.reason,
+                reason_code=admission.reason_code,
+                context_fingerprint=context.fingerprint,
+                created_at=now,
+                generator_reasoning_record_id=generator_reasoning_id,
+                falsifier_reasoning_record_id=falsifier_reasoning_id,
+                admitted_hypothesis_id=hypothesis_id,
+            )
         )
 
     def _reasoning_record(

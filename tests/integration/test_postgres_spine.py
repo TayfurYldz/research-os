@@ -664,7 +664,7 @@ class PostgresSpineTests(unittest.TestCase):
                     )
                 )
             }
-        self.assertEqual(version, "a15_001_exploration_temporal")
+        self.assertEqual(version, "a17_001_qa_remediation")
         self.assertIn("execution_attempt", tables)
         self.assertIn("worker_result", tables)
         self.assertIn("audit_event", tables)
@@ -691,6 +691,9 @@ class PostgresSpineTests(unittest.TestCase):
         self.assertIn("snapshot", tables)
         self.assertIn("snapshot_member", tables)
         self.assertIn("change_event", tables)
+        self.assertIn("research_orchestration", tables)
+        self.assertIn("research_cycle", tables)
+        self.assertIn("budget_consumption", tables)
 
 
 if __name__ == "__main__":

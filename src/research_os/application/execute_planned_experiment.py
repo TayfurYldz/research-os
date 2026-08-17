@@ -6,6 +6,7 @@ It does not call a model, create Evidence, or update Hypothesis truth.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from enum import Enum
 from typing import Any, Mapping
@@ -37,10 +38,12 @@ from research_os.core.enums import (
 )
 from research_os.core.execution import ExecutionDecision, ExecutionRequest, evaluate_execution
 from research_os.core.scope import ScopeEvaluationInput
-from research_os.data.errors import PersistenceError
+from research_os.data.budget_ledger import usage_from_consumptions
+from research_os.data.errors import BudgetOverspendError, PersistenceError
 from research_os.data.records import (
     AuditEventRecord,
     AuthorizationSourceRecord,
+    BudgetConsumptionRecord,
     ExecutionAttemptRecord,
     ExecutionAttemptState,
     ExperimentExecutionState,
@@ -54,7 +57,7 @@ from research_os.research.types import ExperimentPlan
 
 WORKER_CONTRACT_VERSION = "v1"
 AUDIT_EXECUTION_DECISION = "EXECUTION_DECISION"
-BUDGET_CONSUMPTION_LEDGER_IMPLEMENTED = False
+BUDGET_CONSUMPTION_LEDGER_IMPLEMENTED = True
 
 TERMINAL_EXPERIMENT_STATES = frozenset(
     {
@@ -156,17 +159,25 @@ class ExecutePlannedExperiment:
             uow_factory, validator=self._validator, clock=self._clock, actor_id=actor_id
         )
 
-    def execute(self, command: ExecutePlannedExperimentCommand) -> ResearchLoopOutcome:
+    def execute(
+        self,
+        command: ExecutePlannedExperimentCommand,
+        *,
+        persist_hook: Callable[..., None] | None = None,
+    ) -> ResearchLoopOutcome:
         existing = self._fail_closed_existing(command.experiment_id)
         if existing is not None:
             return existing
-        authorized = self.authorize(command)
+        authorized = self.authorize(command, persist_hook=persist_hook)
         if isinstance(authorized, ResearchLoopOutcome):
             return authorized
         return self.dispatch(authorized)
 
     def authorize(
-        self, command: ExecutePlannedExperimentCommand
+        self,
+        command: ExecutePlannedExperimentCommand,
+        *,
+        persist_hook: Callable[..., None] | None = None,
     ) -> AuthorizedDispatch | ResearchLoopOutcome:
         request_id = new_opaque_id()
         correlation_id = new_opaque_id()
@@ -195,7 +206,7 @@ class ExecutePlannedExperiment:
                     authorization_source=source,
                     scope=command.scope,
                     issued_budget=_issued_budget_from_record(issued),
-                    budget_usage=command.budget_usage or BudgetUsage(0, 0, 0, 0),
+                    budget_usage=_usage_or_ledger(command.budget_usage, uow, issued.budget_id),
                     requested_budget_id=command.plan.requested_budget_id,
                     side_effect_level=command.plan.side_effect_level,
                     requested_subject=command.plan.target_reference,
@@ -276,6 +287,12 @@ class ExecutePlannedExperiment:
                 experiment.experiment_id,
                 ExperimentExecutionState.READY.value,
             )
+            if persist_hook is not None:
+                persist_hook(
+                    uow,
+                    attempt_id=attempt_id,
+                    experiment_id=experiment.experiment_id,
+                )
             uow.commit()
         return AuthorizedDispatch(
             experiment_id=experiment.experiment_id,
@@ -310,6 +327,17 @@ class ExecutePlannedExperiment:
                 if attempt.state == ExecutionAttemptState.DISPATCHING.value:
                     return self._mark_unknown(uow, experiment, attempt, authorized.hypothesis_id)
                 return self._outcome_for_existing(experiment, authorized.hypothesis_id, attempt)
+            issued = uow.issued_budgets.get(attempt.budget_id)
+            if issued is None:
+                uow.rollback()
+                return ResearchLoopOutcome(
+                    status=ResearchLoopStatus.INPUT_REJECTED,
+                    hypothesis_id=authorized.hypothesis_id,
+                    experiment_id=authorized.experiment_id,
+                    experiment_execution_state=experiment.execution_state,
+                    request_id=authorized.request_id,
+                    attempt_id=authorized.attempt_id,
+                )
             uow.execution_attempts.set_state(
                 attempt.attempt_id,
                 ExecutionAttemptState.DISPATCHING.value,
@@ -319,6 +347,20 @@ class ExecutePlannedExperiment:
                 experiment.experiment_id,
                 ExperimentExecutionState.RUNNING.value,
             )
+            try:
+                _record_dispatch_consumption(uow, attempt, issued, occurred_at=now)
+            except BudgetOverspendError:
+                uow.rollback()
+                return ResearchLoopOutcome(
+                    status=ResearchLoopStatus.DISPATCH_DENIED,
+                    hypothesis_id=authorized.hypothesis_id,
+                    experiment_id=experiment.experiment_id,
+                    experiment_execution_state=ExperimentExecutionState.BUDGET_EXHAUSTED.value,
+                    request_id=authorized.request_id,
+                    attempt_id=authorized.attempt_id,
+                    attempt_state=ExecutionAttemptState.AUTHORIZED.value,
+                    core_reason_code=ReasonCode.BUDGET_EXHAUSTED,
+                )
             uow.commit()
         invocation = self._worker.invoke(
             authorized.worker_request,
@@ -695,3 +737,36 @@ def _classify_invocation(
         ExperimentExecutionState.RUNNING.value,
         ResearchLoopStatus.UNKNOWN_OUTCOME,
     )
+
+
+def _usage_or_ledger(
+    provided: BudgetUsage | None, uow: UnitOfWork, budget_id: str
+) -> BudgetUsage:
+    if provided is not None:
+        return provided
+    return usage_from_consumptions(uow.budget_consumptions.list_for_budget(budget_id))
+
+
+def _record_dispatch_consumption(
+    uow: UnitOfWork,
+    attempt: ExecutionAttemptRecord,
+    issued: IssuedBudgetRecord,
+    *,
+    occurred_at,
+) -> None:
+    for resource_type, unit in (("WORKER_INVOCATION", "count"), ("REQUEST", "count")):
+        uow.budget_consumptions.insert_within_allowance(
+            BudgetConsumptionRecord(
+                consumption_id=new_opaque_id(),
+                budget_id=issued.budget_id,
+                research_run_id=attempt.research_run_id,
+                resource_type=resource_type,
+                amount=1,
+                unit=unit,
+                occurred_at=occurred_at,
+                provenance="execute_planned_experiment.dispatch",
+                experiment_id=attempt.experiment_id,
+                request_id=attempt.request_id,
+            ),
+            issued,
+        )

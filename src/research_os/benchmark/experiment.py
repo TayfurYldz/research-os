@@ -19,6 +19,7 @@ from research_os.benchmark.identity import (
     ModelConfigurationIdentity,
 )
 from research_os.benchmark.scenarios import BenchmarkScenario
+from research_os.benchmark.source_provenance import SourceProvenance
 from research_os.benchmark.suite import SuiteManifest, build_suite_manifest
 from research_os.research.model_port import ModelPort
 
@@ -84,6 +85,7 @@ class ExperimentReport:
     suite: SuiteManifest
     summaries: tuple[ScenarioRepeatSummary, ...]
     holdout: HoldoutLoad | None = None
+    source_provenance: SourceProvenance | None = None
 
     @property
     def harness_invariant_failed(self) -> bool:
@@ -91,7 +93,11 @@ class ExperimentReport:
 
     @property
     def authoritative_real_model_comparison(self) -> bool:
-        return self.config.runs_per_scenario > 1
+        if self.config.runs_per_scenario <= 1:
+            return False
+        if self.source_provenance is not None and not self.source_provenance.authoritative:
+            return False
+        return True
 
     def to_mapping(self) -> dict[str, Any]:
         return {
@@ -105,6 +111,9 @@ class ExperimentReport:
             "run_id": self.run_id,
             "created_at": self.created_at,
             "git_commit": self.git_commit,
+            "source_provenance": None
+            if self.source_provenance is None
+            else self.source_provenance.to_mapping(),
             "config": self.config.to_mapping(),
             "model_configuration": self.model.to_mapping(),
             "suite": self.suite.to_mapping(),
@@ -223,6 +232,7 @@ def run_experiment(
     git_commit: str = "unknown",
     holdout: HoldoutLoad | None = None,
     suite_version: str = "1",
+    source_provenance: SourceProvenance | None = None,
 ) -> ExperimentReport:
     if not scenarios:
         raise BenchmarkError("experiment suite is empty")
@@ -249,6 +259,7 @@ def run_experiment(
         ),
         summaries=tuple(summaries),
         holdout=holdout,
+        source_provenance=source_provenance,
     )
 
 

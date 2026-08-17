@@ -21,8 +21,7 @@ def main() -> int:
         command += " " + " ".join(extra)
     completed = subprocess.run(
         ["wsl", "-e", "bash", "-lc", command],
-        input=text,
-        text=True,
+        input=text.encode("utf-8"),
     )
     return completed.returncode
 

@@ -74,8 +74,8 @@ def seed_spine(
     store.issued_budgets["budget-1"] = IssuedBudgetRecord(
         budget_id="budget-1",
         research_run_id="run-1",
-        max_requests=1,
-        max_tool_calls=1,
+        max_requests=10,
+        max_tool_calls=10,
         max_runtime_ms=10_000,
         max_concurrency=1,
         issued_at=CREATED_AT,

@@ -53,6 +53,16 @@ class RunnerTests(unittest.TestCase):
         self.assertEqual(code, 2)
         self.assertIn("unknown scripted baseline", err.getvalue())
 
+    def test_discover_without_composition_root_is_unavailable_not_pass(self) -> None:
+        err = io.StringIO()
+        out = io.StringIO()
+        with redirect_stdout(out), redirect_stderr(err):
+            code = run_cli(["--discover"])
+        self.assertEqual(code, 0)
+        self.assertIn("UNAVAILABLE", err.getvalue())
+        self.assertNotIn("GATE 04B", out.getvalue())
+        self.assertNotIn('"status": "PASS"', out.getvalue())
+
 
 if __name__ == "__main__":
     unittest.main()

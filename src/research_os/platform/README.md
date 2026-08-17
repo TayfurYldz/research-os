@@ -55,6 +55,17 @@ It is **not** `WorkerResult.status`.
 
 A crash, timeout, invalid JSON, or correlation mismatch does **not** produce a WorkerResult for Transition A.
 
+## SecretPort / artifacts / health / observability
+
+GATE 13 operational ports live here:
+
+- `secrets.SecretPort` — SecretReference only; values never enter SoR
+- `artifacts.LocalArtifactStore` — bounded paths, hash, atomic write
+- `health.ComponentHealth` — operational health, not research truth
+- `observability.ObservabilityPort` — structured events/metrics, not AuditEvent or Evidence
+
+ENV_REFERENCE is not a production secret manager. Do not scrape CLI/OAuth tokens.
+
 ## Contract validation
 
 Runtime Draft 2020-12 validation loads `contracts/v1` and resolves URN `$id` locally. It does not fetch the network. `scripts/check_contracts.py` remains structural lint only.

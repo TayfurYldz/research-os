@@ -95,6 +95,8 @@ uv run python scripts/run_research_benchmark.py --compare-baseline GENERIC_TEMPL
 uv run python scripts/run_research_benchmark.py --sealed-holdout-path D:\sealed-research-holdout
 uv run python scripts/run_research_benchmark.py --write-results
 uv run python scripts/run_research_benchmark.py --adapter openai --model "$env:RESEARCH_OS_OPENAI_MODEL"
+uv run python scripts/run_research_benchmark.py --discover
+uv run python scripts/run_research_benchmark.py --discover-and-compare --runs-per-scenario 3
 ```
 
-Scripted baselines are test doubles, not real models. Live adapters live in `integrations/models/`. Missing SDK, API key, or CLI session is **UNAVAILABLE**, not a benchmark failure. GATE 04B comparative PASS requires at least two real comparable runtime configurations (for example OpenAI API vs Codex CLI vs local model) executed on the same comparable suite, prompt, and evaluator versions. Runtime identity is recorded separately from provider API identity. No `WINNER` line.
+Scripted baselines are test doubles, not real models. Live adapters live in `integrations/models/`. Missing SDK, API key, or CLI session is **UNAVAILABLE**, not a benchmark failure. GATE 04B comparative PASS requires at least two real comparable runtime configurations (for example OpenAI API vs Codex CLI vs local model) executed on the same comparable suite, prompt, and evaluator versions. Runtime identity is recorded separately from provider API identity. Development-suite comparison is not unseen generalization. No `WINNER` line.
