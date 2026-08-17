@@ -80,15 +80,34 @@ def execute_http_transaction(
     if not isinstance(arguments, Mapping):
         return "EXECUTION_FAILED", {}, {"error": "arguments must be an object"}
     if arguments.get("session_context_reference") is not None:
-        return (
-            "BLOCKED",
-            {},
-            {
-                "error": "session_context_reference is not authorized",
-                "contacted": False,
-                "self_authorized": False,
-            },
-        )
+        session_ref = arguments.get("session_context_reference")
+        if not isinstance(session_ref, str) or not session_ref.strip():
+            return (
+                "BLOCKED",
+                {},
+                {"error": "session_context_reference is invalid", "contacted": False, "self_authorized": False},
+            )
+        resolved = request.get("resolved_secret_values")
+        if not isinstance(resolved, Mapping) or not isinstance(resolved.get("session_cookie"), str):
+            return (
+                "BLOCKED",
+                {},
+                {
+                    "error": "session material is unavailable",
+                    "contacted": False,
+                    "self_authorized": False,
+                    "reauthentication_required": True,
+                },
+            )
+        cookie_value = resolved["session_cookie"]
+        if any(marker in cookie_value for marker in CRLF_MARKERS) or cookie_value.strip().lower().startswith(
+            ("authorization:", "cookie:")
+        ):
+            return (
+                "BLOCKED",
+                {},
+                {"error": "session material is invalid", "contacted": False, "self_authorized": False},
+            )
     origin = arguments.get("authorized_origin")
     method = arguments.get("method")
     path = arguments.get("path")
@@ -112,6 +131,8 @@ def execute_http_transaction(
         )
     try:
         headers = _request_headers(arguments)
+        if arguments.get("session_context_reference") is not None:
+            headers["Cookie"] = str(request["resolved_secret_values"]["session_cookie"])
         query = _query_string(arguments.get("query") or {})
         body = _request_body(action, arguments)
     except _RequestRejected as exc:

@@ -107,7 +107,7 @@ class HttpTransactionPolicyTests(unittest.TestCase):
             )
             self.assertIsNotNone(issue)
 
-    def test_session_reference_denied_before_identity_gate(self) -> None:
+    def test_session_reference_is_opaque_id_not_credential(self) -> None:
         issue = validate_http_transaction_arguments(
             "read",
             {
@@ -117,8 +117,7 @@ class HttpTransactionPolicyTests(unittest.TestCase):
                 "session_context_reference": "session-1",
             },
         )
-        self.assertIsNotNone(issue)
-        self.assertEqual(issue.reason_code, "UNEXPECTED_ARGUMENT")
+        self.assertIsNone(issue)
 
 
 class HttpTransactionCompilerTests(unittest.TestCase):

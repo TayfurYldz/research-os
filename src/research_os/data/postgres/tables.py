@@ -1024,6 +1024,35 @@ budget_consumption = Table(
     ),
 )
 
+session_context = Table(
+    "session_context",
+    metadata,
+    Column("session_context_id", Text, primary_key=True),
+    Column("research_run_id", Text, ForeignKey("research_run.research_run_id"), nullable=False),
+    Column("identity_id", Text, nullable=False),
+    Column("actor_reference", Text, nullable=False),
+    Column("origin", Text, nullable=False),
+    Column("authentication_profile_reference", Text, nullable=False),
+    Column("authentication_method", Text, nullable=False),
+    Column("secret_scheme", Text, nullable=False),
+    Column("secret_name", Text, nullable=False),
+    Column("state", Text, nullable=False),
+    Column("created_at", DateTime(timezone=True), nullable=False),
+    Column("updated_at", DateTime(timezone=True), nullable=False),
+    Column("established_at", DateTime(timezone=True), nullable=True),
+    Column("expires_at", DateTime(timezone=True), nullable=True),
+    Column("session_cookie_name", Text, nullable=True),
+    UniqueConstraint("session_context_id", "research_run_id", name="uq_session_context_id_run"),
+    CheckConstraint(
+        "state IN ('NEW', 'AUTHENTICATING', 'ACTIVE', 'EXPIRED', 'REVOKED', 'FAILED')",
+        name="ck_session_context_state",
+    ),
+    CheckConstraint(
+        "authentication_method IN ('HTTP_FORM_LOGIN')",
+        name="ck_session_context_auth_method",
+    ),
+)
+
 SPINE_TABLES = (
     program,
     authorization_source,
@@ -1064,6 +1093,7 @@ SPINE_TABLES = (
     research_orchestration,
     research_cycle,
     budget_consumption,
+    session_context,
 )
 
 APPEND_ONLY_TABLES = (

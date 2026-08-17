@@ -8,7 +8,7 @@ import sys
 from datetime import datetime, timezone
 from typing import Any, Mapping, TextIO
 
-from research_os_worker.capabilities import execute
+from .capabilities import execute
 
 WORKER_ID_ENV = "RESEARCH_OS_WORKER_ID"
 DEFAULT_WORKER_ID = "local-python-diagnostic"
@@ -28,6 +28,9 @@ def load_request(raw: str) -> Mapping[str, Any]:
 def build_result(request: Mapping[str, Any], started_at: str) -> dict[str, Any]:
     worker_id = os.environ.get(WORKER_ID_ENV, DEFAULT_WORKER_ID).strip() or DEFAULT_WORKER_ID
     status, raw_result, diagnostics = execute(request)
+    ephemeral = None
+    if isinstance(raw_result, dict) and "_ephemeral_session_cookie" in raw_result:
+        ephemeral = {"session_cookie": raw_result.pop("_ephemeral_session_cookie")}
     result: dict[str, Any] = {
         "contract_version": "v1",
         "correlation": request.get("correlation"),
@@ -39,6 +42,8 @@ def build_result(request: Mapping[str, Any], started_at: str) -> dict[str, Any]:
     }
     if diagnostics is not None:
         result["diagnostics"] = diagnostics
+    if ephemeral is not None:
+        result["ephemeral_secrets"] = ephemeral
     return result
 
 

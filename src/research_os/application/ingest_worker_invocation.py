@@ -29,6 +29,12 @@ from research_os.platform.contract_validation import (
     ContractValidationError,
     ContractValidator,
 )
+from research_os.application.session_lifecycle import (
+    capture_login_result,
+    expire_session_on_unauthenticated_response,
+    strip_ephemeral_secrets,
+)
+from research_os.platform.secrets import CompositeSecretPort
 from research_os.platform.worker import InvocationStatus, WorkerInvocationOutcome
 
 AUDIT_WORKER_RESULT_INGESTED = "WORKER_RESULT_INGESTED"
@@ -72,12 +78,14 @@ class IngestCompletedWorkerInvocation:
         registry: NormalizerRegistry | None = None,
         clock: Clock | None = None,
         actor_id: str = CONTROL_PLANE_ACTOR_ID,
+        secret_port: CompositeSecretPort | None = None,
     ) -> None:
         self._uow_factory = uow_factory
         self._validator = validator or ContractValidator()
         self._registry = registry or NormalizerRegistry()
         self._clock = clock or SystemClock()
         self._actor_id = actor_id
+        self._secret_port = secret_port
 
     def execute(
         self,
@@ -88,7 +96,8 @@ class IngestCompletedWorkerInvocation:
         if rejected is not None:
             return rejected
         assert outcome.worker_result is not None
-        result = dict(outcome.worker_result)
+        validated = dict(outcome.worker_result)
+        result, ephemeral = strip_ephemeral_secrets(validated)
         capability = request.get("worker_capability")
         action = request.get("action")
         if not isinstance(capability, str) or not isinstance(action, str):
@@ -149,6 +158,12 @@ class IngestCompletedWorkerInvocation:
                 )
             observation_ids = self._persist_observations(
                 uow, record, drafts, created_at
+            )
+            capture_login_result(
+                uow, self._secret_port, request, result, ephemeral, created_at
+            )
+            expire_session_on_unauthenticated_response(
+                uow, self._secret_port, request, result, created_at
             )
             self._persist_audit_events(
                 uow, record, drafts, observation_ids, created_at

@@ -39,6 +39,7 @@ from research_os.data.ports import (
     ResearchSelectionRepository,
     SnapshotRepository,
     ChangeEventRepository,
+    SessionContextRepository,
 )
 
 
@@ -79,6 +80,7 @@ class UnitOfWork(Protocol):
     research_cycles: ResearchCycleRepository
     budget_consumptions: BudgetConsumptionRepository
     audit_events: AuditEventRepository
+    session_contexts: SessionContextRepository
 
     def commit(self) -> None: ...
     def rollback(self) -> None: ...

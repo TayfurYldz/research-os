@@ -71,6 +71,11 @@
       "type": "object",
       "additionalProperties": true,
       "description": "Optional untrusted control/debug bag. Not an authorization decision. Reauthorization uses ReauthorizationRequest."
+    },
+    "ephemeral_secrets": {
+      "type": "object",
+      "additionalProperties": { "type": "string" },
+      "description": "Ephemeral secret material from execution. Ingest MUST strip this object before persistence."
     }
   }
 }

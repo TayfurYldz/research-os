@@ -40,6 +40,7 @@ from research_os.data.postgres.repositories import (
     PostgresResearchOrchestrationRepository,
     PostgresResearchCycleRepository,
     PostgresBudgetConsumptionRepository,
+    PostgresSessionContextRepository,
 )
 
 
@@ -83,6 +84,7 @@ class PostgresUnitOfWork:
         self.research_cycles: PostgresResearchCycleRepository
         self.budget_consumptions: PostgresBudgetConsumptionRepository
         self.audit_events: PostgresAuditEventRepository
+        self.session_contexts: PostgresSessionContextRepository
 
     def __enter__(self) -> PostgresUnitOfWork:
         self._connection = self._engine.connect()
@@ -130,6 +132,7 @@ class PostgresUnitOfWork:
         self.research_cycles = PostgresResearchCycleRepository(self._connection)
         self.budget_consumptions = PostgresBudgetConsumptionRepository(self._connection)
         self.audit_events = PostgresAuditEventRepository(self._connection)
+        self.session_contexts = PostgresSessionContextRepository(self._connection)
         return self
 
     def commit(self) -> None:

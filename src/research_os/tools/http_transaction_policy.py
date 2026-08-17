@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Mapping
 from urllib.parse import urlsplit
 
+from research_os.tools.http_authentication_policy import validate_http_authentication_arguments
 from research_os.tools.registry import ArgumentValidationIssue
 
 FORBIDDEN_REQUEST_HEADERS = frozenset(
@@ -30,6 +31,8 @@ CRLF_MARKERS = ("\r", "\n", "\x00")
 def extra_argument_validator_for(capability_id: str):
     if capability_id == "http.transaction":
         return validate_http_transaction_arguments
+    if capability_id == "http.authentication":
+        return validate_http_authentication_arguments
     return None
 
 
@@ -92,11 +95,12 @@ def validate_http_transaction_arguments(
         if body.strip().lower().startswith("file:"):
             return ArgumentValidationIssue("INVALID_ARGUMENT_TYPE", "body must not be a filesystem source")
     session_ref = arguments.get("session_context_reference")
-    if session_ref is not None:
-        return ArgumentValidationIssue(
-            "UNEXPECTED_ARGUMENT",
-            "session_context_reference is not authorized until identity/session binding exists",
-        )
+    if session_ref is None:
+        return None
+    if not isinstance(session_ref, str) or not session_ref.strip():
+        return ArgumentValidationIssue("INVALID_ARGUMENT_TYPE", "session_context_reference must be a string")
+    if any(marker in session_ref for marker in CRLF_MARKERS):
+        return ArgumentValidationIssue("INVALID_ARGUMENT_TYPE", "session_context_reference must not contain CRLF")
     return None
 
 

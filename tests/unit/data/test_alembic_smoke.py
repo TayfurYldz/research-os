@@ -28,6 +28,7 @@ A17_MIGRATION = ALEMBIC_VERSIONS / "a17_001_qa_remediation.py"
 A18_MIGRATION = ALEMBIC_VERSIONS / "a18_001_http_auth_class.py"
 A19_MIGRATION = ALEMBIC_VERSIONS / "a19_001_http_state_class.py"
 A20_MIGRATION = ALEMBIC_VERSIONS / "a20_001_capability_plan_binding.py"
+A21_MIGRATION = ALEMBIC_VERSIONS / "a21_001_session_context.py"
 
 
 def _imported_modules(tree: ast.AST) -> set[str]:
@@ -86,6 +87,7 @@ class AlembicSmokeTests(unittest.TestCase):
                 "research_orchestration",
                 "research_cycle",
                 "budget_consumption",
+                "session_context",
             },
         )
         self.assertEqual(set(metadata.tables), names)
@@ -299,6 +301,20 @@ class AlembicSmokeTests(unittest.TestCase):
         self.assertNotIn("create_all", source)
         a19 = A19_MIGRATION.read_text(encoding="utf-8")
         self.assertNotIn("capability_definition_fingerprint", a19)
+
+    def test_a21_migration_adds_session_context_metadata_only(self) -> None:
+        source = A21_MIGRATION.read_text(encoding="utf-8")
+        self.assertIn("a21_001_session_context", source)
+        self.assertIn("a20_001_capability_plan_binding", source)
+        self.assertIn("session_context", source)
+        self.assertIn("secret_name", source)
+        self.assertNotIn("create_all", source)
+        upgrade = source.split("def upgrade", 1)[1]
+        self.assertNotIn("cookie_value", upgrade)
+        self.assertNotIn("password", upgrade)
+        self.assertNotIn("token_value", upgrade)
+        a20 = A20_MIGRATION.read_text(encoding="utf-8")
+        self.assertNotIn("session_context", a20)
 
 
 if __name__ == "__main__":

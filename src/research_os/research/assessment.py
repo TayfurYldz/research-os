@@ -143,6 +143,7 @@ def default_evaluator_registry() -> ExperimentEvaluatorRegistry:
         HttpAuthorizationDifferentialEvaluator,
     )
     from research_os.research.evaluators.diagnostic_echo import DiagnosticEchoEvaluator
+    from research_os.research.evaluators.http_authentication import HttpAuthenticationEvaluator
     from research_os.research.evaluators.http_transaction import HttpTransactionEvaluator
     from research_os.research.evaluators.state_transition import HttpStateTransitionEvaluator
 
@@ -151,6 +152,7 @@ def default_evaluator_registry() -> ExperimentEvaluatorRegistry:
     registry.register(HttpAuthorizationDifferentialEvaluator())
     registry.register(HttpStateTransitionEvaluator())
     registry.register(HttpTransactionEvaluator())
+    registry.register(HttpAuthenticationEvaluator())
     return registry
 
 

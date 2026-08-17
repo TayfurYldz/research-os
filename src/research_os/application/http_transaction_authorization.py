@@ -9,7 +9,8 @@ from research_os.core.enums import ReasonCode, ScopeDecision
 from research_os.core.scope_compiler import CompiledScope, evaluate_scope_candidate
 from research_os.platform.url_normalize import normalize_url
 from research_os.research.types import ExperimentPlan
-from research_os.tools.capabilities import HTTP_TRANSACTION_CAPABILITY
+from research_os.tools.capabilities import HTTP_AUTHENTICATION_CAPABILITY, HTTP_TRANSACTION_CAPABILITY
+from research_os.tools.http_authentication_policy import validate_http_authentication_arguments
 from research_os.tools.http_transaction_policy import validate_http_transaction_arguments
 from research_os.tools.registry import ArgumentValidationIssue
 
@@ -27,11 +28,22 @@ def authorize_http_transaction_plan(
 ) -> HttpTransactionScopeDecision:
     """Evaluate the typed HTTP destination. authorized_origin is not itself authority."""
 
+    if plan.required_capability == HTTP_AUTHENTICATION_CAPABILITY:
+        issue = validate_http_authentication_arguments(plan.action, plan.arguments)
+        if issue is not None:
+            return _from_argument_issue(issue)
+        return _authorize_origin_path(plan, compiled_scope)
     if plan.required_capability != HTTP_TRANSACTION_CAPABILITY:
         return HttpTransactionScopeDecision(accepted=True, reason_code=None)
     issue = validate_http_transaction_arguments(plan.action, plan.arguments)
     if issue is not None:
         return _from_argument_issue(issue)
+    return _authorize_origin_path(plan, compiled_scope)
+
+
+def _authorize_origin_path(
+    plan: ExperimentPlan, compiled_scope: CompiledScope | None
+) -> HttpTransactionScopeDecision:
     if compiled_scope is None:
         return HttpTransactionScopeDecision(
             accepted=False,

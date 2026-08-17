@@ -127,6 +127,7 @@ class CapabilityRegistryTests(unittest.TestCase):
             set(registry.ids()),
             {
                 "diagnostic.echo",
+                "http.authentication",
                 "http.authorization.differential",
                 "http.state_transition",
                 "http.transaction",

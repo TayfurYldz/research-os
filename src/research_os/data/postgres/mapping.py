@@ -41,6 +41,7 @@ from research_os.data.records import (
     ResearchOrchestrationRecord,
     ResearchCycleRecord,
     BudgetConsumptionRecord,
+    SessionContextRecord,
 )
 
 
@@ -665,4 +666,25 @@ def budget_consumption_from_row(row: Mapping[str, Any]) -> BudgetConsumptionReco
         unit=data["unit"],
         occurred_at=data["occurred_at"],
         provenance=data["provenance"],
+    )
+
+
+def session_context_from_row(row: Mapping[str, Any]) -> SessionContextRecord:
+    data = _mapping(row)
+    return SessionContextRecord(
+        session_context_id=data["session_context_id"],
+        research_run_id=data["research_run_id"],
+        identity_id=data["identity_id"],
+        actor_reference=data["actor_reference"],
+        origin=data["origin"],
+        authentication_profile_reference=data["authentication_profile_reference"],
+        authentication_method=data["authentication_method"],
+        secret_scheme=data["secret_scheme"],
+        secret_name=data["secret_name"],
+        state=data["state"],
+        created_at=data["created_at"],
+        updated_at=data["updated_at"],
+        established_at=data.get("established_at"),
+        expires_at=data.get("expires_at"),
+        session_cookie_name=data.get("session_cookie_name"),
     )

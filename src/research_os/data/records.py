@@ -1740,6 +1740,10 @@ ALLOWED_BUDGET_UNITS = frozenset(
         "bytes",
     }
 )
+ALLOWED_SESSION_STATES = frozenset(
+    {"NEW", "AUTHENTICATING", "ACTIVE", "EXPIRED", "REVOKED", "FAILED"}
+)
+ALLOWED_AUTHENTICATION_METHODS = frozenset({"HTTP_FORM_LOGIN"})
 
 
 @dataclass(frozen=True)
@@ -1914,3 +1918,52 @@ class BudgetConsumptionRecord:
             raise PersistenceInputError("ARTIFACT_BYTES must use bytes")
         if self.resource_type == "COST":
             raise PersistenceInputError("COST is not recorded without an issued cost unit")
+
+
+@dataclass(frozen=True)
+class SessionContextRecord:
+    """Durable session metadata. Never stores cookie, token, or password values."""
+
+    session_context_id: str
+    research_run_id: str
+    identity_id: str
+    actor_reference: str
+    origin: str
+    authentication_profile_reference: str
+    authentication_method: str
+    secret_scheme: str
+    secret_name: str
+    state: str
+    created_at: datetime
+    updated_at: datetime
+    established_at: datetime | None = None
+    expires_at: datetime | None = None
+    session_cookie_name: str | None = None
+
+    def __post_init__(self) -> None:
+        require_opaque_id(self.session_context_id, "session_context_id")
+        require_opaque_id(self.research_run_id, "research_run_id")
+        require_opaque_id(self.identity_id, "identity_id")
+        require_opaque_id(self.actor_reference, "actor_reference")
+        require_opaque_id(self.authentication_profile_reference, "authentication_profile_reference")
+        if not isinstance(self.origin, str) or not self.origin.strip():
+            raise PersistenceInputError("origin must be a non-empty string")
+        if self.authentication_method not in ALLOWED_AUTHENTICATION_METHODS:
+            raise PersistenceInputError("authentication_method is not supported")
+        if not isinstance(self.secret_scheme, str) or not self.secret_scheme.strip():
+            raise PersistenceInputError("secret_scheme must be a non-empty string")
+        if not isinstance(self.secret_name, str) or not self.secret_name.strip():
+            raise PersistenceInputError("secret_name must be a non-empty string")
+        if self.state not in ALLOWED_SESSION_STATES:
+            raise PersistenceInputError("state is not a SessionContext state")
+        require_aware_datetime(self.created_at, "created_at")
+        require_aware_datetime(self.updated_at, "updated_at")
+        if self.established_at is not None:
+            require_aware_datetime(self.established_at, "established_at")
+        if self.expires_at is not None:
+            require_aware_datetime(self.expires_at, "expires_at")
+        if self.session_cookie_name is not None and (
+            not isinstance(self.session_cookie_name, str) or not self.session_cookie_name.strip()
+        ):
+            raise PersistenceInputError("session_cookie_name must be a non-empty string when set")
+        _reject_secret_keys({"origin": self.origin, "secret_name": self.secret_name}, "session_context")

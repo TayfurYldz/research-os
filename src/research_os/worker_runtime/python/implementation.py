@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Any, Mapping
 
+from .http_authentication import execute_http_authentication
 from .http_authorization import execute_http_authorization
 from .http_state_transition import execute_http_state_transition
 from .http_transaction import execute_http_transaction
@@ -39,4 +40,5 @@ IMPLEMENTATION_EXECUTORS: dict[str, Executor] = {
     "http.authorization.differential": execute_http_authorization,
     "http.state_transition": execute_http_state_transition,
     "http.transaction": execute_http_transaction,
+    "http.authentication": execute_http_authentication,
 }

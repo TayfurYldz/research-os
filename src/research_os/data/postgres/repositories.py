@@ -24,6 +24,7 @@ from research_os.data.records import (
     ALLOWED_EXPERIMENT_STATES,
     ALLOWED_FINDING_PROPOSAL_STATES,
     ALLOWED_INVARIANT_STATUSES,
+    ALLOWED_SESSION_STATES,
     ApprovalRecord,
     AuditEventRecord,
     AuthorizationSourceRecord,
@@ -61,6 +62,7 @@ from research_os.data.records import (
     SnapshotRecord,
     SnapshotMemberRecord,
     ChangeEventRecord,
+    SessionContextRecord,
 )
 from research_os.data.budget_ledger import assert_within_allowance
 
@@ -1977,3 +1979,66 @@ def _consumption_values(record: BudgetConsumptionRecord) -> dict[str, object]:
         "occurred_at": record.occurred_at,
         "provenance": record.provenance,
     }
+
+
+class PostgresSessionContextRepository:
+    def __init__(self, connection: Connection) -> None:
+        self._connection = connection
+
+    def insert(self, record: SessionContextRecord) -> None:
+        _execute_write(
+            self._connection,
+            tables.session_context.insert().values(
+                session_context_id=record.session_context_id,
+                research_run_id=record.research_run_id,
+                identity_id=record.identity_id,
+                actor_reference=record.actor_reference,
+                origin=record.origin,
+                authentication_profile_reference=record.authentication_profile_reference,
+                authentication_method=record.authentication_method,
+                secret_scheme=record.secret_scheme,
+                secret_name=record.secret_name,
+                state=record.state,
+                created_at=record.created_at,
+                updated_at=record.updated_at,
+                established_at=record.established_at,
+                expires_at=record.expires_at,
+                session_cookie_name=record.session_cookie_name,
+            ),
+        )
+
+    def get(self, session_context_id: str) -> SessionContextRecord | None:
+        require_opaque_id(session_context_id, "session_context_id")
+        return _fetch_one(
+            self._connection,
+            tables.session_context,
+            tables.session_context.c.session_context_id,
+            session_context_id,
+            map_row.session_context_from_row,
+        )
+
+    def set_state(
+        self,
+        session_context_id: str,
+        state: str,
+        *,
+        established_at: datetime | None = None,
+        expires_at: datetime | None = None,
+        updated_at: datetime,
+    ) -> None:
+        require_opaque_id(session_context_id, "session_context_id")
+        if state not in ALLOWED_SESSION_STATES:
+            raise PersistenceInputError("state is not a SessionContext state")
+        values: dict[str, object] = {"state": state, "updated_at": updated_at}
+        if established_at is not None:
+            values["established_at"] = established_at
+        if expires_at is not None:
+            values["expires_at"] = expires_at
+        result = self._connection.execute(
+            update(tables.session_context)
+            .where(tables.session_context.c.session_context_id == session_context_id)
+            .values(**values)
+        )
+        if result.rowcount != 1:
+            raise PersistenceError("session_context not found for state update")
+

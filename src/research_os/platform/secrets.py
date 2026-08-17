@@ -15,6 +15,7 @@ from typing import Mapping, Protocol
 class SecretScheme(Enum):
     LOCAL_DEV = "LOCAL_DEV"
     ENV_REFERENCE = "ENV_REFERENCE"
+    SESSION_MATERIAL = "SESSION_MATERIAL"
 
 
 class SecretResolutionStatus(Enum):
@@ -81,3 +82,47 @@ class UnavailableSecretResolver:
 
     def resolve(self, reference: SecretReference) -> SecretResolution:
         return SecretResolution(SecretResolutionStatus.UNAVAILABLE, reference, None)
+
+
+class InMemorySecretStore:
+    """Process-local secret material. Not durable across restart. Not SoR."""
+
+    def __init__(self) -> None:
+        self._values: dict[tuple[str, str], str] = {}
+
+    def put(self, reference: SecretReference, value: str) -> None:
+        if not isinstance(value, str) or not value:
+            raise ValueError("secret value is required")
+        self._values[(reference.scheme.value, reference.name)] = value
+
+    def delete(self, reference: SecretReference) -> None:
+        self._values.pop((reference.scheme.value, reference.name), None)
+
+    def resolve(self, reference: SecretReference) -> SecretResolution:
+        value = self._values.get((reference.scheme.value, reference.name))
+        if not isinstance(value, str) or not value:
+            return SecretResolution(SecretResolutionStatus.UNAVAILABLE, reference, None)
+        return SecretResolution(SecretResolutionStatus.RESOLVED, reference, value)
+
+
+class CompositeSecretPort:
+    """Resolve session material first, then env/local-dev. Never fabricates values."""
+
+    def __init__(self, session_store: InMemorySecretStore, env: SecretPort | None = None) -> None:
+        self._session_store = session_store
+        self._env = env or EnvSecretResolver()
+
+    def put_session(self, reference: SecretReference, value: str) -> None:
+        if reference.scheme is not SecretScheme.SESSION_MATERIAL:
+            raise ValueError("only SESSION_MATERIAL may be stored as session material")
+        self._session_store.put(reference, value)
+
+    def delete_session(self, reference: SecretReference) -> None:
+        if reference.scheme is not SecretScheme.SESSION_MATERIAL:
+            raise ValueError("only SESSION_MATERIAL may be deleted as session material")
+        self._session_store.delete(reference)
+
+    def resolve(self, reference: SecretReference) -> SecretResolution:
+        if reference.scheme is SecretScheme.SESSION_MATERIAL:
+            return self._session_store.resolve(reference)
+        return self._env.resolve(reference)

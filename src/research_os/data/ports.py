@@ -43,6 +43,7 @@ from research_os.data.records import (
     SnapshotRecord,
     SnapshotMemberRecord,
     ChangeEventRecord,
+    SessionContextRecord,
 )
 
 
@@ -302,3 +303,17 @@ class BudgetConsumptionRepository(Protocol):
 class AuditEventRepository(Protocol):
     def insert(self, record: AuditEventRecord) -> None: ...
     def get(self, audit_event_id: str) -> AuditEventRecord | None: ...
+
+
+class SessionContextRepository(Protocol):
+    def insert(self, record: SessionContextRecord) -> None: ...
+    def get(self, session_context_id: str) -> SessionContextRecord | None: ...
+    def set_state(
+        self,
+        session_context_id: str,
+        state: str,
+        *,
+        established_at: datetime | None = None,
+        expires_at: datetime | None = None,
+        updated_at: datetime,
+    ) -> None: ...

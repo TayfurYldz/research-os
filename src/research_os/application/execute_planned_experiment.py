@@ -23,6 +23,9 @@ from research_os.application.identity import (
     execution_decision_audit_id,
     new_opaque_id,
 )
+from research_os.application.session_binding import bind_identity_session
+from research_os.application.session_lifecycle import authenticating_session_record
+from research_os.platform.secrets import CompositeSecretPort
 from research_os.application.ingest_worker_invocation import (
     CONTROL_PLANE_ACTOR_ID,
     IngestCompletedWorkerInvocation,
@@ -62,6 +65,7 @@ from research_os.data.records import (
 from research_os.data.unit_of_work import UnitOfWork
 from research_os.platform.contract_validation import ContractValidator
 from research_os.platform.worker import InvocationStatus, WorkerInvocationOutcome, WorkerPort
+from research_os.research.identity_session import HttpFormLoginProfile, Identity
 from research_os.research.types import ExperimentPlan
 
 WORKER_CONTRACT_VERSION = "v1"
@@ -110,6 +114,9 @@ class ExecutePlannedExperimentCommand:
     approval: ApprovalView | None = None
     budget_usage: BudgetUsage | None = None
     compiled_scope: CompiledScope | None = None
+    identity_id: str | None = None
+    identity: Identity | None = None
+    authentication_profile: HttpFormLoginProfile | None = None
 
 
 @dataclass(frozen=True)
@@ -126,6 +133,7 @@ class AuthorizedDispatch:
     timeout_ms: int
     core_decision: ExecutionDecisionKind
     core_reason_code: ReasonCode
+    resolved_secret_values: Mapping[str, str] | None = None
 
 
 @dataclass(frozen=True)
@@ -159,14 +167,20 @@ class ExecutePlannedExperiment:
         clock: Clock | None = None,
         validator: ContractValidator | None = None,
         actor_id: str = CONTROL_PLANE_ACTOR_ID,
+        secret_port: CompositeSecretPort | None = None,
     ) -> None:
         self._uow_factory = uow_factory
         self._worker = worker
         self._clock = clock or SystemClock()
         self._validator = validator or ContractValidator()
         self._actor_id = actor_id
+        self._secret_port = secret_port
         self._ingest = ingest or IngestCompletedWorkerInvocation(
-            uow_factory, validator=self._validator, clock=self._clock, actor_id=actor_id
+            uow_factory,
+            validator=self._validator,
+            clock=self._clock,
+            actor_id=actor_id,
+            secret_port=secret_port,
         )
 
     def execute(
@@ -270,6 +284,39 @@ class ExecutePlannedExperiment:
                     side_effect_level=decision.side_effect_level,
                     approval_id=decision.approval_id,
                 )
+            session_ref = bound_plan.arguments.get("session_context_reference")
+            loaded_session = None
+            if isinstance(session_ref, str) and session_ref.strip():
+                loaded_session = uow.session_contexts.get(session_ref)
+            session_decision = bind_identity_session(
+                bound_plan,
+                identity_id=command.identity_id,
+                identity=command.identity,
+                profile=command.authentication_profile,
+                session=loaded_session,
+                secret_port=self._secret_port,
+                now=now,
+            )
+            if session_decision.input_rejected:
+                uow.rollback()
+                return ResearchLoopOutcome(
+                    status=ResearchLoopStatus.INPUT_REJECTED,
+                    hypothesis_id=hypothesis_id,
+                    experiment_id=experiment.experiment_id,
+                    experiment_execution_state=experiment.execution_state,
+                    core_decision=ExecutionDecisionKind.DENY,
+                    core_reason_code=session_decision.reason_code,
+                )
+            if decision.decision is ExecutionDecisionKind.ALLOW and not session_decision.accepted:
+                decision = ExecutionDecision(
+                    decision=ExecutionDecisionKind.DENY,
+                    reason_code=session_decision.reason_code or ReasonCode.SCHEMA_MISMATCH,
+                    authorization_source_id=decision.authorization_source_id,
+                    matched_scope_rule_ids=(),
+                    budget_id=decision.budget_id,
+                    side_effect_level=decision.side_effect_level,
+                    approval_id=decision.approval_id,
+                )
             audit_id = execution_decision_audit_id(request_id)
             uow.audit_events.insert(
                 _execution_decision_audit(
@@ -322,6 +369,20 @@ class ExecutePlannedExperiment:
                 authorization_decision_reference=audit_id,
             )
             self._validator.validate_worker_request(worker_request)
+            if (
+                bound_plan.required_capability == "http.authentication"
+                and command.identity is not None
+                and command.authentication_profile is not None
+            ):
+                uow.session_contexts.insert(
+                    authenticating_session_record(
+                        bound_plan,
+                        identity=command.identity,
+                        profile=command.authentication_profile,
+                        research_run_id=experiment.research_run_id,
+                        now=now,
+                    )
+                )
             attempt_id = attempt_id_for(request_id)
             uow.execution_attempts.insert(
                 ExecutionAttemptRecord(
@@ -363,6 +424,7 @@ class ExecutePlannedExperiment:
             timeout_ms=issued.max_runtime_ms,
             core_decision=decision.decision,
             core_reason_code=decision.reason_code,
+            resolved_secret_values=session_decision.resolved_secrets,
         )
 
     def dispatch(self, authorized: AuthorizedDispatch) -> ResearchLoopOutcome:
@@ -421,7 +483,9 @@ class ExecutePlannedExperiment:
                 )
             uow.commit()
         invocation = self._worker.invoke(
-            authorized.worker_request,
+            _request_with_resolved_secrets(
+                authorized.worker_request, authorized.resolved_secret_values
+            ),
             timeout_ms=authorized.timeout_ms,
         )
         return self._record_outcome(authorized, invocation)
@@ -734,6 +798,16 @@ def _execution_decision_audit(
         },
         correlation_id=correlation_id,
     )
+
+
+def _request_with_resolved_secrets(
+    request: Mapping[str, Any], values: Mapping[str, str] | None
+) -> Mapping[str, Any]:
+    if not values:
+        return request
+    payload = dict(request)
+    payload["resolved_secret_values"] = dict(values)
+    return payload
 
 
 def _build_worker_request(

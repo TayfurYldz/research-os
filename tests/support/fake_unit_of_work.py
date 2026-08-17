@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from copy import deepcopy
+from dataclasses import replace
 from datetime import datetime
 from typing import Any
 
@@ -18,6 +19,7 @@ from research_os.data.records import (
     ALLOWED_EXPERIMENT_STATES,
     ALLOWED_FINDING_PROPOSAL_STATES,
     ALLOWED_INVARIANT_STATUSES,
+    ALLOWED_SESSION_STATES,
     ApprovalRecord,
     AuditEventRecord,
     AuthorizationSourceRecord,
@@ -54,6 +56,7 @@ from research_os.data.records import (
     ChangeEventRecord,
     VerificationRecord,
     WorkerResultRecord,
+    SessionContextRecord,
 )
 from research_os.data.budget_ledger import assert_within_allowance
 
@@ -98,6 +101,7 @@ class _Store:
         self.research_cycles: dict[str, ResearchCycleRecord] = {}
         self.budget_consumptions: dict[str, BudgetConsumptionRecord] = {}
         self.audit_events: dict[str, AuditEventRecord] = {}
+        self.session_contexts: dict[str, SessionContextRecord] = {}
         self.open_transactions = 0
         self.set_state_calls = 0
 
@@ -205,6 +209,8 @@ def _id_of(record: Any) -> str:
         return record.consumption_id
     if isinstance(record, AuditEventRecord):
         return record.audit_event_id
+    if isinstance(record, SessionContextRecord):
+        return record.session_context_id
     raise PersistenceError("unknown record identity")
 
 
@@ -1077,6 +1083,33 @@ class _BudgetConsumptionRepo(_Repo):
         ]
 
 
+class _SessionContextRepo(_Repo):
+    def __init__(self, store: _Store, fail_on_insert: bool = False) -> None:
+        super().__init__(store.session_contexts, fail_on_insert=fail_on_insert)
+
+    def set_state(
+        self,
+        session_context_id: str,
+        state: str,
+        *,
+        established_at: datetime | None = None,
+        expires_at: datetime | None = None,
+        updated_at: datetime,
+    ) -> None:
+        if state not in ALLOWED_SESSION_STATES:
+            raise PersistenceInputError("state is not a SessionContext state")
+        current = self._store.get(session_context_id)
+        if current is None:
+            raise PersistenceError("session_context not found for state update")
+        self._store[session_context_id] = replace(
+            current,
+            state=state,
+            updated_at=updated_at,
+            established_at=current.established_at if established_at is None else established_at,
+            expires_at=current.expires_at if expires_at is None else expires_at,
+        )
+
+
 class FakeUnitOfWork:
     def __init__(self, store: _Store | None = None, fail_on: str | None = None) -> None:
         self._store = store or _Store()
@@ -1172,6 +1205,9 @@ class FakeUnitOfWork:
         self.budget_consumptions = _BudgetConsumptionRepo(self._store)
         self.audit_events = _Repo(
             self._store.audit_events, fail_on_insert=fail_on == "audit_events"
+        )
+        self.session_contexts = _SessionContextRepo(
+            self._store, fail_on_insert=fail_on == "session_contexts"
         )
 
     def __enter__(self) -> FakeUnitOfWork:
@@ -1276,6 +1312,8 @@ class FakeUnitOfWork:
         self._store.budget_consumptions.update(snapshot.budget_consumptions)
         self._store.audit_events.clear()
         self._store.audit_events.update(snapshot.audit_events)
+        self._store.session_contexts.clear()
+        self._store.session_contexts.update(snapshot.session_contexts)
 
 
 class FakeUnitOfWorkFactory:
