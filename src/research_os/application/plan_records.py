@@ -21,6 +21,8 @@ def experiment_plan_from_record(record: ExperimentPlanRecord) -> ExperimentPlan:
         expected_observation=record.expected_observation,
         disconfirming_observation=record.disconfirming_observation,
         evaluation_strategy=record.evaluation_strategy,
+        capability_version=record.capability_version,
+        capability_definition_fingerprint=record.capability_definition_fingerprint,
     )
 
 
@@ -44,6 +46,8 @@ def experiment_plan_record_for(
         disconfirming_observation=plan.disconfirming_observation,
         evaluation_strategy=plan.evaluation_strategy,
         created_at=created_at,
+        capability_version=plan.capability_version,
+        capability_definition_fingerprint=plan.capability_definition_fingerprint,
     )
 
 

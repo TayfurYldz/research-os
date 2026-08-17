@@ -8,6 +8,11 @@ from research_os.core.authorization import (
     check_authorization,
 )
 from research_os.core.budget import BudgetUsage, IssuedBudget, check_budget
+from research_os.core.capability import (
+    CapabilityAuthorizationCheck,
+    CapabilityAuthorizationView,
+    check_capability_authorization,
+)
 from research_os.core.enums import (
     ExecutionDecisionKind,
     ReasonCode,
@@ -17,6 +22,7 @@ from research_os.core.enums import (
 from research_os.core.errors import CoreInputError
 from research_os.core.identity import require_opaque_id
 from research_os.core.scope import ScopeEvaluationInput, check_scope
+from research_os.tools.registry import CapabilityRegistry
 
 
 def _parse_side_effect_level(value: SideEffectLevel | int) -> SideEffectLevel:
@@ -37,6 +43,7 @@ class ExecutionRequest:
     requested_budget_id: str
     side_effect_level: SideEffectLevel | int
     requested_subject: str
+    capability: CapabilityAuthorizationView | None
     approval: ApprovalView | None = None
 
 
@@ -74,10 +81,15 @@ def _decision(
     )
 
 
-def evaluate_execution(request: ExecutionRequest) -> ExecutionDecision:
-    """authorization → scope → budget → side-effect policy → approval.
+def evaluate_execution(
+    request: ExecutionRequest,
+    *,
+    capability_registry: CapabilityRegistry | None = None,
+) -> ExecutionDecision:
+    """capability registry → authorization → scope → budget → side-effect → approval.
 
     DENY outranks REQUIRE_HUMAN_REVIEW. Level 3 is denied even with Approval.
+    CapabilityAuthorizationView is a claim; Tools registry is policy truth.
     """
     if not isinstance(request, ExecutionRequest):
         raise CoreInputError("request must be ExecutionRequest")
@@ -92,6 +104,9 @@ def evaluate_execution(request: ExecutionRequest) -> ExecutionDecision:
     require_opaque_id(request.requested_subject, "requested_subject")
     require_opaque_id(request.requested_budget_id, "requested_budget_id")
 
+    capability: CapabilityAuthorizationCheck = check_capability_authorization(
+        request.capability, level, registry=capability_registry
+    )
     auth = check_authorization(request.authorization_source)
     scope = check_scope(request.scope)
     budget = check_budget(
@@ -112,6 +127,9 @@ def evaluate_execution(request: ExecutionRequest) -> ExecutionDecision:
             side_effect_level=level,
             approval_id=approval_id,
         )
+
+    if not capability.allowed_to_continue:
+        return finish(ExecutionDecisionKind.DENY, capability.reason_code)
 
     if not auth.allowed_to_continue:
         return finish(ExecutionDecisionKind.DENY, auth.reason_code)

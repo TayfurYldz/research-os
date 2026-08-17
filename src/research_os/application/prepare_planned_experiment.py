@@ -7,6 +7,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from research_os.application.capability_binding import require_new_plan_bindings
 from research_os.application.errors import ApplicationError
 from research_os.application.plan_records import experiment_plan_record_for
 from research_os.application.ports import Clock, SystemClock, UnitOfWorkFactory
@@ -47,6 +48,7 @@ class PreparePlannedExperiment:
     ) -> PreparePlannedExperimentResult:
         now = self._clock.now()
         plan = command.plan
+        require_new_plan_bindings(plan)
 
         def _write(uow: UnitOfWork) -> PreparePlannedExperimentResult:
             run = uow.research_runs.get(command.research_run_id)

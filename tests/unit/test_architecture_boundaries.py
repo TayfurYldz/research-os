@@ -300,6 +300,84 @@ class ArchitectureBoundaryTests(unittest.TestCase):
             packaged.read_text(encoding="utf-8"),
         )
 
+    def test_worker_capability_modules_stay_in_sync(self) -> None:
+        names = (
+            "capabilities.py",
+            "implementation.py",
+            "packaged_registry.py",
+            "fingerprint.py",
+        )
+        for name in names:
+            runtime = SRC_ROOT / "worker_runtime" / "python" / name
+            packaged = WORKERS_DIR / "python" / "research_os_worker" / name
+            self.assertEqual(
+                runtime.read_text(encoding="utf-8"),
+                packaged.read_text(encoding="utf-8"),
+                msg=name,
+            )
+
+    def test_canonical_worker_capability_json_matches_packaged_copies(self) -> None:
+        canonical = SRC_ROOT / "resources" / "contracts" / "v1" / "capabilities"
+        runtime = SRC_ROOT / "worker_runtime" / "python" / "resources" / "capabilities"
+        packaged = WORKERS_DIR / "python" / "research_os_worker" / "resources" / "capabilities"
+        worker_files = {path.name for path in runtime.glob("*.json")}
+        self.assertEqual(worker_files, {path.name for path in packaged.glob("*.json")})
+        self.assertEqual(
+            worker_files,
+            {
+                "diagnostic.echo.json",
+                "http.authorization.differential.json",
+                "http.state_transition.json",
+            },
+        )
+        for name in worker_files:
+            self.assertEqual(
+                (canonical / name).read_text(encoding="utf-8"),
+                (runtime / name).read_text(encoding="utf-8"),
+                msg=name,
+            )
+            self.assertEqual(
+                (canonical / name).read_text(encoding="utf-8"),
+                (packaged / name).read_text(encoding="utf-8"),
+                msg=name,
+            )
+        canonical_files = {path.name for path in canonical.glob("*.json")}
+        self.assertEqual(canonical_files, worker_files)
+        self.assertNotIn("strix.diagnostic.ping.json", canonical_files)
+        self.assertNotIn("codex.diagnostic.structured_output.json", canonical_files)
+
+    def test_worker_request_schema_copies_stay_in_sync(self) -> None:
+        canonical = REPO_ROOT / "contracts" / "v1" / "worker" / "worker-request.schema.json"
+        packaged = SRC_ROOT / "resources" / "contracts" / "v1" / "worker" / "worker-request.schema.json"
+        self.assertEqual(canonical.read_text(encoding="utf-8"), packaged.read_text(encoding="utf-8"))
+
+    def test_tools_does_not_import_core_or_workers(self) -> None:
+        self.assertEqual(
+            _violations(
+                SRC_ROOT / "tools",
+                forbidden_roots=EXECUTION_ROOTS + PERSISTENCE_LIBS,
+                forbidden_prefixes=(
+                    "research_os.core",
+                    "research_os.research",
+                    "research_os.application",
+                    "research_os.data",
+                    "research_os.workers",
+                    "research_os.worker_runtime",
+                ),
+            ),
+            [],
+        )
+
+    def test_core_does_not_import_worker_runtime(self) -> None:
+        self.assertEqual(
+            _violations(
+                CORE_DIR,
+                forbidden_roots=(),
+                forbidden_prefixes=("research_os.worker_runtime", "research_os.workers"),
+            ),
+            [],
+        )
+
     def test_production_research_does_not_branch_on_benchmark_ids(self) -> None:
         forbidden_ids = (
             "R01_BOLA_TRUE_WORKFLOW_DECOY",

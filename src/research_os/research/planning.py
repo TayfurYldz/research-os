@@ -9,6 +9,7 @@ from research_os.research.assessment import (
     HTTP_AUTHORIZATION_DIFFERENTIAL_EVALUATION_STRATEGY,
     HTTP_STATE_TRANSITION_EVALUATION_STRATEGY,
 )
+from research_os.research.compiler import ExperimentIntent, compile_experiment_intent
 from research_os.research.proposals import HypothesisChallenge, HypothesisProposal
 from research_os.research.types import ExperimentPlan, HypothesisDraft, ResearchInputError
 from research_os.tools.capabilities import (
@@ -19,6 +20,7 @@ from research_os.tools.capabilities import (
     HTTP_STATE_TRANSITION_ACTION,
     HTTP_STATE_TRANSITION_CAPABILITY,
 )
+from research_os.tools.registry import WORKER_EXECUTOR_CLASS, load_capability_registry
 
 HUMAN_ORIGIN = "human"
 DIAGNOSTIC_LOOP_STATEMENT = "diagnostic runtime returns the provided echo value"
@@ -68,17 +70,18 @@ def plan_diagnostic_echo(
     """Level-0 diagnostic plan used to prove the control-loop plumbing."""
     if not isinstance(message, str):
         raise TypeError("message must be a string")
-    return ExperimentPlan(
-        hypothesis_id=hypothesis_id,
-        required_capability=DIAGNOSTIC_ECHO_CAPABILITY,
-        action=DIAGNOSTIC_ECHO_ACTION,
-        target_reference=target_reference,
-        side_effect_level=0,
-        arguments={"message": message},
-        requested_budget_id=budget_id,
-        expected_observation=DIAGNOSTIC_EXPECTED_OBSERVATION,
-        disconfirming_observation=DIAGNOSTIC_DISCONFIRMING_OBSERVATION,
-        evaluation_strategy=DIAGNOSTIC_ECHO_EVALUATION_STRATEGY,
+    return compile_experiment_intent(
+        ExperimentIntent(
+            hypothesis_id=hypothesis_id,
+            capability_id=DIAGNOSTIC_ECHO_CAPABILITY,
+            action=DIAGNOSTIC_ECHO_ACTION,
+            target_reference=target_reference,
+            arguments={"message": message},
+            requested_budget_id=budget_id,
+            expected_observation=DIAGNOSTIC_EXPECTED_OBSERVATION,
+            disconfirming_observation=DIAGNOSTIC_DISCONFIRMING_OBSERVATION,
+            evaluation_strategy=DIAGNOSTIC_ECHO_EVALUATION_STRATEGY,
+        )
     )
 
 
@@ -96,23 +99,24 @@ def plan_authorization_differential(
     """Level-0 local lab plan. Not internet scanning and not autonomous discovery."""
     if mode not in {"vulnerable", "secure_only", "redirect"}:
         raise ResearchInputError("mode must be vulnerable, secure_only, or redirect")
-    return ExperimentPlan(
-        hypothesis_id=hypothesis_id,
-        required_capability=HTTP_AUTHORIZATION_DIFFERENTIAL_CAPABILITY,
-        action=HTTP_AUTHORIZATION_DIFFERENTIAL_ACTION,
-        target_reference=target_reference,
-        side_effect_level=0,
-        arguments={
-            "authorized_origin": authorized_origin,
-            "actor": actor,
-            "own_object": own_object,
-            "cross_object": cross_object,
-            "mode": mode,
-        },
-        requested_budget_id=budget_id,
-        expected_observation=HTTP_AUTHORIZATION_EXPECTED_OBSERVATION,
-        disconfirming_observation=HTTP_AUTHORIZATION_DISCONFIRMING_OBSERVATION,
-        evaluation_strategy=HTTP_AUTHORIZATION_DIFFERENTIAL_EVALUATION_STRATEGY,
+    return compile_experiment_intent(
+        ExperimentIntent(
+            hypothesis_id=hypothesis_id,
+            capability_id=HTTP_AUTHORIZATION_DIFFERENTIAL_CAPABILITY,
+            action=HTTP_AUTHORIZATION_DIFFERENTIAL_ACTION,
+            target_reference=target_reference,
+            arguments={
+                "authorized_origin": authorized_origin,
+                "actor": actor,
+                "own_object": own_object,
+                "cross_object": cross_object,
+                "mode": mode,
+            },
+            requested_budget_id=budget_id,
+            expected_observation=HTTP_AUTHORIZATION_EXPECTED_OBSERVATION,
+            disconfirming_observation=HTTP_AUTHORIZATION_DISCONFIRMING_OBSERVATION,
+            evaluation_strategy=HTTP_AUTHORIZATION_DIFFERENTIAL_EVALUATION_STRATEGY,
+        )
     )
 
 
@@ -132,23 +136,24 @@ def plan_state_transition(
         raise ResearchInputError("area must be workflow, control, or redirect")
     if transition not in {"submit", "review", "approve", "reject"}:
         raise ResearchInputError("transition is not in the allowlist")
-    return ExperimentPlan(
-        hypothesis_id=hypothesis_id,
-        required_capability=HTTP_STATE_TRANSITION_CAPABILITY,
-        action=HTTP_STATE_TRANSITION_ACTION,
-        target_reference=target_reference,
-        side_effect_level=1,
-        arguments={
-            "authorized_origin": authorized_origin,
-            "actor": actor,
-            "resource_id": resource_id,
-            "transition": transition,
-            "area": area,
-        },
-        requested_budget_id=budget_id,
-        expected_observation=HTTP_STATE_TRANSITION_EXPECTED_OBSERVATION,
-        disconfirming_observation=HTTP_STATE_TRANSITION_DISCONFIRMING_OBSERVATION,
-        evaluation_strategy=HTTP_STATE_TRANSITION_EVALUATION_STRATEGY,
+    return compile_experiment_intent(
+        ExperimentIntent(
+            hypothesis_id=hypothesis_id,
+            capability_id=HTTP_STATE_TRANSITION_CAPABILITY,
+            action=HTTP_STATE_TRANSITION_ACTION,
+            target_reference=target_reference,
+            arguments={
+                "authorized_origin": authorized_origin,
+                "actor": actor,
+                "resource_id": resource_id,
+                "transition": transition,
+                "area": area,
+            },
+            requested_budget_id=budget_id,
+            expected_observation=HTTP_STATE_TRANSITION_EXPECTED_OBSERVATION,
+            disconfirming_observation=HTTP_STATE_TRANSITION_DISCONFIRMING_OBSERVATION,
+            evaluation_strategy=HTTP_STATE_TRANSITION_EVALUATION_STRATEGY,
+        )
     )
 
 
@@ -163,28 +168,40 @@ def plan_admitted_hypothesis(
 ) -> ExperimentPlan:
     """Convert an admitted Hypothesis into a testable ExperimentPlan. Does not dispatch."""
     capability = proposal.suggested_capability
-    action = DIAGNOSTIC_ECHO_ACTION if capability == DIAGNOSTIC_ECHO_CAPABILITY else capability
+    registry = load_capability_registry()
+    definition = registry.get(capability)
+    if definition is None or definition.executor_class != WORKER_EXECUTOR_CLASS:
+        raise ResearchInputError("unknown or unsupported capability cannot be planned")
+    if len(definition.actions) != 1:
+        raise ResearchInputError("capability action is ambiguous")
+    action_id = next(iter(definition.actions))
+    action = definition.actions[action_id]
+    required = action.argument_schema.get("required") or []
     arguments: dict[str, str] = {}
+    if "message" in required:
+        arguments["message"] = message
+    expected = (
+        DIAGNOSTIC_EXPECTED_OBSERVATION
+        if capability == DIAGNOSTIC_ECHO_CAPABILITY
+        else proposal.suggested_disconfirming_test
+    )
     strategy = (
         DIAGNOSTIC_ECHO_EVALUATION_STRATEGY
         if capability == DIAGNOSTIC_ECHO_CAPABILITY
-        else capability
+        else f"{capability}.v1"
     )
-    if capability == DIAGNOSTIC_ECHO_CAPABILITY:
-        arguments = {"message": message}
-    return ExperimentPlan(
-        hypothesis_id=hypothesis_id,
-        required_capability=capability,
-        action=action,
-        target_reference=target_reference,
-        side_effect_level=0,
-        arguments=arguments,
-        requested_budget_id=budget_id,
-        expected_observation=DIAGNOSTIC_EXPECTED_OBSERVATION
-        if capability == DIAGNOSTIC_ECHO_CAPABILITY
-        else proposal.suggested_disconfirming_test,
-        disconfirming_observation=challenge.proposed_disconfirming_observation,
-        evaluation_strategy=strategy,
+    return compile_experiment_intent(
+        ExperimentIntent(
+            hypothesis_id=hypothesis_id,
+            capability_id=capability,
+            action=action_id,
+            target_reference=target_reference,
+            arguments=arguments,
+            requested_budget_id=budget_id,
+            expected_observation=expected,
+            disconfirming_observation=challenge.proposed_disconfirming_observation,
+            evaluation_strategy=strategy,
+        )
     )
 
 
@@ -201,6 +218,8 @@ def plan_canonical_identity(plan: ExperimentPlan) -> str:
         "expected_observation": plan.expected_observation,
         "disconfirming_observation": plan.disconfirming_observation,
         "evaluation_strategy": plan.evaluation_strategy,
+        "capability_version": plan.capability_version,
+        "capability_definition_fingerprint": plan.capability_definition_fingerprint,
     }
     return json.dumps(payload, sort_keys=True, separators=(",", ":"), default=str)
 

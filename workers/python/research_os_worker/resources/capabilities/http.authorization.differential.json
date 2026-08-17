@@ -1,0 +1,43 @@
+{
+  "capability_id": "http.authorization.differential",
+  "version": "1",
+  "implementation_reference": "http.authorization.differential",
+  "executor_class": "WORKER",
+  "actions": {
+    "probe": {
+      "action_id": "probe",
+      "argument_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["authorized_origin", "actor", "own_object", "cross_object", "mode"],
+        "properties": {
+          "authorized_origin": { "type": "string", "minLength": 1 },
+          "actor": { "type": "string", "minLength": 1 },
+          "own_object": { "type": "string", "minLength": 1 },
+          "cross_object": { "type": "string", "minLength": 1 },
+          "mode": {
+            "type": "string",
+            "enum": ["vulnerable", "secure_only", "redirect"]
+          }
+        }
+      },
+      "result_schema": {
+        "type": "object",
+        "additionalProperties": true
+      },
+      "minimum_side_effect_level": 0,
+      "maximum_side_effect_level": 0,
+      "target_types": ["opaque_reference"],
+      "network_policy": {
+        "allowed_methods": ["GET"],
+        "max_requests": 4,
+        "redirect": "STOP",
+        "loopback_only": true
+      },
+      "requirements": ["loopback"],
+      "supports_reproduction": true,
+      "supports_negative_control": true,
+      "normalizer_reference": "platform.url_normalize.v1"
+    }
+  }
+}

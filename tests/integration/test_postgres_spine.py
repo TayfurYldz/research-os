@@ -29,9 +29,15 @@ from research_os.data.postgres.engine import (
 )
 from research_os.core.authorization import AuthorizationSourceView
 from research_os.core.budget import BudgetUsage, IssuedBudget
-from research_os.core.enums import AuthorizationSourceState, ReasonCode, ScopeRuleEffect
+from research_os.core.capability import CapabilityAuthorizationView
+from research_os.core.enums import (
+    AuthorizationSourceState,
+    ReasonCode,
+    ScopeRuleEffect,
+)
 from research_os.core.execution import ExecutionRequest, evaluate_execution
 from research_os.core.scope import ScopeEvaluationInput, ScopeRuleMatch
+from research_os.tools.registry import load_capability_registry
 from research_os.data.postgres.unit_of_work import PostgresUnitOfWork
 from research_os.data.records import (
     AuditEventRecord,
@@ -547,6 +553,10 @@ class PostgresSpineTests(unittest.TestCase):
             record = uow.issued_budgets.get("budget-zero-core")
             source = uow.authorization_sources.get("as-1")
         assert record is not None and source is not None
+        echo = load_capability_registry().get("diagnostic.echo")
+        assert echo is not None
+        echo_action = echo.action("echo")
+        assert echo_action is not None
         decision = evaluate_execution(
             ExecutionRequest(
                 authorization_source=AuthorizationSourceView(
@@ -573,6 +583,14 @@ class PostgresSpineTests(unittest.TestCase):
                 requested_budget_id=record.budget_id,
                 side_effect_level=0,
                 requested_subject="target-1",
+                capability=CapabilityAuthorizationView(
+                    capability_id=echo.capability_id,
+                    action="echo",
+                    capability_version=echo.version,
+                    definition_fingerprint=echo.definition_fingerprint,
+                    authoritative_minimum_side_effect=echo_action.minimum_side_effect_level,
+                    effective_side_effect=0,
+                ),
             )
         )
         self.assertEqual(decision.reason_code, ReasonCode.BUDGET_EXHAUSTED)
@@ -675,7 +693,7 @@ class PostgresSpineTests(unittest.TestCase):
                     )
                 )
             }
-        self.assertEqual(version, "a19_001_http_state_class")
+        self.assertEqual(version, "a20_001_capability_plan_binding")
         self.assertIn("execution_attempt", tables)
         self.assertIn("worker_result", tables)
         self.assertIn("audit_event", tables)

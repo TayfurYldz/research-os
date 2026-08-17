@@ -8,11 +8,12 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Any, Mapping
 
-from research_os.research.assessment import DIAGNOSTIC_ECHO_EVALUATION_STRATEGY
-from research_os.research.planning import DIAGNOSTIC_DISCONFIRMING_OBSERVATION, DIAGNOSTIC_EXPECTED_OBSERVATION
+from research_os.research.planning import (
+    DIAGNOSTIC_DISCONFIRMING_OBSERVATION,
+    plan_diagnostic_echo,
+)
 from research_os.research.target_model import TargetEpistemicStatus, TargetObservationView
 from research_os.research.types import ExperimentPlan, ResearchInputError
-from research_os.tools.capabilities import DIAGNOSTIC_ECHO_ACTION, DIAGNOSTIC_ECHO_CAPABILITY
 
 CHAIN_STRATEGY_VERSION = "chain.diagnostic.echo.v1"
 DIAGNOSTIC_CHAIN_CAPABILITY = "CAN_OBSERVE_ECHO"
@@ -587,17 +588,14 @@ def experiment_plan_for_chain_step(
     target_reference: str,
     message: str = "ping",
 ) -> ExperimentPlan:
-    """Research plan from a chain step. Does not authorize or dispatch."""
+    """Research plan from a chain step. Does not authorize or dispatch.
 
-    return ExperimentPlan(
-        hypothesis_id=hypothesis_id,
-        required_capability=DIAGNOSTIC_ECHO_CAPABILITY,
-        action=DIAGNOSTIC_ECHO_ACTION,
+    Side effect is determined by the capability action, not the chain step claim.
+    """
+
+    return plan_diagnostic_echo(
+        hypothesis_id,
+        budget_id=budget_id,
         target_reference=target_reference,
-        side_effect_level=step.side_effect_level,
-        arguments={"message": message},
-        requested_budget_id=budget_id,
-        expected_observation=DIAGNOSTIC_EXPECTED_OBSERVATION,
-        disconfirming_observation=DIAGNOSTIC_DISCONFIRMING_OBSERVATION,
-        evaluation_strategy=DIAGNOSTIC_ECHO_EVALUATION_STRATEGY,
+        message=message,
     )

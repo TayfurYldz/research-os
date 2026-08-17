@@ -15,7 +15,9 @@
     "execution_budget",
     "side_effect_level",
     "secret_references",
-    "arguments"
+    "arguments",
+    "capability_version",
+    "capability_definition_fingerprint"
   ],
   "properties": {
     "contract_version": {
@@ -64,6 +66,16 @@
       "type": "object",
       "additionalProperties": true,
       "description": "Job-specific extensible payload. MUST NOT embed authorization, budget authority, approval, scope state, Evidence, Finding, or promotion."
+    },
+    "capability_version": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Capability definition version bound at compile time. Not authorization."
+    },
+    "capability_definition_fingerprint": {
+      "type": "string",
+      "minLength": 1,
+      "description": "SHA-256 fingerprint of allowlisted capability policy fields. Not authorization."
     }
   }
 }

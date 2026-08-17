@@ -18,6 +18,8 @@
     "max_concurrency": 1
   },
   "side_effect_level": 0,
+  "capability_version": "1",
+  "capability_definition_fingerprint": "d86e9a66407367f2853f801a6f537d63dc264cc892c45036703081d806e5c98d",
   "secret_references": [],
   "arguments": {
     "message": "canonical-example"

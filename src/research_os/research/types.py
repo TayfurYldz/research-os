@@ -52,6 +52,8 @@ class ExperimentPlan:
     expected_observation: str
     disconfirming_observation: str
     evaluation_strategy: str
+    capability_version: str | None = None
+    capability_definition_fingerprint: str | None = None
 
     def __post_init__(self) -> None:
         object.__setattr__(
@@ -94,3 +96,18 @@ class ExperimentPlan:
         if not isinstance(self.arguments, Mapping):
             raise ResearchInputError("arguments must be a mapping")
         object.__setattr__(self, "arguments", dict(self.arguments))
+        if self.capability_version is not None:
+            object.__setattr__(
+                self,
+                "capability_version",
+                _require_text(self.capability_version, "capability_version"),
+            )
+        if self.capability_definition_fingerprint is not None:
+            object.__setattr__(
+                self,
+                "capability_definition_fingerprint",
+                _require_text(
+                    self.capability_definition_fingerprint,
+                    "capability_definition_fingerprint",
+                ),
+            )

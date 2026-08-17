@@ -8,27 +8,19 @@ from research_os.core import (
     ActorType,
     ApprovalDecision,
     ApprovalView,
-    ExecutionDecisionKind,
     ReasonCode,
-    SideEffectLevel,
-    evaluate_execution,
     evaluate_recorded_approval,
 )
-from fixtures import base_request, human_approval
+from research_os.core.approval import check_approval
+from fixtures import human_approval
 
 
 class ApprovalTests(unittest.TestCase):
     def test_correct_subject_required(self) -> None:
         approval = human_approval(subject="other-action")
-        decision = evaluate_execution(
-            base_request(
-                side_effect_level=SideEffectLevel.LEVEL_2,
-                requested_subject="action-1",
-                approval=approval,
-            )
-        )
-        self.assertEqual(decision.decision, ExecutionDecisionKind.DENY)
-        self.assertEqual(decision.reason_code, ReasonCode.APPROVAL_SUBJECT_MISMATCH)
+        result = check_approval(approval, "action-1")
+        self.assertFalse(result.authorizes)
+        self.assertEqual(result.reason_code, ReasonCode.APPROVAL_SUBJECT_MISMATCH)
 
     def test_recorded_required(self) -> None:
         approval = ApprovalView(
@@ -39,11 +31,9 @@ class ApprovalTests(unittest.TestCase):
             actor_type=ActorType.HUMAN_OPERATOR,
             recorded=False,
         )
-        decision = evaluate_execution(
-            base_request(side_effect_level=SideEffectLevel.LEVEL_2, approval=approval)
-        )
-        self.assertNotEqual(decision.decision, ExecutionDecisionKind.ALLOW)
-        self.assertEqual(decision.reason_code, ReasonCode.APPROVAL_NOT_RECORDED)
+        result = check_approval(approval, "action-1")
+        self.assertFalse(result.authorizes)
+        self.assertEqual(result.reason_code, ReasonCode.APPROVAL_NOT_RECORDED)
 
     def test_human_actor_required(self) -> None:
         approval = ApprovalView(
@@ -54,11 +44,9 @@ class ApprovalTests(unittest.TestCase):
             actor_type=ActorType.CONTROL_PLANE,
             recorded=True,
         )
-        decision = evaluate_execution(
-            base_request(side_effect_level=SideEffectLevel.LEVEL_2, approval=approval)
-        )
-        self.assertEqual(decision.decision, ExecutionDecisionKind.DENY)
-        self.assertEqual(decision.reason_code, ReasonCode.APPROVAL_INVALID_ACTOR)
+        result = check_approval(approval, "action-1")
+        self.assertFalse(result.authorizes)
+        self.assertEqual(result.reason_code, ReasonCode.APPROVAL_INVALID_ACTOR)
 
     def test_integration_cannot_approve(self) -> None:
         approval = ApprovalView(
@@ -69,11 +57,9 @@ class ApprovalTests(unittest.TestCase):
             actor_type=ActorType.INTEGRATION,
             recorded=True,
         )
-        decision = evaluate_execution(
-            base_request(side_effect_level=SideEffectLevel.LEVEL_2, approval=approval)
-        )
-        self.assertEqual(decision.decision, ExecutionDecisionKind.DENY)
-        self.assertEqual(decision.reason_code, ReasonCode.APPROVAL_INVALID_ACTOR)
+        result = check_approval(approval, "action-1")
+        self.assertFalse(result.authorizes)
+        self.assertEqual(result.reason_code, ReasonCode.APPROVAL_INVALID_ACTOR)
 
 
 class RecordedApprovalEvaluationTests(unittest.TestCase):

@@ -16,6 +16,8 @@ from research_os.core import (
     ScopeRuleMatch,
     SideEffectLevel,
 )
+from research_os.core.capability import CapabilityAuthorizationView
+from research_os.tools.registry import load_capability_registry
 
 
 def active_source() -> AuthorizationSourceView:
@@ -50,8 +52,33 @@ def human_approval(subject: str = "action-1") -> ApprovalView:
     )
 
 
+def capability_view_for_side_effect(level: SideEffectLevel | int) -> CapabilityAuthorizationView:
+    registry = load_capability_registry()
+    parsed = int(level)
+    if parsed == 1:
+        definition = registry.get("http.state_transition")
+        action_id = "probe"
+        effective = 1
+    else:
+        definition = registry.get("diagnostic.echo")
+        action_id = "echo"
+        effective = parsed
+    assert definition is not None
+    action = definition.action(action_id)
+    assert action is not None
+    return CapabilityAuthorizationView(
+        capability_id=definition.capability_id,
+        action=action_id,
+        capability_version=definition.version,
+        definition_fingerprint=definition.definition_fingerprint,
+        authoritative_minimum_side_effect=action.minimum_side_effect_level,
+        effective_side_effect=effective,
+    )
+
+
 def base_request(**overrides) -> ExecutionRequest:
     issued = issued_budget()
+    level = overrides.get("side_effect_level", SideEffectLevel.LEVEL_0)
     values = {
         "authorization_source": active_source(),
         "scope": allow_scope(),
@@ -60,7 +87,10 @@ def base_request(**overrides) -> ExecutionRequest:
         "requested_budget_id": issued.budget_id,
         "side_effect_level": SideEffectLevel.LEVEL_0,
         "requested_subject": "action-1",
+        "capability": capability_view_for_side_effect(level),
         "approval": None,
     }
     values.update(overrides)
+    if "capability" not in overrides:
+        values["capability"] = capability_view_for_side_effect(values["side_effect_level"])
     return ExecutionRequest(**values)

@@ -163,7 +163,8 @@ class AuthorizationGateTests(unittest.TestCase):
         plan = _plan()
         object.__setattr__(plan, "side_effect_level", 2)
         outcome = use_case.execute(_command(plan=plan))
-        self.assertEqual(outcome.status, ResearchLoopStatus.HUMAN_REVIEW_REQUIRED)
+        self.assertEqual(outcome.status, ResearchLoopStatus.DISPATCH_DENIED)
+        self.assertEqual(outcome.core_reason_code, ReasonCode.RISK_EXCEEDS_CAPABILITY)
         self.assertEqual(len(port.calls), 0)
 
     def test_level3_does_not_invoke_worker(self) -> None:
@@ -172,7 +173,7 @@ class AuthorizationGateTests(unittest.TestCase):
         object.__setattr__(plan, "side_effect_level", 3)
         outcome = use_case.execute(_command(plan=plan))
         self.assertEqual(outcome.status, ResearchLoopStatus.DISPATCH_DENIED)
-        self.assertEqual(outcome.core_reason_code, ReasonCode.SIDE_EFFECT_LEVEL_DENIED)
+        self.assertEqual(outcome.core_reason_code, ReasonCode.RISK_EXCEEDS_CAPABILITY)
         self.assertEqual(len(port.calls), 0)
 
 

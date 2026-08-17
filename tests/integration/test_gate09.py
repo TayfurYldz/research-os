@@ -435,7 +435,7 @@ class Gate09ExplorationTemporalTests(unittest.TestCase):
                     text("SELECT tablename FROM pg_tables WHERE schemaname = 'public'")
                 )
             }
-        self.assertEqual(version, "a19_001_http_state_class")
+        self.assertEqual(version, "a20_001_capability_plan_binding")
         self.assertIn("research_opportunity", tables)
         self.assertIn("research_selection", tables)
         self.assertIn("snapshot", tables)

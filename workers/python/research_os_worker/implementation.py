@@ -1,0 +1,40 @@
+"""Static Worker implementation map. No dynamic import, eval, or shell dispatch."""
+
+from __future__ import annotations
+
+from collections.abc import Callable
+from typing import Any, Mapping
+
+from .http_authorization import execute_http_authorization
+from .http_state_transition import execute_http_state_transition
+
+Executor = Callable[
+    [Mapping[str, Any]], tuple[str, dict[str, Any], dict[str, Any] | None]
+]
+
+
+def _execute_echo(
+    request: Mapping[str, Any],
+) -> tuple[str, dict[str, Any], dict[str, Any] | None]:
+    arguments = request.get("arguments")
+    if not isinstance(arguments, Mapping):
+        arguments = {}
+    message = arguments.get("message", "")
+    if not isinstance(message, str):
+        return (
+            "EXECUTION_FAILED",
+            {},
+            {"error": "diagnostic.echo message must be a string"},
+        )
+    return (
+        "SUCCEEDED",
+        {"echoed": message, "capability": "diagnostic.echo"},
+        None,
+    )
+
+
+IMPLEMENTATION_EXECUTORS: dict[str, Executor] = {
+    "diagnostic.echo": _execute_echo,
+    "http.authorization.differential": execute_http_authorization,
+    "http.state_transition": execute_http_state_transition,
+}

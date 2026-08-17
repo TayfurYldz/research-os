@@ -350,6 +350,8 @@ experiment_plan = Table(
     Column("expected_observation", Text, nullable=False),
     Column("disconfirming_observation", Text, nullable=False),
     Column("evaluation_strategy", Text, nullable=False),
+    Column("capability_version", Text, nullable=True),
+    Column("capability_definition_fingerprint", Text, nullable=True),
     Column("created_at", DateTime(timezone=True), nullable=False),
     ForeignKeyConstraint(
         ["experiment_id", "research_run_id"],

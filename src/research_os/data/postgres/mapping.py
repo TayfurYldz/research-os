@@ -245,6 +245,8 @@ def experiment_plan_from_row(row: Mapping[str, Any]) -> ExperimentPlanRecord:
         disconfirming_observation=data["disconfirming_observation"],
         evaluation_strategy=data["evaluation_strategy"],
         created_at=data["created_at"],
+        capability_version=data.get("capability_version"),
+        capability_definition_fingerprint=data.get("capability_definition_fingerprint"),
     )
 
 

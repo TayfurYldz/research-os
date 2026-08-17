@@ -20,6 +20,7 @@ from research_os.core.budget import (
     allocate_experiment_budget,
     check_budget,
 )
+from research_os.core.capability import CapabilityAuthorizationView
 from research_os.core.enums import (
     ActorType,
     ApprovalDecision,
@@ -38,6 +39,12 @@ from research_os.core.errors import (
 from research_os.core.execution import ExecutionDecision, ExecutionRequest, evaluate_execution
 from research_os.core.identity import Actor
 from research_os.core.scope import ScopeEvaluationInput, ScopeRuleMatch, check_scope
+from research_os.core.scope_compiler import (
+    ScopeCandidate,
+    ScopeRuleDefinition,
+    compile_scope_rules,
+    evaluate_scope_candidate,
+)
 
 __all__ = [
     "Actor",
@@ -49,6 +56,7 @@ __all__ = [
     "AuthorizationSourceView",
     "BudgetAllocationError",
     "BudgetUsage",
+    "CapabilityAuthorizationView",
     "CoreInputError",
     "ExecutionDecision",
     "ExecutionDecisionKind",
@@ -56,8 +64,10 @@ __all__ = [
     "InvalidBudgetError",
     "IssuedBudget",
     "ReasonCode",
+    "ScopeCandidate",
     "ScopeDecision",
     "ScopeEvaluationInput",
+    "ScopeRuleDefinition",
     "ScopeRuleEffect",
     "ScopeRuleMatch",
     "SideEffectLevel",
@@ -67,5 +77,7 @@ __all__ = [
     "check_authorization",
     "check_budget",
     "check_scope",
+    "compile_scope_rules",
     "evaluate_execution",
+    "evaluate_scope_candidate",
 ]

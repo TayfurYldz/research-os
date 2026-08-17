@@ -424,7 +424,7 @@ class Gate03LearningCycleTests(unittest.TestCase):
                     )
                 )
             }
-        self.assertEqual(version, "a19_001_http_state_class")
+        self.assertEqual(version, "a20_001_capability_plan_binding")
         self.assertIn("research_admission", tables)
         self.assertIn("experiment_plan", tables)
         self.assertIn("hypothesis_assessment", tables)

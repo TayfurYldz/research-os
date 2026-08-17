@@ -536,6 +536,8 @@ class ExperimentPlanRecord:
     disconfirming_observation: str
     evaluation_strategy: str
     created_at: datetime
+    capability_version: str | None = None
+    capability_definition_fingerprint: str | None = None
 
     def __post_init__(self) -> None:
         require_opaque_id(self.experiment_id, "experiment_id")
@@ -561,6 +563,13 @@ class ExperimentPlanRecord:
             raise PersistenceInputError("arguments must be a mapping")
         _reject_secret_keys(self.arguments, "arguments")
         object.__setattr__(self, "arguments", dict(self.arguments))
+        if self.capability_version is not None:
+            require_opaque_id(self.capability_version, "capability_version")
+        if self.capability_definition_fingerprint is not None:
+            require_opaque_id(
+                self.capability_definition_fingerprint,
+                "capability_definition_fingerprint",
+            )
 
 
 @dataclass(frozen=True)

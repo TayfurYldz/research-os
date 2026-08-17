@@ -8,6 +8,10 @@ from research_os.platform.local_process_worker import (
     LocalProcessWorkerConfig,
 )
 from research_os.platform.worker import InvocationStatus
+from research_os.tools.registry import load_capability_registry
+
+_ECHO = load_capability_registry().get("diagnostic.echo")
+assert _ECHO is not None
 
 DIAGNOSTIC_WORKER_REQUEST = {
     "contract_version": "v1",
@@ -29,6 +33,8 @@ DIAGNOSTIC_WORKER_REQUEST = {
         "max_concurrency": 1,
     },
     "side_effect_level": 0,
+    "capability_version": _ECHO.version,
+    "capability_definition_fingerprint": _ECHO.definition_fingerprint,
     "secret_references": [],
     "arguments": {"message": "ping"},
 }

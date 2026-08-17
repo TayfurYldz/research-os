@@ -277,7 +277,7 @@ class DiagnosticChainTests(unittest.TestCase):
             budget_id="budget-1",
             target_reference="target-1",
         )
-        self.assertEqual(plan.side_effect_level, 3)
+        self.assertEqual(plan.side_effect_level, 0)
         self.assertFalse(hasattr(plan, "invoke"))
 
 

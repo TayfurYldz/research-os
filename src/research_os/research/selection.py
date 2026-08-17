@@ -20,17 +20,17 @@ from research_os.research.exploration import (
     OrdinalLevel,
     SelectionOutcome,
 )
+from research_os.research.compiler import ExperimentIntent, compile_experiment_intent
 from research_os.research.planning import (
     HTTP_AUTHORIZATION_DIFFERENTIAL_CLAIM,
     HTTP_STATE_TRANSITION_CLAIM,
-    plan_authorization_differential,
-    plan_state_transition,
 )
 from research_os.research.types import ExperimentPlan, ResearchInputError
 from research_os.tools.capabilities import (
     HTTP_AUTHORIZATION_DIFFERENTIAL_CAPABILITY,
     HTTP_STATE_TRANSITION_CAPABILITY,
 )
+from research_os.tools.registry import WORKER_EXECUTOR_CLASS, load_capability_registry
 
 RESEARCH_SELECTION_STRATEGY_VERSION = "research.selection.v1"
 OBJECT_OBSERVATION_KIND = "HTTP_AUTHORIZATION_DIFFERENTIAL"
@@ -1173,30 +1173,27 @@ def _make_workflow_option(
 
 
 def plan_from_option(option: ExperimentOption, *, budget_id: str) -> ExperimentPlan:
-    arguments = dict(option.plan_arguments)
-    if option.required_capability == HTTP_AUTHORIZATION_DIFFERENTIAL_CAPABILITY:
-        return plan_authorization_differential(
-            option.hypothesis_id,
-            budget_id=budget_id,
+    registry = load_capability_registry()
+    definition = registry.get(option.required_capability)
+    if definition is None or definition.executor_class != WORKER_EXECUTOR_CLASS:
+        raise ResearchInputError("unknown or unsupported capability cannot be planned")
+    if len(definition.actions) != 1:
+        raise ResearchInputError("capability action is ambiguous")
+    action_id = next(iter(definition.actions))
+    return compile_experiment_intent(
+        ExperimentIntent(
+            hypothesis_id=option.hypothesis_id,
+            capability_id=option.required_capability,
+            action=action_id,
             target_reference=option.target_reference,
-            authorized_origin=str(arguments["authorized_origin"]),
-            actor=str(arguments["actor"]),
-            own_object=str(arguments["own_object"]),
-            cross_object=str(arguments["cross_object"]),
-            mode=str(arguments.get("mode") or "vulnerable"),
+            arguments=dict(option.plan_arguments),
+            requested_budget_id=budget_id,
+            expected_observation=option.expected_supporting_observation,
+            disconfirming_observation=option.expected_disconfirming_observation,
+            evaluation_strategy=f"{option.required_capability}.v1",
+            requested_side_effect=option.side_effect_level,
         )
-    if option.required_capability == HTTP_STATE_TRANSITION_CAPABILITY:
-        return plan_state_transition(
-            option.hypothesis_id,
-            budget_id=budget_id,
-            target_reference=option.target_reference,
-            authorized_origin=str(arguments["authorized_origin"]),
-            actor=str(arguments["actor"]),
-            resource_id=str(arguments["resource_id"]),
-            transition=str(arguments["transition"]),
-            area=str(arguments.get("area") or "workflow"),
-        )
-    raise ResearchInputError("experiment option capability is not a validated security capability")
+    )
 
 
 def opportunity_kind_for(purpose: ExperimentPurpose) -> OpportunityKind:

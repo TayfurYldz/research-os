@@ -33,7 +33,7 @@ from research_os.application.record_invariant_counterexample import (
     RecordInvariantCounterexample,
     RecordInvariantCounterexampleCommand,
 )
-from research_os.core.enums import ExecutionDecisionKind, ScopeRuleEffect, SideEffectLevel
+from research_os.core.enums import ExecutionDecisionKind, ReasonCode, ScopeRuleEffect, SideEffectLevel
 from research_os.core.execution import evaluate_execution
 from research_os.core.scope import ScopeEvaluationInput, ScopeRuleMatch
 from research_os.data.errors import PersistenceError
@@ -179,11 +179,12 @@ class InvariantChainApplicationTests(unittest.TestCase):
             budget_id="budget-1",
             target_reference="target-1",
         )
+        self.assertEqual(plan.side_effect_level, 0)
         decision = evaluate_execution(
-            base_request(side_effect_level=SideEffectLevel(plan.side_effect_level))
+            base_request(side_effect_level=SideEffectLevel.LEVEL_3)
         )
         self.assertEqual(decision.decision, ExecutionDecisionKind.DENY)
-        self.assertEqual(plan.side_effect_level, 3)
+        self.assertEqual(decision.reason_code, ReasonCode.RISK_EXCEEDS_CAPABILITY)
 
     def test_chain_level_2_still_requires_core_review(self) -> None:
         plan = experiment_plan_for_chain_step(
@@ -200,10 +201,12 @@ class InvariantChainApplicationTests(unittest.TestCase):
             budget_id="budget-1",
             target_reference="target-1",
         )
+        self.assertEqual(plan.side_effect_level, 0)
         decision = evaluate_execution(
-            base_request(side_effect_level=SideEffectLevel(plan.side_effect_level))
+            base_request(side_effect_level=SideEffectLevel.LEVEL_2)
         )
-        self.assertEqual(decision.decision, ExecutionDecisionKind.REQUIRE_HUMAN_REVIEW)
+        self.assertEqual(decision.decision, ExecutionDecisionKind.DENY)
+        self.assertEqual(decision.reason_code, ReasonCode.RISK_EXCEEDS_CAPABILITY)
 
     def test_empty_observations_are_untestable(self) -> None:
         store = _Store()

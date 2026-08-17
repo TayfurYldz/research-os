@@ -1,0 +1,46 @@
+{
+  "capability_id": "http.state_transition",
+  "version": "1",
+  "implementation_reference": "http.state_transition",
+  "executor_class": "WORKER",
+  "actions": {
+    "probe": {
+      "action_id": "probe",
+      "argument_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["authorized_origin", "actor", "resource_id", "transition", "area"],
+        "properties": {
+          "authorized_origin": { "type": "string", "minLength": 1 },
+          "actor": { "type": "string", "minLength": 1 },
+          "resource_id": { "type": "string", "minLength": 1 },
+          "transition": {
+            "type": "string",
+            "enum": ["submit", "review", "approve", "reject"]
+          },
+          "area": {
+            "type": "string",
+            "enum": ["workflow", "control", "redirect"]
+          }
+        }
+      },
+      "result_schema": {
+        "type": "object",
+        "additionalProperties": true
+      },
+      "minimum_side_effect_level": 1,
+      "maximum_side_effect_level": 1,
+      "target_types": ["opaque_reference"],
+      "network_policy": {
+        "allowed_methods": ["GET", "POST"],
+        "max_requests": 4,
+        "redirect": "STOP",
+        "loopback_only": true
+      },
+      "requirements": ["loopback"],
+      "supports_reproduction": true,
+      "supports_negative_control": true,
+      "normalizer_reference": "platform.url_normalize.v1"
+    }
+  }
+}

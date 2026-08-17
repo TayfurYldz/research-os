@@ -696,6 +696,8 @@ class PostgresExperimentPlanRepository:
                 expected_observation=record.expected_observation,
                 disconfirming_observation=record.disconfirming_observation,
                 evaluation_strategy=record.evaluation_strategy,
+                capability_version=record.capability_version,
+                capability_definition_fingerprint=record.capability_definition_fingerprint,
                 created_at=record.created_at,
             ),
         )

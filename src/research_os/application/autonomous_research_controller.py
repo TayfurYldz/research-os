@@ -26,6 +26,10 @@ from research_os.application.evaluate_experiment_feedback import (
     EvaluateExperimentFeedback,
     EvaluateExperimentFeedbackCommand,
 )
+from research_os.application.capability_binding import (
+    CapabilityBindingError,
+    capability_view_for_plan,
+)
 from research_os.application.execute_planned_experiment import (
     AuthorizedDispatch,
     ExecutePlannedExperiment,
@@ -648,6 +652,10 @@ class AutonomousResearchController:
         if experiment is None or plan_record is None or issued is None:
             return self._stop(current, StopReason.OPERATIONAL_FAILURE, "resume_missing")
         plan = experiment_plan_from_record(plan_record)
+        try:
+            capability_view = capability_view_for_plan(plan)
+        except CapabilityBindingError:
+            return self._stop(current, StopReason.CORE_BLOCKED, "capability_binding")
         dispatch = AuthorizedDispatch(
             experiment_id=experiment.experiment_id,
             hypothesis_id=experiment.hypothesis_id,
@@ -658,6 +666,7 @@ class AutonomousResearchController:
             worker_request=_build_worker_request(
                 experiment=experiment,
                 plan=plan,
+                capability_view=capability_view,
                 issued=issued,
                 request_id=attempt.request_id,
                 correlation_id=attempt.correlation_id,

@@ -30,7 +30,7 @@ class PrecedenceTests(unittest.TestCase):
         decision = evaluate_execution(
             base_request(
                 scope=scope,
-                side_effect_level=SideEffectLevel.LEVEL_2,
+                side_effect_level=SideEffectLevel.LEVEL_0,
                 approval=None,
             )
         )
@@ -44,7 +44,7 @@ class PrecedenceTests(unittest.TestCase):
         decision = evaluate_execution(
             base_request(
                 authorization_source=source,
-                side_effect_level=SideEffectLevel.LEVEL_2,
+                side_effect_level=SideEffectLevel.LEVEL_0,
                 approval=human_approval(),
             )
         )
@@ -57,7 +57,7 @@ class PrecedenceTests(unittest.TestCase):
         decision = evaluate_execution(
             base_request(
                 budget_usage=usage,
-                side_effect_level=SideEffectLevel.LEVEL_2,
+                side_effect_level=SideEffectLevel.LEVEL_0,
                 approval=None,
             )
         )

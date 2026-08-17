@@ -27,6 +27,7 @@ A16_MIGRATION = ALEMBIC_VERSIONS / "a16_001_orchestration_operations.py"
 A17_MIGRATION = ALEMBIC_VERSIONS / "a17_001_qa_remediation.py"
 A18_MIGRATION = ALEMBIC_VERSIONS / "a18_001_http_auth_class.py"
 A19_MIGRATION = ALEMBIC_VERSIONS / "a19_001_http_state_class.py"
+A20_MIGRATION = ALEMBIC_VERSIONS / "a20_001_capability_plan_binding.py"
 
 
 def _imported_modules(tree: ast.AST) -> set[str]:
@@ -287,6 +288,17 @@ class AlembicSmokeTests(unittest.TestCase):
         self.assertNotIn("create_all", source)
         a18 = A18_MIGRATION.read_text(encoding="utf-8")
         self.assertNotIn("HTTP_STATE_TRANSITION_AUTHORIZATION", a18)
+
+    def test_a20_migration_adds_plan_capability_binding(self) -> None:
+        source = A20_MIGRATION.read_text(encoding="utf-8")
+        self.assertIn("a20_001_capability_plan_binding", source)
+        self.assertIn("a19_001_http_state_class", source)
+        self.assertIn("capability_version", source)
+        self.assertIn("capability_definition_fingerprint", source)
+        self.assertNotIn("compiled_scope_fingerprint", source.split("def upgrade", 1)[1])
+        self.assertNotIn("create_all", source)
+        a19 = A19_MIGRATION.read_text(encoding="utf-8")
+        self.assertNotIn("capability_definition_fingerprint", a19)
 
 
 if __name__ == "__main__":

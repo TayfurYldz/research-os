@@ -1,0 +1,31 @@
+{
+  "capability_id": "diagnostic.echo",
+  "version": "1",
+  "implementation_reference": "diagnostic.echo",
+  "executor_class": "WORKER",
+  "actions": {
+    "echo": {
+      "action_id": "echo",
+      "argument_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["message"],
+        "properties": {
+          "message": { "type": "string" }
+        }
+      },
+      "result_schema": {
+        "type": "object",
+        "additionalProperties": true
+      },
+      "minimum_side_effect_level": 0,
+      "maximum_side_effect_level": 0,
+      "target_types": ["opaque_reference"],
+      "network_policy": null,
+      "requirements": [],
+      "supports_reproduction": true,
+      "supports_negative_control": false,
+      "normalizer_reference": null
+    }
+  }
+}

@@ -11,6 +11,10 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Any, Mapping
 
+from research_os.application.capability_binding import (
+    CapabilityBindingError,
+    capability_view_for_plan,
+)
 from research_os.application.identity import (
     attempt_id_for,
     execution_decision_audit_id,
@@ -24,6 +28,7 @@ from research_os.application.ingest_worker_invocation import (
 )
 from research_os.application.plan_records import (
     durable_plan_matches,
+    experiment_plan_from_record,
     experiment_plan_record_for,
 )
 from research_os.application.ports import Clock, SystemClock, UnitOfWorkFactory
@@ -191,6 +196,16 @@ class ExecutePlannedExperiment:
             if plan_error is not None:
                 uow.rollback()
                 return plan_error
+            persisted = uow.experiment_plans.get(experiment.experiment_id)
+            if persisted is None:
+                uow.rollback()
+                return ResearchLoopOutcome(
+                    status=ResearchLoopStatus.INPUT_REJECTED,
+                    hypothesis_id=hypothesis_id,
+                    experiment_id=experiment.experiment_id,
+                    experiment_execution_state=experiment.execution_state,
+                )
+            bound_plan = experiment_plan_from_record(persisted)
             existing_attempts = uow.execution_attempts.list_for_experiment(
                 experiment.experiment_id
             )
@@ -201,15 +216,28 @@ class ExecutePlannedExperiment:
                 experiment.experiment_id,
                 ExperimentExecutionState.AUTHORIZATION_CHECK.value,
             )
+            try:
+                capability_view = capability_view_for_plan(bound_plan)
+            except CapabilityBindingError as exc:
+                uow.rollback()
+                return ResearchLoopOutcome(
+                    status=ResearchLoopStatus.DISPATCH_DENIED,
+                    hypothesis_id=hypothesis_id,
+                    experiment_id=experiment.experiment_id,
+                    experiment_execution_state=experiment.execution_state,
+                    core_decision=ExecutionDecisionKind.DENY,
+                    core_reason_code=_binding_reason(exc.reason_code),
+                )
             decision = evaluate_execution(
                 ExecutionRequest(
                     authorization_source=source,
                     scope=command.scope,
                     issued_budget=_issued_budget_from_record(issued),
                     budget_usage=_usage_or_ledger(command.budget_usage, uow, issued.budget_id),
-                    requested_budget_id=command.plan.requested_budget_id,
-                    side_effect_level=command.plan.side_effect_level,
-                    requested_subject=command.plan.target_reference,
+                    requested_budget_id=bound_plan.requested_budget_id,
+                    side_effect_level=bound_plan.side_effect_level,
+                    requested_subject=bound_plan.target_reference,
+                    capability=capability_view,
                     approval=command.approval,
                 )
             )
@@ -257,7 +285,8 @@ class ExecutePlannedExperiment:
                 )
             worker_request = _build_worker_request(
                 experiment=experiment,
-                plan=command.plan,
+                plan=bound_plan,
+                capability_view=capability_view,
                 issued=issued,
                 request_id=request_id,
                 correlation_id=correlation_id,
@@ -272,11 +301,11 @@ class ExecutePlannedExperiment:
                     experiment_id=experiment.experiment_id,
                     research_run_id=experiment.research_run_id,
                     correlation_id=correlation_id,
-                    worker_capability=command.plan.required_capability,
-                    action=command.plan.action,
-                    target_reference=command.plan.target_reference,
+                    worker_capability=bound_plan.required_capability,
+                    action=bound_plan.action,
+                    target_reference=bound_plan.target_reference,
                     budget_id=issued.budget_id,
-                    side_effect_level=command.plan.side_effect_level,
+                    side_effect_level=bound_plan.side_effect_level,
                     authorization_decision_reference=audit_id,
                     state=ExecutionAttemptState.AUTHORIZED.value,
                     created_at=now,
@@ -571,6 +600,13 @@ class ExecutePlannedExperiment:
     ) -> ResearchLoopOutcome | None:
         existing = uow.experiment_plans.get(experiment.experiment_id)
         if existing is None:
+            if not plan.capability_version or not plan.capability_definition_fingerprint:
+                return ResearchLoopOutcome(
+                    status=ResearchLoopStatus.INPUT_REJECTED,
+                    hypothesis_id=experiment.hypothesis_id,
+                    experiment_id=experiment.experiment_id,
+                    experiment_execution_state=experiment.execution_state,
+                )
             uow.experiment_plans.insert(
                 experiment_plan_record_for(experiment, plan, created_at=self._clock.now())
             )
@@ -675,6 +711,7 @@ def _build_worker_request(
     *,
     experiment: ExperimentRecord,
     plan: ExperimentPlan,
+    capability_view,
     issued: IssuedBudgetRecord,
     request_id: str,
     correlation_id: str,
@@ -700,6 +737,8 @@ def _build_worker_request(
             "max_concurrency": issued.max_concurrency,
         },
         "side_effect_level": plan.side_effect_level,
+        "capability_version": capability_view.capability_version,
+        "capability_definition_fingerprint": capability_view.definition_fingerprint,
         "secret_references": [],
         "arguments": dict(plan.arguments),
     }
@@ -770,3 +809,15 @@ def _record_dispatch_consumption(
             ),
             issued,
         )
+
+
+def _binding_reason(code: str) -> ReasonCode:
+    if code in ReasonCode.__members__:
+        return ReasonCode[code]
+    if code in {
+        "MISSING_REQUIRED_ARGUMENT",
+        "UNEXPECTED_ARGUMENT",
+        "INVALID_ARGUMENT_TYPE",
+    }:
+        return ReasonCode.SCHEMA_MISMATCH
+    return ReasonCode.UNKNOWN_CAPABILITY

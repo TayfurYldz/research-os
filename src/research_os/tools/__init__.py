@@ -1,1 +1,33 @@
 """Tools: capability contracts only. No side effects. No vendor implementations."""
+
+from research_os.tools.capabilities import (
+    CODEX_DIAGNOSTIC_STRUCTURED_OUTPUT_CAPABILITY,
+    DIAGNOSTIC_ECHO_ACTION,
+    DIAGNOSTIC_ECHO_CAPABILITY,
+    HTTP_AUTHORIZATION_DIFFERENTIAL_ACTION,
+    HTTP_AUTHORIZATION_DIFFERENTIAL_CAPABILITY,
+    HTTP_STATE_TRANSITION_ACTION,
+    HTTP_STATE_TRANSITION_CAPABILITY,
+    STRIX_DIAGNOSTIC_PING_CAPABILITY,
+)
+from research_os.tools.registry import (
+    CapabilityActionDefinition,
+    CapabilityDefinition,
+    CapabilityRegistry,
+    load_capability_registry,
+)
+
+__all__ = [
+    "CODEX_DIAGNOSTIC_STRUCTURED_OUTPUT_CAPABILITY",
+    "CapabilityActionDefinition",
+    "CapabilityDefinition",
+    "CapabilityRegistry",
+    "DIAGNOSTIC_ECHO_ACTION",
+    "DIAGNOSTIC_ECHO_CAPABILITY",
+    "HTTP_AUTHORIZATION_DIFFERENTIAL_ACTION",
+    "HTTP_AUTHORIZATION_DIFFERENTIAL_CAPABILITY",
+    "HTTP_STATE_TRANSITION_ACTION",
+    "HTTP_STATE_TRANSITION_CAPABILITY",
+    "STRIX_DIAGNOSTIC_PING_CAPABILITY",
+    "load_capability_registry",
+]

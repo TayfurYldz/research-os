@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from research_os.application.capability_binding import integration_capability_view_for
 from research_os.application.errors import ApplicationError
 from research_os.application.identity import execution_decision_audit_id, new_opaque_id
 from research_os.application.ports import Clock, SystemClock, UnitOfWorkFactory
@@ -158,6 +159,11 @@ class AuthorizeStrixExecution:
                     requested_budget_id=command.budget_id,
                     side_effect_level=command.side_effect_level,
                     requested_subject=command.target_reference,
+                    capability=integration_capability_view_for(
+                        command.capability,
+                        "ping",
+                        effective_side_effect=command.side_effect_level,
+                    ),
                     approval=command.approval,
                 )
             )
