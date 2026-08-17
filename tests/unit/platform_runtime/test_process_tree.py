@@ -7,11 +7,50 @@ import unittest
 
 import pathsetup  # noqa: F401
 
+from research_os.platform.browser_resource_control import BrowserResourceReadiness
 from research_os.platform.process_tree import (
     CREATE_NEW_PROCESS_GROUP,
     CREATE_SUSPENDED,
     spawn_kwargs,
 )
+
+
+class _NoopResourceController:
+    """Isolate process-tree cleanup from host kernel containment.
+
+    This double acknowledges containment so the adapter may spawn a real Worker
+    and descendant. It does not apply cgroup or Job Object resource limits.
+    """
+
+    mechanism = "test.noop"
+
+    def readiness(self) -> BrowserResourceReadiness:
+        return BrowserResourceReadiness(ready=True, mechanism=self.mechanism)
+
+    def prepare(self) -> str | None:
+        return None
+
+    def spawn_limits(self) -> dict[str, int | None]:
+        return {
+            "active_process_limit": None,
+            "job_memory_limit_bytes": None,
+            "process_memory_limit_bytes": None,
+        }
+
+    def pid_ceiling(self) -> tuple[str, int]:
+        return "processes", 8
+
+    def confirm_containment(self, supervised, worker_pid: int) -> str | None:
+        return None
+
+    def resource_breach(self) -> str | None:
+        return None
+
+    def kill_contained(self) -> str | None:
+        return None
+
+    def cleanup(self) -> str | None:
+        return None
 
 
 def _pid_alive(pid: int) -> bool:
@@ -125,7 +164,8 @@ class ProcessTreeTests(unittest.TestCase):
                 worker_id="browser-test",
                 argv_override=(sys.executable, "-c", script),
                 default_timeout_ms=800,
-            )
+            ),
+            controller_factory=lambda limits: _NoopResourceController(),
         )
         try:
             error = adapter._ensure_process()
