@@ -18,15 +18,22 @@ from research_os.integrations.models.cli_session import (
     probe_codex_configurations,
 )
 from research_os.integrations.models.discovery import (
+    ProbeMode,
     Readiness,
     discover_configured_runtimes,
     gate_04b_status,
 )
+from research_os.interface.cli import build_status_snapshot
 from research_os.maturity import GATE_04B_STATUS
 from research_os.platform.argv_process import ArgvProcessResult, ArgvProcessStatus
 from research_os.platform.readiness import ReadinessStage
-from research_os.research.model_port import ModelCallRequest, ModelRole, StructuredOutputTransportError
-from research_os.research.model_runtime import cli_session_runtime_identity
+from research_os.research.model_port import (
+    ModelCallRequest,
+    ModelRole,
+    ProviderRateLimitError,
+    StructuredOutputTransportError,
+)
+from research_os.research.model_runtime import RuntimeOutcome, cli_session_runtime_identity
 from research_os.tools.capabilities import CODEX_DIAGNOSTIC_STRUCTURED_OUTPUT_CAPABILITY
 
 
@@ -137,7 +144,7 @@ class CodexIndependentReadinessTests(unittest.TestCase):
             "RESEARCH_OS_CODEX_EXECUTABLE": "codex",
         }
         runner = _argv_runner(frozenset({"gpt-5.6-terra", "gpt-5.5"}))
-        results = probe_codex_configurations(env=env, runner=runner)
+        results = probe_codex_configurations(env=env, runner=runner, live_probe=True)
         self.assertEqual(len(results), 2)
         for item in results:
             assert item.readiness is not None
@@ -159,6 +166,7 @@ class CodexIndependentReadinessTests(unittest.TestCase):
         results = probe_codex_configurations(
             env=env,
             runner=_argv_runner(frozenset({"gpt-5.6-terra"})),
+            live_probe=True,
         )
         by_id = {item.configuration_id: item for item in results}
         terra = by_id["codex-cli-terra"]
@@ -239,6 +247,7 @@ class CodexIndependentReadinessTests(unittest.TestCase):
                 env[CODEX_MODELS_ENV], executable="codex"
             )[0],
             runner=_argv_runner(frozenset({"gpt-5.6-terra"})),
+            live_probe=True,
         )
         serialized = json.dumps(result.to_mapping())
         self.assertNotIn("sk-secret-value", serialized)
@@ -261,6 +270,7 @@ class CodexDiscoveryTests(unittest.TestCase):
         both = discover_configured_runtimes(
             env=env,
             argv_runner=_argv_runner(frozenset({"gpt-5.6-terra", "gpt-5.5"})),
+            probe_mode=ProbeMode.LIVE,
         )
         self.assertEqual(
             both.available_model_configurations,
@@ -271,6 +281,7 @@ class CodexDiscoveryTests(unittest.TestCase):
         mixed = discover_configured_runtimes(
             env=env,
             argv_runner=_argv_runner(frozenset({"gpt-5.6-terra"})),
+            probe_mode=ProbeMode.LIVE,
         )
         self.assertEqual(mixed.available_model_configurations, ("codex-cli-terra",))
         pending = gate_04b_status(
@@ -370,6 +381,7 @@ class CodexTransportEnvelopeTests(unittest.TestCase):
                 "codex-cli-terra=gpt-5.6-terra", executable="codex"
             )[0],
             runner=_argv_runner(frozenset({"gpt-5.6-terra"})),
+            live_probe=True,
         )
         assert probe.readiness is not None
         self.assertTrue(probe.readiness.benchmark_compatible)
@@ -405,6 +417,7 @@ class CodexTransportEnvelopeTests(unittest.TestCase):
         results = probe_codex_configurations(
             env=env,
             runner=_argv_runner(frozenset({"gpt-5.6-terra", "gpt-5.5"})),
+            live_probe=True,
         )
         self.assertEqual(len(results), 2)
         self.assertTrue(all(item.available for item in results))
@@ -419,6 +432,146 @@ class CodexTransportEnvelopeTests(unittest.TestCase):
         )
         self.assertEqual(pending["status"], "PENDING")
         self.assertEqual(GATE_04B_STATUS, "PENDING")
+
+
+def _is_codex_exec(argv) -> bool:
+    return len(argv) >= 2 and argv[1] == "exec"
+
+
+class CodexPassiveLiveProbeTests(unittest.TestCase):
+    def test_passive_discovery_executes_zero_codex_exec(self) -> None:
+        calls: list[tuple[str, ...]] = []
+
+        def runner(argv, stdin_bytes=None):
+            del stdin_bytes
+            calls.append(argv)
+            return _argv_runner(frozenset({"gpt-5.6-terra", "gpt-5.5"}))(argv)
+
+        env = {
+            CODEX_MODELS_ENV: "codex-cli-terra=gpt-5.6-terra,codex-cli-gpt55=gpt-5.5",
+            "RESEARCH_OS_CODEX_EXECUTABLE": "codex",
+        }
+        report = discover_configured_runtimes(env=env, argv_runner=runner)
+        self.assertEqual(report.probe_mode, ProbeMode.PASSIVE.value)
+        self.assertFalse(any(_is_codex_exec(argv) for argv in calls))
+        self.assertEqual(report.available_model_configurations, ())
+        for item in report.entries:
+            if item.runtime_kind != "CLI_SESSION":
+                continue
+            self.assertIsNot(item.readiness, Readiness.AVAILABLE)
+            self.assertFalse(item.counts_as_model_runtime)
+            assert item.structured_readiness is not None
+            self.assertTrue(item.structured_readiness.auth_ready)
+            self.assertFalse(item.structured_readiness.diagnostic_ready)
+            self.assertFalse(item.structured_readiness.modelport_compatible)
+            self.assertFalse(item.structured_readiness.benchmark_compatible)
+        strix = next(item for item in report.entries if item.runtime_kind == "STRIX")
+        self.assertFalse(strix.counts_as_model_runtime)
+        pending = gate_04b_status(
+            available_model_configurations=report.available_model_configurations,
+            executed_live_configurations=(),
+            comparable=False,
+            harness_invariant_failed=False,
+            runs_per_scenario=3,
+            development_suite=True,
+        )
+        self.assertEqual(pending["status"], "PENDING")
+        self.assertEqual(GATE_04B_STATUS, "PENDING")
+
+    def test_operator_status_executes_zero_codex_exec(self) -> None:
+        calls: list[tuple[str, ...]] = []
+
+        def runner(argv, stdin_bytes=None):
+            del stdin_bytes
+            calls.append(argv)
+            return _argv_runner(frozenset({"gpt-5.6-terra", "gpt-5.5"}))(argv)
+
+        snapshot = build_status_snapshot(
+            env={
+                CODEX_MODELS_ENV: "codex-cli-terra=gpt-5.6-terra,codex-cli-gpt55=gpt-5.5",
+                "RESEARCH_OS_CODEX_EXECUTABLE": "codex",
+            },
+            argv_runner=runner,
+        )
+        self.assertFalse(any(_is_codex_exec(argv) for argv in calls))
+        self.assertEqual(snapshot.gate_04b, "PENDING")
+
+    def test_live_probe_executes_model_specific_diagnostic_and_can_become_compatible(self) -> None:
+        calls: list[tuple[str, ...]] = []
+
+        def runner(argv, stdin_bytes=None):
+            del stdin_bytes
+            calls.append(argv)
+            return _argv_runner(frozenset({"gpt-5.6-terra", "gpt-5.5"}))(argv)
+
+        env = {
+            CODEX_MODELS_ENV: "codex-cli-terra=gpt-5.6-terra,codex-cli-gpt55=gpt-5.5",
+            "RESEARCH_OS_CODEX_EXECUTABLE": "codex",
+        }
+        report = discover_configured_runtimes(
+            env=env,
+            argv_runner=runner,
+            probe_mode=ProbeMode.LIVE,
+        )
+        execs = [argv for argv in calls if _is_codex_exec(argv)]
+        self.assertEqual(len(execs), 2)
+        models = {argv[argv.index("-m") + 1] for argv in execs}
+        self.assertEqual(models, {"gpt-5.6-terra", "gpt-5.5"})
+        self.assertEqual(report.available_model_configurations, ("codex-cli-terra", "codex-cli-gpt55"))
+        for item in report.entries:
+            if item.configuration_id in {"codex-cli-terra", "codex-cli-gpt55"}:
+                assert item.structured_readiness is not None
+                self.assertTrue(item.structured_readiness.benchmark_compatible)
+                self.assertTrue(item.counts_as_model_runtime)
+
+    def test_usage_limit_maps_to_rate_limited_without_invalidating_other_config(self) -> None:
+        def runner(argv, stdin_bytes=None):
+            del stdin_bytes
+            if argv[-1] == "--version" or (len(argv) >= 2 and argv[1] == "login"):
+                return _argv_runner(frozenset({"gpt-5.6-terra"}))(argv)
+            if _is_codex_exec(argv):
+                model = argv[argv.index("-m") + 1]
+                if model == "gpt-5.5":
+                    return ArgvProcessResult(
+                        status=ArgvProcessStatus.PROCESS_FAILED,
+                        argv=argv,
+                        exit_code=1,
+                        stderr="You've hit your usage limit. Try again at 18:00.",
+                        reason="non-zero exit",
+                    )
+                return ArgvProcessResult(
+                    status=ArgvProcessStatus.COMPLETED,
+                    argv=argv,
+                    exit_code=0,
+                    stdout=_transport_stdout({"diagnostic": True}),
+                )
+            return ArgvProcessResult(status=ArgvProcessStatus.PROCESS_FAILED, argv=argv, exit_code=1)
+
+        env = {
+            CODEX_MODELS_ENV: "codex-cli-terra=gpt-5.6-terra,codex-cli-gpt55=gpt-5.5",
+            "RESEARCH_OS_CODEX_EXECUTABLE": "codex",
+        }
+        results = probe_codex_configurations(env=env, runner=runner, live_probe=True)
+        by_id = {item.configuration_id: item for item in results}
+        terra = by_id["codex-cli-terra"]
+        gpt55 = by_id["codex-cli-gpt55"]
+        assert terra.readiness is not None
+        assert gpt55.readiness is not None
+        self.assertTrue(terra.readiness.benchmark_compatible)
+        self.assertEqual(gpt55.outcome, RuntimeOutcome.RATE_LIMITED)
+        self.assertFalse(gpt55.readiness.benchmark_compatible)
+        self.assertEqual(gpt55.detail, "Codex CLI usage/rate limit reached")
+        self.assertNotIn("18:00", gpt55.detail)
+        adapter = CodexCliSessionAdapter(
+            allowed_capabilities=(CODEX_DIAGNOSTIC_STRUCTURED_OUTPUT_CAPABILITY,),
+            executable="codex",
+            model="gpt-5.5",
+            configuration_id="codex-cli-gpt55",
+            runner=runner,
+        )
+        with self.assertRaises(ProviderRateLimitError) as ctx:
+            adapter.complete(_request())
+        self.assertEqual(str(ctx.exception), "Codex CLI usage/rate limit reached")
 
 
 if __name__ == "__main__":

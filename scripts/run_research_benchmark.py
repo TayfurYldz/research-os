@@ -18,7 +18,7 @@ from research_os.integrations.models.cli_session import (
     load_codex_model_configurations,
     probe_codex_cli,
 )
-from research_os.integrations.models.discovery import discover_configured_runtimes, gate_04b_status
+from research_os.integrations.models.discovery import ProbeMode, discover_configured_runtimes, gate_04b_status
 from research_os.integrations.models.factory import resolve_live_adapter
 from research_os.tools.capabilities import CODEX_DIAGNOSTIC_STRUCTURED_OUTPUT_CAPABILITY
 
@@ -30,6 +30,7 @@ def resolve_live(adapter_id: str, model_id: str | None):
         availability = probe_codex_cli(
             executable_name=config.executable,
             configuration=config,
+            live_probe=True,
         )
         payload = json.dumps(availability.to_mapping(), ensure_ascii=True)
         if (
@@ -68,8 +69,9 @@ def resolve_live(adapter_id: str, model_id: str | None):
     return handle.port, identity
 
 
-def discover_runtimes():
-    return discover_configured_runtimes()
+def discover_runtimes(*, live_probe: bool = False):
+    mode = ProbeMode.LIVE if live_probe else ProbeMode.PASSIVE
+    return discover_configured_runtimes(probe_mode=mode)
 
 
 def evaluate_live_status(**kwargs):

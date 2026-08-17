@@ -61,15 +61,23 @@ Optional executable override: `RESEARCH_OS_CODEX_EXECUTABLE`. Duplicate or empty
 
 Current diagnostic defaults (overrideable): `codex-cli-terra` → `gpt-5.6-terra`, `codex-cli-gpt55` → `gpt-5.5`.
 
+`research-os status` and ordinary `--discover` are **PASSIVE**. They may run `codex --version` and `codex login status` only. They must not run `codex exec` and must not consume model quota. Passive AUTH_READY is not `BENCHMARK_COMPATIBLE` and does not populate `available_model_configurations`.
+
+Explicit live probe (consumes model quota; independent per configured model):
+
+```
+python scripts/run_research_benchmark.py --discover --live-probe
+```
+
 Each configuration is probed independently:
 
 1. NOT_INSTALLED — executable missing
 2. INSTALLED / VERSION_KNOWN — `codex --version` succeeded
 3. AUTH_READY — `codex login status` exit 0
-4. DIAGNOSTIC_READY / MODELPORT_COMPATIBLE — request-consuming `codex exec --ignore-user-config --ephemeral --sandbox read-only -m <model>`
-5. BENCHMARK_COMPATIBLE — AUTH_READY and that model's request-consuming exec succeeded
+4. DIAGNOSTIC_READY / MODELPORT_COMPATIBLE — explicit LIVE `codex exec --ignore-user-config --ephemeral --sandbox read-only -m <model>`
+5. BENCHMARK_COMPATIBLE — AUTH_READY and that model's request-consuming exec succeeded in this LIVE probe
 
-Compatibility is not inferred across Codex configurations. Discovering two configs is not GATE 04B PASS.
+Compatibility is not inferred across Codex configurations. Passive discovery and discovering two configs are not GATE 04B PASS. Usage-limit stderr maps to `RATE_LIMITED`, not a research-quality failure.
 
 ## Strix readiness
 

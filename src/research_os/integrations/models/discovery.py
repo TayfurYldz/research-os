@@ -28,6 +28,11 @@ class Readiness(Enum):
     CONFIGURED_NOT_READY = "CONFIGURED_NOT_READY"
 
 
+class ProbeMode(Enum):
+    PASSIVE = "PASSIVE"
+    LIVE = "LIVE"
+
+
 LOCAL_ENDPOINT_ENV = "RESEARCH_OS_LOCAL_MODEL_ENDPOINT"
 EXTERNAL_AGENT_ENDPOINT_ENV = "RESEARCH_OS_EXTERNAL_AGENT_ENDPOINT"
 
@@ -70,12 +75,14 @@ class RuntimeDiscoveryReport:
     entries: tuple[RuntimeDiscoveryEntry, ...]
     kind_matrix: dict[str, str]
     available_model_configurations: tuple[str, ...]
+    probe_mode: str = ProbeMode.PASSIVE.value
 
     def to_mapping(self) -> dict[str, Any]:
         return {
             "entries": [item.to_mapping() for item in self.entries],
             "kind_matrix": dict(self.kind_matrix),
             "available_model_configurations": list(self.available_model_configurations),
+            "probe_mode": self.probe_mode,
             "strix_is_not_model_runtime": True,
             "scripted_does_not_count": True,
             "contains_secrets": False,
@@ -91,11 +98,23 @@ def _kind_status(entries: list[RuntimeDiscoveryEntry], kind: str) -> str:
     return Readiness.UNAVAILABLE.value
 
 
+def _coerce_probe_mode(value: ProbeMode | str) -> ProbeMode:
+    if isinstance(value, ProbeMode):
+        return value
+    try:
+        return ProbeMode(str(value).strip().upper())
+    except ValueError as exc:
+        raise ValueError("probe_mode must be PASSIVE or LIVE") from exc
+
+
 def discover_configured_runtimes(
     *,
     env: dict[str, str] | None = None,
     argv_runner=None,
+    probe_mode: ProbeMode | str = ProbeMode.PASSIVE,
 ) -> RuntimeDiscoveryReport:
+    mode = _coerce_probe_mode(probe_mode)
+    live_probe = mode is ProbeMode.LIVE
     source = dict(environ if env is None else env)
     entries: list[RuntimeDiscoveryEntry] = []
 
@@ -133,7 +152,11 @@ def discover_configured_runtimes(
     )
 
     try:
-        cli_results = probe_codex_configurations(env=source, runner=argv_runner)
+        cli_results = probe_codex_configurations(
+            env=source,
+            runner=argv_runner,
+            live_probe=live_probe,
+        )
     except CodexCliConfigurationError as exc:
         cli_results = ()
         entries.append(
@@ -254,6 +277,7 @@ def discover_configured_runtimes(
         entries=tuple(entries),
         kind_matrix=matrix,
         available_model_configurations=available_models,
+        probe_mode=mode.value,
     )
 
 

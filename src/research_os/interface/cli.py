@@ -71,9 +71,9 @@ def _probe_test_db(url: str | None) -> tuple[str, str]:
         return f"{ComponentHealth.UNAVAILABLE.value} ({exc.__class__.__name__})", dsn
 
 
-def build_status_snapshot(*, env: Mapping[str, str] | None = None) -> OperatorStatusSnapshot:
+def build_status_snapshot(*, env: Mapping[str, str] | None = None, argv_runner=None) -> OperatorStatusSnapshot:
     from research_os.data.postgres.engine import DATABASE_URL_ENV, TEST_DATABASE_URL_ENV
-    from research_os.integrations.models.discovery import discover_configured_runtimes
+    from research_os.integrations.models.discovery import ProbeMode, discover_configured_runtimes
     from research_os.platform.worker_health import probe_local_python_worker
 
     source = dict(os.environ if env is None else env)
@@ -89,7 +89,11 @@ def build_status_snapshot(*, env: Mapping[str, str] | None = None) -> OperatorSt
         orchestrator = "unavailable"
         budget = db_detail
 
-    report = discover_configured_runtimes(env=source)
+    report = discover_configured_runtimes(
+        env=source,
+        argv_runner=argv_runner,
+        probe_mode=ProbeMode.PASSIVE,
+    )
     kind = report.kind_matrix
     model_runtimes = {
         "API": _health_from_readiness(kind.get("API", "UNAVAILABLE")),

@@ -231,12 +231,17 @@ def run_cli(
     parser.add_argument(
         "--discover",
         action="store_true",
-        help="print configured runtime availability; does not fabricate GATE 04B PASS",
+        help="print configured runtime availability using PASSIVE probes (no model requests); does not fabricate GATE 04B PASS",
     )
     parser.add_argument(
         "--discover-and-compare",
         action="store_true",
         help="if >=2 live ModelRuntime configurations are AVAILABLE, run a paired GATE 04B comparison",
+    )
+    parser.add_argument(
+        "--live-probe",
+        action="store_true",
+        help="with --discover/--discover-and-compare, run request-consuming readiness diagnostics; consumes model quota",
     )
     args = parser.parse_args(argv)
 
@@ -246,6 +251,10 @@ def run_cli(
             f"use --sealed-holdout-path or {HOLDOUT_PATH_ENV}",
             file=sys.stderr,
         )
+        return 2
+
+    if args.live_probe and not (args.discover or args.discover_and_compare):
+        print("--live-probe requires --discover or --discover-and-compare", file=sys.stderr)
         return 2
 
     if args.discover or args.discover_and_compare:
@@ -390,7 +399,7 @@ def _run_discovery(
             file=sys.stderr,
         )
         return 0
-    discovery = discover_runtimes()
+    discovery = discover_runtimes(live_probe=bool(args.live_probe))
     mapping = discovery.to_mapping() if hasattr(discovery, "to_mapping") else discovery
     print("RUNTIME DISCOVERY")
     print(json.dumps(mapping, indent=2, ensure_ascii=True))

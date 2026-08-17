@@ -5,7 +5,9 @@ import unittest
 import pathsetup  # noqa: F401
 
 from research_os.application.operator_status import OperatorStatusSnapshot, render_operator_status
+from research_os.integrations.models.cli_session import CODEX_MODELS_ENV
 from research_os.interface.cli import build_status_snapshot
+from research_os.platform.argv_process import ArgvProcessResult, ArgvProcessStatus
 from research_os.platform.health import ComponentHealth
 
 
@@ -45,6 +47,40 @@ class StatusDatabaseSeparationTests(unittest.TestCase):
         )
         self.assertIn("POSTGRESQL:", text)
         self.assertIn("TEST_POSTGRESQL:", text)
+
+
+class StatusQuotaSafetyTests(unittest.TestCase):
+    def test_status_performs_zero_request_consuming_codex_calls(self) -> None:
+        calls: list[tuple[str, ...]] = []
+
+        def runner(argv, stdin_bytes=None):
+            del stdin_bytes
+            calls.append(argv)
+            if argv[-1] == "--version":
+                return ArgvProcessResult(
+                    status=ArgvProcessStatus.COMPLETED, argv=argv, exit_code=0, stdout="codex 0.0.0"
+                )
+            if len(argv) >= 2 and argv[1] == "login":
+                return ArgvProcessResult(
+                    status=ArgvProcessStatus.COMPLETED, argv=argv, exit_code=0, stdout="logged in"
+                )
+            return ArgvProcessResult(
+                status=ArgvProcessStatus.PROCESS_FAILED,
+                argv=argv,
+                exit_code=1,
+                stderr="unexpected request-consuming call",
+            )
+
+        snapshot = build_status_snapshot(
+            env={
+                CODEX_MODELS_ENV: "codex-cli-terra=gpt-5.6-terra,codex-cli-gpt55=gpt-5.5",
+                "RESEARCH_OS_CODEX_EXECUTABLE": "codex",
+            },
+            argv_runner=runner,
+        )
+        self.assertFalse(any(len(argv) >= 2 and argv[1] == "exec" for argv in calls))
+        self.assertTrue(any(argv[-1] == "--version" for argv in calls))
+        self.assertEqual(snapshot.gate_04b, "PENDING")
 
 
 if __name__ == "__main__":

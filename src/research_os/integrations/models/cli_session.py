@@ -54,6 +54,16 @@ FORBIDDEN_CLI_FLAGS = frozenset(
         "dangerously-bypass-approvals-and-sandbox",
     }
 )
+CODEX_USAGE_LIMIT_MARKERS = (
+    "hit your usage limit",
+    "usage limit",
+    "rate limit",
+    "ratelimit",
+    "quota exceeded",
+    "insufficient_quota",
+    "429",
+)
+USAGE_LIMIT_DETAIL = "Codex CLI usage/rate limit reached"
 ALLOWED_SANDBOX = "read-only"
 CODEX_MODELS_ENV = "RESEARCH_OS_CODEX_MODELS"
 CODEX_EXECUTABLE_ENV = "RESEARCH_OS_CODEX_EXECUTABLE"
@@ -274,6 +284,7 @@ def probe_codex_cli(
     executable_name: str = DEFAULT_CODEX_EXECUTABLE,
     runner: ArgvRunner | None = None,
     configuration: CodexCliRuntimeConfiguration | None = None,
+    live_probe: bool = False,
 ) -> CliRuntimeAvailability:
     executable_name = configuration.executable if configuration is not None else executable_name
     configuration_id = configuration.configuration_id if configuration is not None else None
@@ -398,7 +409,7 @@ def probe_codex_cli(
         "codex --version succeeded; session material was not copied into Research OS. "
         f"{auth_detail}. MODELPORT_COMPATIBLE requires a request-consuming exec for this model."
     )
-    if auth_ready and configuration is not None:
+    if live_probe and auth_ready and configuration is not None:
         diagnostic_ready, modelport_compatible, benchmark_compatible, outcome, stage_detail = (
             _probe_model_exec(
                 configuration,
@@ -410,7 +421,8 @@ def probe_codex_cli(
     elif auth_ready:
         stage_detail = (
             "codex CLI is authenticated; tokens were not scraped. "
-            "BENCHMARK_COMPATIBLE requires a request-consuming exec for a configured model."
+            "BENCHMARK_COMPATIBLE requires an explicit live probe with a request-consuming "
+            "exec for this model."
         )
         outcome = RuntimeOutcome.COMPLETED
     readiness = readiness_from_flags(
@@ -442,6 +454,7 @@ def probe_codex_configurations(
     *,
     env: Mapping[str, str] | None = None,
     runner: ArgvRunner | None = None,
+    live_probe: bool = False,
 ) -> tuple[CliRuntimeAvailability, ...]:
     configs = load_codex_model_configurations(env)
     return tuple(
@@ -449,6 +462,7 @@ def probe_codex_configurations(
             executable_name=item.executable,
             runner=runner,
             configuration=item,
+            live_probe=live_probe,
         )
         for item in configs
     )
@@ -650,10 +664,10 @@ def _result_from_process(
         raise RuntimeCancelledError(result.reason or "codex CLI cancelled")
     if result.status is ArgvProcessStatus.PROCESS_FAILED:
         combined = f"{result.stdout} {result.stderr}".lower()
+        if _codex_usage_limited(combined):
+            raise ProviderRateLimitError(USAGE_LIMIT_DETAIL)
         if "login" in combined or "unauthorized" in combined or "not authenticated" in combined:
             raise ProviderAuthError("codex CLI authentication failed")
-        if "rate" in combined or "429" in combined or "quota" in combined:
-            raise ProviderRateLimitError("codex CLI rate limited")
         if "policy" in combined or "safety" in combined or "content" in combined:
             raise ContentPolicyBlockedError("codex CLI content/safety policy blocked the request")
         raise RuntimeProcessError(result.reason or "codex CLI process failed")
@@ -670,6 +684,10 @@ def _result_from_process(
         model_version=version,
         runtime_identity=identity,
     )
+
+
+def _codex_usage_limited(text: str) -> bool:
+    return any(marker in text for marker in CODEX_USAGE_LIMIT_MARKERS)
 
 
 def _load_json_object(raw: str) -> dict[str, object]:

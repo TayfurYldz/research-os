@@ -63,6 +63,16 @@ class RunnerTests(unittest.TestCase):
         self.assertNotIn("GATE 04B", out.getvalue())
         self.assertNotIn('"status": "PASS"', out.getvalue())
 
+    def test_live_probe_help_states_quota_consumption(self) -> None:
+        parser_help = io.StringIO()
+        with self.assertRaises(SystemExit):
+            with redirect_stdout(parser_help):
+                run_cli(["--help"])
+        text = parser_help.getvalue()
+        self.assertIn("--live-probe", text)
+        self.assertIn("consumes model quota", text)
+        self.assertIn("PASSIVE", text)
+
 
 if __name__ == "__main__":
     unittest.main()
