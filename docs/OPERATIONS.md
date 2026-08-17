@@ -185,7 +185,20 @@ If `RESEARCH_OS_TEST_DATABASE_URL` is unset, the suite must SKIP, never fabricat
 
 ## GATE 16 — workflow / state-transition authorization
 
-**GATE 16 status: PENDING.**
+**GATE 16 status: PASS** (2026-08-17).
+
+Authoritative environment:
+
+- Kali Linux
+- dedicated real PostgreSQL test database
+- `RESEARCH_OS_TEST_DATABASE_URL`
+- Alembic head `a19_001_http_state_class`
+- GATE 14 regression: 19 OK, 0 skipped
+- GATE 15 regression: 21 OK, 0 skipped
+- GATE 16 workflow/state-transition benchmark: 34 OK, 0 skipped
+- localhost-only synthetic workflow lab
+- no Codex / LLM / Strix
+- no external network
 
 GATE 14 = single BOLA E2E.
 GATE 15 = BOLA false-positive ground truth.
@@ -193,21 +206,25 @@ GATE 16 = second vulnerability class: workflow/state-transition authorization + 
 
 These gates do not imply live model validation or production readiness.
 
-Capability: `http.state_transition` (GET/POST, 127.0.0.1, exact origin, redirects disabled). Classification: `HTTP_STATE_TRANSITION_AUTHORIZATION`. Alembic head after this slice: `a19_001_http_state_class` (classification CHECK extension only).
+GATE 16 proves only: controlled workflow/state-transition authorization semantics plus cross-class discrimination against `HTTP_AUTHORIZATION_DIFFERENTIAL`.
+
+Capability: `http.state_transition` (GET/POST, 127.0.0.1, exact origin, redirects disabled). Classification: `HTTP_STATE_TRANSITION_AUTHORIZATION`.
+
+Does **not** prove autonomous vulnerability discovery quality, real-world bug bounty performance, multi-model live validation, production readiness, or broad security-research validation. Do not set `SECURITY_RESEARCH_VALIDATED` or `PRODUCTION_READY`. GATE 04B remains PENDING.
 
 ```
 python -m unittest tests.e2e.test_gate16_state_transition_security
 ```
 
-If `RESEARCH_OS_TEST_DATABASE_URL` is unset, the suite must SKIP, never fabricate PASS. Do not set `GATE_16_STATUS=PASS` from implementation.
+If `RESEARCH_OS_TEST_DATABASE_URL` is unset, the suite must SKIP, never fabricate PASS.
 
 ## Maturity
 
 - ARCHITECTURE_VALIDATED: architecture package complete
 - DIAGNOSTIC_E2E_VALIDATED: yes after Gate 12/13 PASS on real PostgreSQL, process crash/restart, and clean install. Not live-model validation.
 - LIVE_MODEL_VALIDATED: no while GATE 04B is PENDING
-- SECURITY_RESEARCH_VALIDATED: no; GATE 14/15 PASS are local authorized lab pipeline E2E and a local ground-truth false-positive benchmark, not real-world research validation. GATE 16 PENDING is a second local class, not live-research validation.
+- SECURITY_RESEARCH_VALIDATED: no; GATE 14/15/16 PASS are local authorized lab pipeline E2E, a local BOLA ground-truth false-positive benchmark, and a local workflow/state-transition class with cross-class discrimination, not real-world research validation
 - PRODUCTION_READY: no until operational and live-research gates that have not passed actually pass
 - GATE 14: PASS (2026-08-17, Kali, dedicated PostgreSQL, 19 E2E OK / 0 skipped)
 - GATE 15: PASS (2026-08-17, Kali, dedicated PostgreSQL, GATE14 regression 19 OK / 0 skipped, GATE15 21 OK / 0 skipped)
-- GATE 16: PENDING (workflow/state-transition authorization + cross-class discrimination; implementation does not set PASS)
+- GATE 16: PASS (2026-08-17, Kali, dedicated PostgreSQL, GATE14 19 OK / 0 skipped, GATE15 21 OK / 0 skipped, GATE16 34 OK / 0 skipped)

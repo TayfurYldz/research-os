@@ -2,7 +2,7 @@
 
 Skipped when RESEARCH_OS_TEST_DATABASE_URL is absent (PENDING, not PASS).
 Does not set SECURITY_RESEARCH_VALIDATED or PRODUCTION_READY.
-GATE 16 remains PENDING after implementation. No Codex/LLM/Strix/internet target.
+No Codex/LLM/Strix/internet target.
 """
 
 from __future__ import annotations
@@ -372,7 +372,7 @@ class Gate16StateTransitionSecurityTests(unittest.TestCase):
 
     def test_34_gate15_regression_status_unchanged(self) -> None:
         self.assertEqual(GATE_15_STATUS, "PASS")
-        self.assertEqual(GATE_16_STATUS, "PENDING")
+        self.assertEqual(GATE_16_STATUS, "PASS")
         assert self.scorecard is not None
         self.assertTrue(gate16_scorecard_pass(self.scorecard))
         self.assertEqual(self.scorecard.workflow_false_finding, 0)

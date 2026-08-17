@@ -10,6 +10,7 @@ from research_os.application.operator_status import OperatorStatusSnapshot, rend
 from research_os.maturity import (
     GATE_04B_STATUS,
     GATE_15_STATUS,
+    GATE_16_STATUS,
     LIVE_MODEL_VALIDATED,
     PRODUCTION_READY,
     SECURITY_RESEARCH_VALIDATED,
@@ -117,6 +118,8 @@ class ObservabilityAndHealthTests(unittest.TestCase):
         self.assertIn("PASS", text)
         self.assertIn("GATE 15:", text)
         self.assertEqual(GATE_15_STATUS, "PASS")
+        self.assertIn("GATE 16:", text)
+        self.assertEqual(GATE_16_STATUS, "PASS")
         self.assertEqual(GATE_04B_STATUS, "PENDING")
         self.assertIn(f"LIVE_MODEL_VALIDATED: {LIVE_MODEL_VALIDATED}", text)
         self.assertIn(f"PRODUCTION_READY: {PRODUCTION_READY}", text)
