@@ -39,6 +39,15 @@ It does not prove autonomous endpoint discovery, crawler/recon capability,
 browser automation, arbitrary internet HTTP, broad vulnerability discovery,
 real-world bug bounty performance, or production readiness.
 
+GATE 20 PASS means Research OS can establish and isolate authenticated sessions
+for explicitly configured identities and execute authorized HTTP experiments
+under the correct identity/session context without storing raw credential or
+session material in the authoritative research state. It does not prove
+autonomous account discovery, browser authentication, arbitrary authentication
+mechanisms, durable session-secret recovery after restart, autonomous
+vulnerability discovery, real-world bug bounty performance, or production
+readiness.
+
 PRODUCTION_READY must stay false until operational and live-research gates
 that this environment has not passed actually pass.
 """
@@ -59,7 +68,7 @@ GATE_16_STATUS = "PASS"
 GATE_17_STATUS = "PASS"
 GATE_18_STATUS = "PASS"
 GATE_19_STATUS = "PASS"
-GATE_20_STATUS = "PENDING"
+GATE_20_STATUS = "PASS"
 GATE_04B_STATUS = "PENDING"
 SUBSCRIPTION_OAUTH_STATUS = "NOT_IMPLEMENTED"
 

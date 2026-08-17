@@ -766,6 +766,22 @@ Current limitations: loopback HTTP substrate only; no HTTPS breadth claim; no cr
 
 **Verify:** Kali + dedicated PostgreSQL + `RESEARCH_OS_TEST_DATABASE_URL`. Do not set `SECURITY_RESEARCH_VALIDATED` or `PRODUCTION_READY` because this gate passed.
 
+## GATE 20 — Identity Authentication Session
+
+GATE 19 added bounded authorized HTTP transactions. GATE 20 adds identity/session isolation on that substrate: explicitly configured identities, one bounded auth profile (`HTTP_FORM_LOGIN`), session metadata in the research state, and process-local session material that is never stored as raw credential, cookie, or token in the system of record. Session ID alone is not authority. Missing session secret after restart requires reauthentication.
+
+**GATE 20 status: PASS** (2026-08-17). Implementation commit `e574306`. Authoritative tested HEAD `b442a672a7df86482d0f5a60eb156483b691d44c`. Kali Linux against dedicated real PostgreSQL (`RESEARCH_OS_TEST_DATABASE_URL`). Alembic head `a21_001_session_context`. Repo-wide: unit **676 OK**, contract **2 OK**, architecture **22 OK**, integration **120 OK**. Explicit G18 plan binding **5 OK**. Explicit G19 HTTP transaction **2 OK**. Explicit G20 identity/session **1 OK**. GATE 14 regression **19 OK / 0 skipped**. GATE 15 regression **21 OK / 0 skipped**. GATE 16 regression **34 OK / 0 skipped**. GATE 17 regression **57 OK / 0 skipped**. No Codex / LLM. No G21. No skipped tests treated as PASS.
+
+GATE 20 PASS means Research OS can establish and isolate authenticated sessions for explicitly configured identities and execute authorized HTTP experiments under the correct identity/session context without storing raw credential or session material in the authoritative research state.
+
+GATE 20 does **not** prove autonomous account discovery, browser authentication, arbitrary authentication mechanisms, durable session-secret recovery after restart, autonomous vulnerability discovery, real-world bug bounty performance, or production readiness.
+
+Current limitations: `HTTP_FORM_LOGIN` is the bounded supported auth profile; session material is process-local/non-durable; missing session secret after restart requires reauthentication; session ID alone is not authority; raw password/cookie/token is not stored in SoR; no browser login; no G21 behavior.
+
+`LIVE_MODEL_VALIDATED=no`, `SECURITY_RESEARCH_VALIDATED=no`, `PRODUCTION_READY=no`. GATE 04B remains PENDING. GATE 14/15/16/17/18/19/20 remain PASS.
+
+**Verify:** Kali + dedicated PostgreSQL + `RESEARCH_OS_TEST_DATABASE_URL`. Do not set `SECURITY_RESEARCH_VALIDATED` or `PRODUCTION_READY` because this gate passed.
+
 ---
 
 ## Research Brain (Research capability — not Core)
