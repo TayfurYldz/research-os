@@ -59,10 +59,18 @@ CODEX_MODELS_ENV = "RESEARCH_OS_CODEX_MODELS"
 CODEX_EXECUTABLE_ENV = "RESEARCH_OS_CODEX_EXECUTABLE"
 DEFAULT_CODEX_EXECUTABLE = "codex"
 CONFIGURATION_ID_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
+TRANSPORT_RESULT_JSON_KEY = "result_json"
 STRUCTURED_OUTPUT_SCHEMA = {
     "type": "object",
-    "additionalProperties": True,
+    "properties": {
+        TRANSPORT_RESULT_JSON_KEY: {
+            "type": "string",
+        },
+    },
+    "required": [TRANSPORT_RESULT_JSON_KEY],
+    "additionalProperties": False,
 }
+DIAGNOSTIC_APPLICATION_OUTPUT = {"diagnostic": True}
 
 # Operational defaults only. Override with RESEARCH_OS_CODEX_MODELS.
 DEFAULT_CODEX_MODEL_ENTRIES = (
@@ -465,12 +473,12 @@ def _probe_model_exec(
         role=ModelRole.GENERATOR,
         correlation_id="research-os.codex.diagnostic",
         context_fingerprint="codex-diagnostic",
-        instructions="Return a JSON object {\"diagnostic\": true} only. Do not call tools.",
+        instructions='Return a JSON object {"diagnostic": true} only. Do not call tools.',
         payload={"diagnostic": True},
         timeout_ms=15_000,
     )
     try:
-        adapter.complete(request)
+        result = adapter.complete(request)
     except RuntimeUnavailableError as exc:
         return False, False, False, RuntimeOutcome.UNAVAILABLE, str(exc)
     except ProviderAuthError as exc:
@@ -489,6 +497,14 @@ def _probe_model_exec(
         return False, False, False, RuntimeOutcome.PROCESS_FAILED, str(exc)
     except ModelPortError as exc:
         return False, False, False, RuntimeOutcome.PROCESS_FAILED, str(exc)
+    if result.structured_output != DIAGNOSTIC_APPLICATION_OUTPUT:
+        return (
+            False,
+            False,
+            False,
+            RuntimeOutcome.STRUCTURED_OUTPUT_INVALID,
+            "diagnostic probe did not return application-level {\"diagnostic\": true}",
+        )
     detail = (
         f"request-consuming Codex exec succeeded for model {configuration.model}; "
         "tokens were not scraped"
@@ -609,7 +625,13 @@ def _prompt_for_request(request: ModelCallRequest) -> str:
         f"role={request.role.value}\n"
         f"context_fingerprint={request.context_fingerprint}\n"
         f"payload={payload}\n\n"
-        "Reply with a JSON object only."
+        "TRANSPORT:\n"
+        "Produce the requested application-level JSON object.\n"
+        "JSON-serialize that object.\n"
+        "Place the serialized JSON string in result_json.\n"
+        "Emit only the schema-compliant outer object "
+        '{"result_json":"<serialized application JSON object>"}.\n'
+        "Do not emit the application object at the top level.\n"
     )
 
 
@@ -650,24 +672,39 @@ def _result_from_process(
     )
 
 
-def _parse_structured_stdout(raw: str) -> dict[str, object]:
+def _load_json_object(raw: str) -> dict[str, object]:
     try:
-        structured = json.loads(raw)
+        parsed = json.loads(raw)
     except json.JSONDecodeError:
-        last_object = None
+        parsed = None
         for line in raw.splitlines():
             line = line.strip()
             if not line.startswith("{"):
                 continue
             try:
-                parsed = json.loads(line)
+                candidate = json.loads(line)
             except json.JSONDecodeError:
                 continue
-            if isinstance(parsed, dict):
-                last_object = parsed
-        if last_object is None:
+            if isinstance(candidate, dict):
+                parsed = candidate
+        if parsed is None:
             raise StructuredOutputTransportError("codex CLI stdout was not structured JSON")
-        structured = last_object
-    if not isinstance(structured, dict):
+    if not isinstance(parsed, dict):
         raise StructuredOutputTransportError("codex CLI JSON was not an object")
-    return structured
+    return parsed
+
+
+def _parse_structured_stdout(raw: str) -> dict[str, object]:
+    outer = _load_json_object(raw)
+    if set(outer.keys()) != {TRANSPORT_RESULT_JSON_KEY}:
+        raise StructuredOutputTransportError("codex CLI transport envelope was invalid")
+    encoded = outer[TRANSPORT_RESULT_JSON_KEY]
+    if not isinstance(encoded, str):
+        raise StructuredOutputTransportError("codex CLI result_json must be a string")
+    try:
+        inner = json.loads(encoded)
+    except json.JSONDecodeError as exc:
+        raise StructuredOutputTransportError("codex CLI result_json was not valid JSON") from exc
+    if not isinstance(inner, dict):
+        raise StructuredOutputTransportError("codex CLI inner JSON was not an object")
+    return inner

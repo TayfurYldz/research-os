@@ -2,11 +2,13 @@ from __future__ import annotations
 
 import json
 import unittest
+from pathlib import Path
 
 import pathsetup  # noqa: F401
 
 from research_os.integrations.models.cli_session import (
     CODEX_MODELS_ENV,
+    STRUCTURED_OUTPUT_SCHEMA,
     CodexCliConfigurationError,
     CodexCliSessionAdapter,
     derive_codex_configuration_id,
@@ -20,11 +22,16 @@ from research_os.integrations.models.discovery import (
     discover_configured_runtimes,
     gate_04b_status,
 )
+from research_os.maturity import GATE_04B_STATUS
 from research_os.platform.argv_process import ArgvProcessResult, ArgvProcessStatus
 from research_os.platform.readiness import ReadinessStage
-from research_os.research.model_port import ModelCallRequest, ModelRole
+from research_os.research.model_port import ModelCallRequest, ModelRole, StructuredOutputTransportError
 from research_os.research.model_runtime import cli_session_runtime_identity
 from research_os.tools.capabilities import CODEX_DIAGNOSTIC_STRUCTURED_OUTPUT_CAPABILITY
+
+
+def _transport_stdout(inner: dict) -> str:
+    return json.dumps({"result_json": json.dumps(inner, separators=(",", ":"))})
 
 
 def _request() -> ModelCallRequest:
@@ -69,7 +76,7 @@ def _argv_runner(allowed_models: frozenset[str]):
                 status=ArgvProcessStatus.COMPLETED,
                 argv=argv,
                 exit_code=0,
-                stdout='{"diagnostic": true}',
+                stdout=_transport_stdout({"diagnostic": True}),
             )
         return ArgvProcessResult(
             status=ArgvProcessStatus.PROCESS_FAILED,
@@ -169,11 +176,13 @@ class CodexIndependentReadinessTests(unittest.TestCase):
         def runner(argv, stdin_bytes=None):
             captured["argv"] = argv
             captured["stdin"] = stdin_bytes
+            schema_path = argv[argv.index("--output-schema") + 1]
+            captured["schema"] = json.loads(Path(schema_path).read_text(encoding="utf-8"))
             return ArgvProcessResult(
                 status=ArgvProcessStatus.COMPLETED,
                 argv=argv,
                 exit_code=0,
-                stdout='{"ok": true}',
+                stdout=_transport_stdout({"ok": True}),
             )
 
         adapter = CodexCliSessionAdapter(
@@ -183,8 +192,9 @@ class CodexIndependentReadinessTests(unittest.TestCase):
             configuration_id="codex-cli-gpt55",
             runner=runner,
         )
-        adapter.complete(_request())
+        result = adapter.complete(_request())
         argv = captured["argv"]
+        self.assertEqual(result.structured_output, {"ok": True})
         self.assertEqual(argv[1], "exec")
         self.assertIn("--ignore-user-config", argv)
         self.assertIn("--ephemeral", argv)
@@ -193,7 +203,11 @@ class CodexIndependentReadinessTests(unittest.TestCase):
         self.assertNotIn("--yolo", argv)
         self.assertNotIn("danger-full-access", argv)
         self.assertNotIn("dangerously-bypass-approvals-and-sandbox", argv)
+        self.assertNotIn("--skip-git-repo-check", argv)
         self.assertIn(b"propose", captured["stdin"] or b"")
+        self.assertIn(b"result_json", captured["stdin"] or b"")
+        self.assertEqual(captured["schema"]["additionalProperties"], False)
+        self.assertEqual(captured["schema"]["required"], ["result_json"])
 
     def test_independent_fingerprints_include_model(self) -> None:
         first = cli_session_runtime_identity(
@@ -285,6 +299,126 @@ class CodexDiscoveryTests(unittest.TestCase):
         cli = [item for item in report.entries if item.runtime_kind == "CLI_SESSION"]
         self.assertTrue(cli)
         self.assertTrue(all(item.readiness is not Readiness.AVAILABLE for item in cli))
+
+
+class CodexTransportEnvelopeTests(unittest.TestCase):
+    def _complete(self, stdout: str):
+        adapter = CodexCliSessionAdapter(
+            allowed_capabilities=(CODEX_DIAGNOSTIC_STRUCTURED_OUTPUT_CAPABILITY,),
+            executable="codex",
+            model="gpt-5.5",
+            configuration_id="codex-cli-gpt55",
+            runner=lambda argv, stdin_bytes=None: ArgvProcessResult(
+                status=ArgvProcessStatus.COMPLETED,
+                argv=argv,
+                exit_code=0,
+                stdout=stdout,
+            ),
+        )
+        return adapter.complete(_request())
+
+    def test_strict_schema_requires_additional_properties_false(self) -> None:
+        self.assertEqual(STRUCTURED_OUTPUT_SCHEMA["additionalProperties"], False)
+        self.assertEqual(STRUCTURED_OUTPUT_SCHEMA["type"], "object")
+        self.assertEqual(STRUCTURED_OUTPUT_SCHEMA["required"], ["result_json"])
+        self.assertEqual(
+            STRUCTURED_OUTPUT_SCHEMA["properties"]["result_json"],
+            {"type": "string"},
+        )
+        self.assertNotEqual(STRUCTURED_OUTPUT_SCHEMA.get("additionalProperties"), True)
+
+    def test_result_json_envelope_decoding(self) -> None:
+        result = self._complete(_transport_stdout({"claim": "ok", "count": 2}))
+        self.assertEqual(result.structured_output, {"claim": "ok", "count": 2})
+        self.assertNotIn("result_json", result.structured_output)
+
+    def test_diagnostic_object_round_trip(self) -> None:
+        captured = {}
+
+        def runner(argv, stdin_bytes=None):
+            del argv
+            captured["stdin"] = stdin_bytes
+            return ArgvProcessResult(
+                status=ArgvProcessStatus.COMPLETED,
+                argv=("codex", "exec"),
+                exit_code=0,
+                stdout=_transport_stdout({"diagnostic": True}),
+            )
+
+        adapter = CodexCliSessionAdapter(
+            allowed_capabilities=(CODEX_DIAGNOSTIC_STRUCTURED_OUTPUT_CAPABILITY,),
+            executable="codex",
+            model="gpt-5.6-terra",
+            configuration_id="codex-cli-terra",
+            runner=runner,
+        )
+        result = adapter.complete(
+            ModelCallRequest(
+                role=ModelRole.GENERATOR,
+                correlation_id="research-os.codex.diagnostic",
+                context_fingerprint="codex-diagnostic",
+                instructions='Return a JSON object {"diagnostic": true} only. Do not call tools.',
+                payload={"diagnostic": True},
+            )
+        )
+        self.assertEqual(result.structured_output, {"diagnostic": True})
+        stdin = captured["stdin"] or b""
+        self.assertIn(b"result_json", stdin)
+        self.assertIn(b"JSON-serialize", stdin)
+        probe = probe_codex_cli(
+            configuration=parse_codex_model_configurations(
+                "codex-cli-terra=gpt-5.6-terra", executable="codex"
+            )[0],
+            runner=_argv_runner(frozenset({"gpt-5.6-terra"})),
+        )
+        assert probe.readiness is not None
+        self.assertTrue(probe.readiness.benchmark_compatible)
+        self.assertIn("gpt-5.6-terra", probe.detail)
+
+    def test_invalid_outer_payload_is_transport_error(self) -> None:
+        with self.assertRaises(StructuredOutputTransportError):
+            self._complete('{"diagnostic": true}')
+        with self.assertRaises(StructuredOutputTransportError):
+            self._complete('{"result_json": "{}", "extra": true}')
+
+    def test_missing_result_json_is_transport_error(self) -> None:
+        with self.assertRaises(StructuredOutputTransportError):
+            self._complete("{}")
+        with self.assertRaises(StructuredOutputTransportError):
+            self._complete('{"result_json": null}')
+
+    def test_invalid_inner_json_is_transport_error(self) -> None:
+        with self.assertRaises(StructuredOutputTransportError):
+            self._complete('{"result_json": "{not-json}"}')
+
+    def test_inner_json_not_object_is_transport_error(self) -> None:
+        with self.assertRaises(StructuredOutputTransportError):
+            self._complete('{"result_json": "[1]"}')
+        with self.assertRaises(StructuredOutputTransportError):
+            self._complete('{"result_json": "\\"text\\""}')
+
+    def test_both_configured_models_remain_independent_and_gate04b_pending(self) -> None:
+        env = {
+            CODEX_MODELS_ENV: "codex-cli-terra=gpt-5.6-terra,codex-cli-gpt55=gpt-5.5",
+            "RESEARCH_OS_CODEX_EXECUTABLE": "codex",
+        }
+        results = probe_codex_configurations(
+            env=env,
+            runner=_argv_runner(frozenset({"gpt-5.6-terra", "gpt-5.5"})),
+        )
+        self.assertEqual(len(results), 2)
+        self.assertTrue(all(item.available for item in results))
+        self.assertNotEqual(results[0].configuration_fingerprint, results[1].configuration_fingerprint)
+        pending = gate_04b_status(
+            available_model_configurations=("codex-cli-terra", "codex-cli-gpt55"),
+            executed_live_configurations=(),
+            comparable=False,
+            harness_invariant_failed=False,
+            runs_per_scenario=3,
+            development_suite=True,
+        )
+        self.assertEqual(pending["status"], "PENDING")
+        self.assertEqual(GATE_04B_STATUS, "PENDING")
 
 
 if __name__ == "__main__":
