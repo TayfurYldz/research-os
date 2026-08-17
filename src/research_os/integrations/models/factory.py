@@ -1,4 +1,9 @@
-"""Composition-root live adapter resolution. Missing SDK/key is UNAVAILABLE."""
+"""Composition-root live adapter resolution.
+
+Missing SDK, credential, or model id is not AVAILABLE. Discovery maps a present
+SDK with a missing credential or model id to CONFIGURED_NOT_READY, and a missing
+SDK to UNAVAILABLE.
+"""
 
 from __future__ import annotations
 

@@ -14,13 +14,23 @@ class RuntimeDiscoveryTests(unittest.TestCase):
             env={"RESEARCH_OS_CODEX_EXECUTABLE": "__research_os_missing_codex__"}
         )
         mapping = report.to_mapping()
-        self.assertEqual(mapping["kind_matrix"]["API"], Readiness.UNAVAILABLE.value)
+        self.assertIn(
+            mapping["kind_matrix"]["API"],
+            {Readiness.UNAVAILABLE.value, Readiness.CONFIGURED_NOT_READY.value},
+        )
+        self.assertNotEqual(mapping["kind_matrix"]["API"], Readiness.AVAILABLE.value)
         self.assertEqual(mapping["kind_matrix"]["SUBSCRIPTION_OAUTH"], Readiness.UNAVAILABLE.value)
         self.assertIn(mapping["kind_matrix"]["CLI_SESSION"], {Readiness.UNAVAILABLE.value, Readiness.CONFIGURED_NOT_READY.value, Readiness.AVAILABLE.value})
         self.assertEqual(mapping["kind_matrix"]["LOCAL_MODEL"], Readiness.UNAVAILABLE.value)
         self.assertEqual(mapping["kind_matrix"]["EXTERNAL_AGENT"], Readiness.UNAVAILABLE.value)
         self.assertTrue(mapping["strix_is_not_model_runtime"])
         self.assertTrue(mapping["scripted_does_not_count"])
+        self.assertFalse(
+            any(
+                item in mapping["available_model_configurations"]
+                for item in ("openai", "anthropic", "gemini")
+            )
+        )
         serialized = json.dumps(mapping)
         self.assertNotIn("sk-", serialized)
         self.assertNotIn("WINNER", serialized)

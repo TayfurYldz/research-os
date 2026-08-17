@@ -69,8 +69,9 @@ class RunnerTests(unittest.TestCase):
             with redirect_stdout(parser_help):
                 run_cli(["--help"])
         text = parser_help.getvalue()
+        normalized = " ".join(text.split())
         self.assertIn("--live-probe", text)
-        self.assertIn("consumes model quota", text)
+        self.assertIn("consumes model quota", normalized)
         self.assertIn("PASSIVE", text)
 
 

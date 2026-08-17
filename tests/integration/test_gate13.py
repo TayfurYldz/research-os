@@ -12,6 +12,7 @@ import tempfile
 import threading
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from alembic import command
 from alembic.config import Config
@@ -422,8 +423,13 @@ class Gate13OperationalReadinessTests(unittest.TestCase):
             self.assertEqual(codex.readiness.stage.value, "NOT_INSTALLED")
         else:
             self.assertFalse(codex.readiness.benchmark_compatible)
-        strix = probe_strix_runtime()
+        with patch(
+            "research_os.integrations.strix.adapter.resolve_executable",
+            return_value=None,
+        ):
+            strix = probe_strix_runtime()
         self.assertFalse(strix["available"])
+        self.assertFalse(strix["installed"])
         self.assertEqual(SUBSCRIPTION_OAUTH_STATUS, "NOT_IMPLEMENTED")
         self.assertEqual(GATE_04B_STATUS, "PENDING")
         self.assertFalse(PRODUCTION_READY)
