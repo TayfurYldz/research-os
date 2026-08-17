@@ -2,9 +2,16 @@
 
 from __future__ import annotations
 
+import sys
 import unittest
+from pathlib import Path
 
-import pathsetup  # noqa: F401
+_REPO = Path(__file__).resolve().parents[2]
+_SRC = _REPO / "src"
+if str(_SRC) not in sys.path:
+    sys.path.insert(0, str(_SRC))
+if str(_REPO / "tests") not in sys.path:
+    sys.path.insert(0, str(_REPO / "tests"))
 
 from e2e.lab.browser_page_lab import ALICE_COOKIE, BOB_COOKIE, SESSION_COOKIE_NAME, Gate21BrowserLab
 from research_os.research.browser_lineage import http_template_from_network_event

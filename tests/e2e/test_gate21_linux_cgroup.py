@@ -25,7 +25,12 @@ import time
 import unittest
 from pathlib import Path
 
-import pathsetup  # noqa: F401
+_REPO = Path(__file__).resolve().parents[2]
+_SRC = _REPO / "src"
+if str(_SRC) not in sys.path:
+    sys.path.insert(0, str(_SRC))
+if str(_REPO / "tests") not in sys.path:
+    sys.path.insert(0, str(_REPO / "tests"))
 
 from research_os.platform.browser_resource_control import (
     BREACH_MEMORY_MAX,
