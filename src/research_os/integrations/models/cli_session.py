@@ -1,16 +1,19 @@
 """Authenticated CLI/session ModelPort adapter. Codex CLI is an AGENT_RUNTIME.
 
 Documented flags only. Does not scrape credentials. Does not use --yolo.
+Models are operational configuration, not architectural identity.
 A diagnostic echo that ignores ModelCallRequest is not MODELPORT_COMPATIBLE.
 """
 
 from __future__ import annotations
 
 import json
+import re
 import tempfile
 from dataclasses import dataclass
+from os import environ
 from pathlib import Path
-from typing import Callable, Protocol
+from typing import Callable, Mapping, Protocol
 
 from research_os.platform.argv_process import (
     ArgvProcessConfig,
@@ -19,30 +22,57 @@ from research_os.platform.argv_process import (
     resolve_executable,
     run_argv,
 )
-from research_os.platform.readiness import ReadinessStage, RuntimeReadiness, readiness_from_flags
+from research_os.platform.readiness import RuntimeReadiness, readiness_from_flags
 from research_os.research.model_port import (
     ContentPolicyBlockedError,
     ModelCallRequest,
     ModelCallResult,
     ModelPortError,
+    ModelRole,
     ProviderAuthError,
+    ProviderRateLimitError,
     ProviderTimeoutError,
+    RuntimeCancelledError,
     RuntimeProcessError,
     RuntimeUnavailableError,
     StructuredOutputTransportError,
 )
 from research_os.research.model_runtime import (
+    RuntimeClass,
+    RuntimeKind,
     RuntimeOutcome,
     cli_session_runtime_identity,
 )
 from research_os.tools.capabilities import CODEX_DIAGNOSTIC_STRUCTURED_OUTPUT_CAPABILITY
 
 UNRESTRICTED_MARKERS = frozenset({"*", "all", "unrestricted", "shell", "yolo", "danger-full-access"})
-FORBIDDEN_CLI_FLAGS = frozenset({"--yolo", "--full-auto", "danger-full-access"})
+FORBIDDEN_CLI_FLAGS = frozenset(
+    {
+        "--yolo",
+        "--full-auto",
+        "danger-full-access",
+        "dangerously-bypass-approvals-and-sandbox",
+    }
+)
+ALLOWED_SANDBOX = "read-only"
+CODEX_MODELS_ENV = "RESEARCH_OS_CODEX_MODELS"
+CODEX_EXECUTABLE_ENV = "RESEARCH_OS_CODEX_EXECUTABLE"
+DEFAULT_CODEX_EXECUTABLE = "codex"
+CONFIGURATION_ID_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
 STRUCTURED_OUTPUT_SCHEMA = {
     "type": "object",
     "additionalProperties": True,
 }
+
+# Operational defaults only. Override with RESEARCH_OS_CODEX_MODELS.
+DEFAULT_CODEX_MODEL_ENTRIES = (
+    "codex-cli-terra=gpt-5.6-terra",
+    "codex-cli-gpt55=gpt-5.5",
+)
+
+
+class CodexCliConfigurationError(ValueError):
+    """Invalid Codex CLI runtime configuration. Fail closed. Not a research conclusion."""
 
 
 class CodexArgvRunner(Protocol):
@@ -58,6 +88,48 @@ ArgvRunner = Callable[..., ArgvProcessResult]
 
 
 @dataclass(frozen=True)
+class CodexCliRuntimeConfiguration:
+    """One replaceable Codex CLI ModelRuntime configuration. Not vendor lock-in."""
+
+    configuration_id: str
+    model: str
+    executable: str
+    sandbox: str = ALLOWED_SANDBOX
+    ephemeral: bool = True
+    ignore_user_config: bool = True
+    runtime_kind: str = RuntimeKind.CLI_SESSION.value
+    runtime_class: str = RuntimeClass.AGENT_RUNTIME.value
+
+    def __post_init__(self) -> None:
+        if not CONFIGURATION_ID_PATTERN.fullmatch(self.configuration_id):
+            raise CodexCliConfigurationError("configuration_id is invalid")
+        if not isinstance(self.model, str) or not self.model.strip():
+            raise CodexCliConfigurationError("model must be a non-empty string")
+        if not isinstance(self.executable, str) or not self.executable.strip():
+            raise CodexCliConfigurationError("executable must be a non-empty string")
+        if self.sandbox != ALLOWED_SANDBOX:
+            raise CodexCliConfigurationError("sandbox must be read-only")
+        if self.ephemeral is not True:
+            raise CodexCliConfigurationError("ephemeral must be true")
+        if self.ignore_user_config is not True:
+            raise CodexCliConfigurationError("ignore_user_config must be true")
+        if self.runtime_kind != RuntimeKind.CLI_SESSION.value:
+            raise CodexCliConfigurationError("runtime_kind must be CLI_SESSION")
+        if self.runtime_class != RuntimeClass.AGENT_RUNTIME.value:
+            raise CodexCliConfigurationError("runtime_class must be AGENT_RUNTIME")
+        object.__setattr__(self, "model", self.model.strip())
+        object.__setattr__(self, "executable", self.executable.strip())
+
+    def runtime_configuration(self) -> dict[str, object]:
+        return {
+            "sandbox": self.sandbox,
+            "ephemeral": self.ephemeral,
+            "ignore_user_config": self.ignore_user_config,
+            "executable": self.executable,
+        }
+
+
+@dataclass(frozen=True)
 class CliRuntimeAvailability:
     available: bool
     outcome: RuntimeOutcome
@@ -65,6 +137,9 @@ class CliRuntimeAvailability:
     version: str | None
     detail: str
     readiness: RuntimeReadiness | None = None
+    configuration_id: str | None = None
+    model: str | None = None
+    configuration_fingerprint: str | None = None
 
     def to_mapping(self) -> dict[str, str | bool | None]:
         payload: dict[str, str | bool | None] = {
@@ -73,6 +148,9 @@ class CliRuntimeAvailability:
             "executable": self.executable,
             "version": self.version,
             "detail": self.detail,
+            "configuration_id": self.configuration_id,
+            "model": self.model,
+            "configuration_fingerprint": self.configuration_fingerprint,
             "unavailable_is_not_pass": True,
         }
         if self.readiness is not None:
@@ -80,10 +158,66 @@ class CliRuntimeAvailability:
             payload["installed"] = mapping["installed"]
             payload["version_known"] = mapping["version_known"]
             payload["auth_ready"] = mapping["auth_ready"]
+            payload["diagnostic_ready"] = mapping["diagnostic_ready"]
             payload["modelport_compatible"] = mapping["modelport_compatible"]
             payload["benchmark_compatible"] = mapping["benchmark_compatible"]
             payload["stage"] = mapping["stage"]
         return payload
+
+
+def derive_codex_configuration_id(model: str) -> str:
+    slug = re.sub(r"[^a-z0-9]+", "-", model.strip().lower()).strip("-")
+    if not slug:
+        raise CodexCliConfigurationError("model produced an empty configuration id")
+    return f"codex-cli-{slug}"
+
+
+def parse_codex_model_configurations(
+    raw: str | None,
+    *,
+    executable: str = DEFAULT_CODEX_EXECUTABLE,
+) -> tuple[CodexCliRuntimeConfiguration, ...]:
+    if raw is None or not str(raw).strip():
+        entries = DEFAULT_CODEX_MODEL_ENTRIES
+    else:
+        entries = tuple(part.strip() for part in str(raw).split(","))
+    if any(item == "" for item in entries):
+        raise CodexCliConfigurationError("empty Codex model configuration entry")
+    parsed: list[CodexCliRuntimeConfiguration] = []
+    seen_ids: set[str] = set()
+    seen_models: set[str] = set()
+    for entry in entries:
+        if "=" in entry:
+            configuration_id, model = entry.split("=", 1)
+            configuration_id = configuration_id.strip()
+            model = model.strip()
+        else:
+            model = entry.strip()
+            configuration_id = derive_codex_configuration_id(model)
+        if not configuration_id or not model:
+            raise CodexCliConfigurationError("empty Codex model configuration entry")
+        if configuration_id in seen_ids or model in seen_models:
+            raise CodexCliConfigurationError("duplicate Codex model configuration")
+        seen_ids.add(configuration_id)
+        seen_models.add(model)
+        parsed.append(
+            CodexCliRuntimeConfiguration(
+                configuration_id=configuration_id,
+                model=model,
+                executable=executable,
+            )
+        )
+    if not parsed:
+        raise CodexCliConfigurationError("no Codex model configurations")
+    return tuple(parsed)
+
+
+def load_codex_model_configurations(env: Mapping[str, str] | None = None) -> tuple[CodexCliRuntimeConfiguration, ...]:
+    source = dict(environ if env is None else env)
+    executable = (source.get(CODEX_EXECUTABLE_ENV) or DEFAULT_CODEX_EXECUTABLE).strip()
+    if not executable:
+        raise CodexCliConfigurationError("executable must be a non-empty string")
+    return parse_codex_model_configurations(source.get(CODEX_MODELS_ENV), executable=executable)
 
 
 def _run(
@@ -104,25 +238,80 @@ def _run(
     )
 
 
+def _codex_exec_argv(executable: str, model: str, schema_path: Path) -> tuple[str, ...]:
+    argv = (
+        executable,
+        "exec",
+        "--ignore-user-config",
+        "--ephemeral",
+        "--sandbox",
+        ALLOWED_SANDBOX,
+        "-m",
+        model,
+        "--output-schema",
+        str(schema_path),
+        "-",
+    )
+    if any(flag in argv for flag in FORBIDDEN_CLI_FLAGS):
+        raise ModelPortError("unrestricted CLI flags are rejected")
+    if "--sandbox" in argv:
+        sandbox_index = argv.index("--sandbox")
+        if sandbox_index + 1 >= len(argv) or argv[sandbox_index + 1] != ALLOWED_SANDBOX:
+            raise ModelPortError("sandbox must be read-only")
+    return argv
+
+
 def probe_codex_cli(
     *,
-    executable_name: str = "codex",
+    executable_name: str = DEFAULT_CODEX_EXECUTABLE,
     runner: ArgvRunner | None = None,
+    configuration: CodexCliRuntimeConfiguration | None = None,
 ) -> CliRuntimeAvailability:
-    path = resolve_executable(executable_name)
-    if path is None:
-        readiness = readiness_from_flags(
-            installed=False,
-            detail="codex executable not found on PATH",
+    executable_name = configuration.executable if configuration is not None else executable_name
+    configuration_id = configuration.configuration_id if configuration is not None else None
+    model = configuration.model if configuration is not None else None
+    if runner is not None:
+        path = executable_name
+    else:
+        path = resolve_executable(executable_name)
+        if path is None:
+            readiness = readiness_from_flags(
+                installed=False,
+                detail="codex executable not found on PATH",
+            )
+            identity = None
+            fingerprint = None
+            if configuration is not None:
+                identity = cli_session_runtime_identity(
+                    adapter_id="codex.cli.session",
+                    runtime_id=configuration.configuration_id,
+                    session_reference="local-authenticated-cli-session",
+                    model_id=configuration.model,
+                    runtime_configuration=configuration.runtime_configuration(),
+                )
+                fingerprint = identity.configuration_fingerprint
+            return CliRuntimeAvailability(
+                available=False,
+                outcome=RuntimeOutcome.UNAVAILABLE,
+                executable=None,
+                version=None,
+                detail=readiness.detail,
+                readiness=readiness,
+                configuration_id=configuration_id,
+                model=model,
+                configuration_fingerprint=fingerprint,
+            )
+    identity = None
+    fingerprint = None
+    if configuration is not None:
+        identity = cli_session_runtime_identity(
+            adapter_id="codex.cli.session",
+            runtime_id=configuration.configuration_id,
+            session_reference="local-authenticated-cli-session",
+            model_id=configuration.model,
+            runtime_configuration=configuration.runtime_configuration(),
         )
-        return CliRuntimeAvailability(
-            available=False,
-            outcome=RuntimeOutcome.UNAVAILABLE,
-            executable=None,
-            version=None,
-            detail=readiness.detail,
-            readiness=readiness,
-        )
+        fingerprint = identity.configuration_fingerprint
     result = _run(runner, (path, "--version"), timeout_ms=5_000)
     if result.status is ArgvProcessStatus.UNAVAILABLE:
         readiness = readiness_from_flags(
@@ -137,6 +326,9 @@ def probe_codex_cli(
             version=None,
             detail=readiness.detail,
             readiness=readiness,
+            configuration_id=configuration_id,
+            model=model,
+            configuration_fingerprint=fingerprint,
         )
     if result.status is ArgvProcessStatus.TIMED_OUT:
         readiness = readiness_from_flags(
@@ -151,6 +343,9 @@ def probe_codex_cli(
             version=None,
             detail=readiness.detail,
             readiness=readiness,
+            configuration_id=configuration_id,
+            model=model,
+            configuration_fingerprint=fingerprint,
         )
     if result.status is not ArgvProcessStatus.COMPLETED:
         readiness = readiness_from_flags(
@@ -165,8 +360,21 @@ def probe_codex_cli(
             version=None,
             detail=readiness.detail,
             readiness=readiness,
+            configuration_id=configuration_id,
+            model=model,
+            configuration_fingerprint=fingerprint,
         )
     version = (result.stdout or result.stderr).strip().splitlines()[0] if (result.stdout or result.stderr).strip() else "unknown"
+    if identity is not None:
+        identity = cli_session_runtime_identity(
+            adapter_id="codex.cli.session",
+            runtime_id=configuration.configuration_id,
+            runtime_version=version,
+            session_reference="local-authenticated-cli-session",
+            model_id=configuration.model,
+            runtime_configuration=configuration.runtime_configuration(),
+        )
+        fingerprint = identity.configuration_fingerprint
     auth = _run(runner, (path, "login", "status"), timeout_ms=5_000)
     auth_ready = auth.status is ArgvProcessStatus.COMPLETED
     auth_detail = "codex login status succeeded" if auth_ready else (
@@ -174,22 +382,29 @@ def probe_codex_cli(
         if auth.status is ArgvProcessStatus.PROCESS_FAILED
         else (auth.reason or "codex login status not confirmed")
     )
+    diagnostic_ready = False
     modelport_compatible = False
     benchmark_compatible = False
-    diagnostic_ready = False
+    outcome = RuntimeOutcome.AUTH_FAILED if not auth_ready else RuntimeOutcome.COMPLETED
     stage_detail = (
         "codex --version succeeded; session material was not copied into Research OS. "
-        f"{auth_detail}. MODELPORT_COMPATIBLE requires the request-consuming exec transport "
-        "and AUTH_READY."
+        f"{auth_detail}. MODELPORT_COMPATIBLE requires a request-consuming exec for this model."
     )
-    if auth_ready:
-        diagnostic_ready = True
-        modelport_compatible = True
-        benchmark_compatible = True
-        stage_detail = (
-            "codex CLI is authenticated and the request-consuming exec transport is enabled; "
-            "tokens were not scraped"
+    if auth_ready and configuration is not None:
+        diagnostic_ready, modelport_compatible, benchmark_compatible, outcome, stage_detail = (
+            _probe_model_exec(
+                configuration,
+                runner=runner,
+                executable=path,
+                version=version,
+            )
         )
+    elif auth_ready:
+        stage_detail = (
+            "codex CLI is authenticated; tokens were not scraped. "
+            "BENCHMARK_COMPATIBLE requires a request-consuming exec for a configured model."
+        )
+        outcome = RuntimeOutcome.COMPLETED
     readiness = readiness_from_flags(
         installed=True,
         version_known=True,
@@ -203,13 +418,82 @@ def probe_codex_cli(
         executable=path,
     )
     return CliRuntimeAvailability(
-        available=auth_ready,
-        outcome=RuntimeOutcome.COMPLETED if auth_ready else RuntimeOutcome.AUTH_FAILED,
+        available=auth_ready and (configuration is None or benchmark_compatible),
+        outcome=outcome,
         executable=path,
         version=version,
         detail=readiness.detail,
         readiness=readiness,
+        configuration_id=configuration_id,
+        model=model,
+        configuration_fingerprint=fingerprint,
     )
+
+
+def probe_codex_configurations(
+    *,
+    env: Mapping[str, str] | None = None,
+    runner: ArgvRunner | None = None,
+) -> tuple[CliRuntimeAvailability, ...]:
+    configs = load_codex_model_configurations(env)
+    return tuple(
+        probe_codex_cli(
+            executable_name=item.executable,
+            runner=runner,
+            configuration=item,
+        )
+        for item in configs
+    )
+
+
+def _probe_model_exec(
+    configuration: CodexCliRuntimeConfiguration,
+    *,
+    runner: ArgvRunner | None,
+    executable: str,
+    version: str,
+) -> tuple[bool, bool, bool, RuntimeOutcome, str]:
+    adapter = CodexCliSessionAdapter(
+        allowed_capabilities=(CODEX_DIAGNOSTIC_STRUCTURED_OUTPUT_CAPABILITY,),
+        executable=executable,
+        version=version,
+        runner=runner,
+        model=configuration.model,
+        configuration_id=configuration.configuration_id,
+    )
+    request = ModelCallRequest(
+        role=ModelRole.GENERATOR,
+        correlation_id="research-os.codex.diagnostic",
+        context_fingerprint="codex-diagnostic",
+        instructions="Return a JSON object {\"diagnostic\": true} only. Do not call tools.",
+        payload={"diagnostic": True},
+        timeout_ms=15_000,
+    )
+    try:
+        adapter.complete(request)
+    except RuntimeUnavailableError as exc:
+        return False, False, False, RuntimeOutcome.UNAVAILABLE, str(exc)
+    except ProviderAuthError as exc:
+        return False, False, False, RuntimeOutcome.AUTH_FAILED, str(exc)
+    except ProviderRateLimitError as exc:
+        return False, False, False, RuntimeOutcome.RATE_LIMITED, str(exc)
+    except ProviderTimeoutError as exc:
+        return False, False, False, RuntimeOutcome.TIMED_OUT, str(exc)
+    except ContentPolicyBlockedError as exc:
+        return False, False, False, RuntimeOutcome.CONTENT_POLICY_BLOCKED, str(exc)
+    except StructuredOutputTransportError as exc:
+        return False, False, False, RuntimeOutcome.STRUCTURED_OUTPUT_INVALID, str(exc)
+    except RuntimeCancelledError as exc:
+        return False, False, False, RuntimeOutcome.CANCELLED, str(exc)
+    except RuntimeProcessError as exc:
+        return False, False, False, RuntimeOutcome.PROCESS_FAILED, str(exc)
+    except ModelPortError as exc:
+        return False, False, False, RuntimeOutcome.PROCESS_FAILED, str(exc)
+    detail = (
+        f"request-consuming Codex exec succeeded for model {configuration.model}; "
+        "tokens were not scraped"
+    )
+    return True, True, True, RuntimeOutcome.COMPLETED, detail
 
 
 class CodexCliSessionAdapter:
@@ -225,32 +509,60 @@ class CodexCliSessionAdapter:
         version: str | None = None,
         runner: ArgvRunner | None = None,
         working_directory: Path | None = None,
+        model: str | None = None,
+        configuration_id: str | None = None,
+        sandbox: str = ALLOWED_SANDBOX,
+        ephemeral: bool = True,
     ) -> None:
         if not allowed_capabilities:
             raise ModelPortError("agent runtime requires an explicit capability set")
         lowered = {item.lower() for item in allowed_capabilities}
         if lowered & UNRESTRICTED_MARKERS:
             raise ModelPortError("unrestricted tool capability is rejected")
+        if sandbox != ALLOWED_SANDBOX:
+            raise ModelPortError("sandbox must be read-only")
+        if ephemeral is not True:
+            raise ModelPortError("ephemeral must be true")
+        if model is not None and (not isinstance(model, str) or not model.strip()):
+            raise ModelPortError("model must be a non-empty string when set")
         self._allowed = tuple(allowed_capabilities)
         self._executable = executable
         self._version = version
         self._working_directory = working_directory
         self._runner = runner
+        self._model = model.strip() if model is not None else None
+        runtime_id = configuration_id or "codex-cli"
+        runtime_configuration = None
+        if self._model is not None:
+            runtime_configuration = {
+                "sandbox": sandbox,
+                "ephemeral": ephemeral,
+                "ignore_user_config": True,
+                "executable": executable or DEFAULT_CODEX_EXECUTABLE,
+            }
         self._identity = cli_session_runtime_identity(
             adapter_id="codex.cli.session",
-            runtime_id="codex-cli",
+            runtime_id=runtime_id,
             runtime_version=version,
             session_reference="local-authenticated-cli-session",
+            model_id=self._model,
+            runtime_configuration=runtime_configuration,
         )
 
     @property
     def adapter_identity(self) -> str:
         return self._identity.adapter_id
 
+    @property
+    def runtime_identity(self):
+        return self._identity
+
     def complete(self, request: ModelCallRequest) -> ModelCallResult:
         if CODEX_DIAGNOSTIC_STRUCTURED_OUTPUT_CAPABILITY not in self._allowed:
             raise ModelPortError("requested agent capability is not allowlisted")
-        executable = self._executable or resolve_executable("codex")
+        if self._model is None:
+            raise ModelPortError("Codex CLI ModelRuntime requires a configured model")
+        executable = self._executable or resolve_executable(DEFAULT_CODEX_EXECUTABLE)
         if executable is None:
             raise RuntimeUnavailableError("codex CLI is UNAVAILABLE")
         prompt = _prompt_for_request(request)
@@ -261,18 +573,7 @@ class CodexCliSessionAdapter:
                 encoding="utf-8",
             )
             cwd = self._working_directory or Path(tmp)
-            argv = (
-                executable,
-                "exec",
-                "--sandbox",
-                "read-only",
-                "--ephemeral",
-                "--output-schema",
-                str(schema_path),
-                "-",
-            )
-            if any(flag in argv for flag in FORBIDDEN_CLI_FLAGS):
-                raise ModelPortError("unrestricted CLI flags are rejected")
+            argv = _codex_exec_argv(executable, self._model, schema_path)
             result = _run(
                 self._runner,
                 argv,
@@ -280,7 +581,7 @@ class CodexCliSessionAdapter:
                 timeout_ms=request.timeout_ms or 15_000,
                 working_directory=cwd,
             )
-        return _result_from_process(request, result, self._identity, self._version)
+        return _result_from_process(request, result, self._identity, self._version, self._model)
 
 
 class CodexDiagnosticEchoAdapter:
@@ -317,19 +618,20 @@ def _result_from_process(
     result: ArgvProcessResult,
     identity,
     version: str | None,
+    model: str,
 ) -> ModelCallResult:
     if result.status is ArgvProcessStatus.UNAVAILABLE:
         raise RuntimeUnavailableError(result.reason or "codex CLI unavailable")
     if result.status is ArgvProcessStatus.TIMED_OUT:
         raise ProviderTimeoutError(result.reason or "codex CLI timed out")
     if result.status is ArgvProcessStatus.CANCELLED:
-        from research_os.research.model_port import RuntimeCancelledError
-
         raise RuntimeCancelledError(result.reason or "codex CLI cancelled")
     if result.status is ArgvProcessStatus.PROCESS_FAILED:
         combined = f"{result.stdout} {result.stderr}".lower()
         if "login" in combined or "unauthorized" in combined or "not authenticated" in combined:
             raise ProviderAuthError("codex CLI authentication failed")
+        if "rate" in combined or "429" in combined or "quota" in combined:
+            raise ProviderRateLimitError("codex CLI rate limited")
         if "policy" in combined or "safety" in combined or "content" in combined:
             raise ContentPolicyBlockedError("codex CLI content/safety policy blocked the request")
         raise RuntimeProcessError(result.reason or "codex CLI process failed")
@@ -340,9 +642,9 @@ def _result_from_process(
     return ModelCallResult(
         role=request.role,
         adapter_identity=identity.adapter_id,
-        provider_adapter_identity="codex-cli",
+        provider_adapter_identity=identity.runtime_id,
         structured_output=structured,
-        model_id="codex-cli",
+        model_id=model,
         model_version=version,
         runtime_identity=identity,
     )

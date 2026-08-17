@@ -10,7 +10,9 @@ from integrations.models.discovery import Readiness, discover_configured_runtime
 
 class RuntimeDiscoveryTests(unittest.TestCase):
     def test_empty_env_does_not_fabricate_availability(self) -> None:
-        report = discover_configured_runtimes(env={})
+        report = discover_configured_runtimes(
+            env={"RESEARCH_OS_CODEX_EXECUTABLE": "__research_os_missing_codex__"}
+        )
         mapping = report.to_mapping()
         self.assertEqual(mapping["kind_matrix"]["API"], Readiness.UNAVAILABLE.value)
         self.assertEqual(mapping["kind_matrix"]["SUBSCRIPTION_OAUTH"], Readiness.UNAVAILABLE.value)
@@ -26,7 +28,12 @@ class RuntimeDiscoveryTests(unittest.TestCase):
         self.assertFalse(strix.counts_as_model_runtime)
 
     def test_configured_local_endpoint_is_not_ready_without_product(self) -> None:
-        report = discover_configured_runtimes(env={"RESEARCH_OS_LOCAL_MODEL_ENDPOINT": "http://explicit-local"})
+        report = discover_configured_runtimes(
+            env={
+                "RESEARCH_OS_LOCAL_MODEL_ENDPOINT": "http://explicit-local",
+                "RESEARCH_OS_CODEX_EXECUTABLE": "__research_os_missing_codex__",
+            }
+        )
         local = next(item for item in report.entries if item.runtime_kind == "LOCAL_MODEL")
         self.assertEqual(local.readiness, Readiness.CONFIGURED_NOT_READY)
         self.assertNotIn("local-model", report.available_model_configurations)

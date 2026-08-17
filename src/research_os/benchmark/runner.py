@@ -107,10 +107,13 @@ def identity_for_cli_session(
     adapter_identity: str,
     runtime_id: str,
     runtime_version: str | None = None,
+    provider_model_id: str | None = None,
+    configuration_fingerprint: str | None = None,
 ) -> ModelConfigurationIdentity:
     return ModelConfigurationIdentity(
         adapter_identity=adapter_identity,
         provider_adapter_identity=runtime_id,
+        provider_model_id=provider_model_id,
         generator_configuration=GENERATOR_INSTRUCTION_VERSION,
         falsifier_configuration=FALSIFIER_INSTRUCTION_VERSION,
         reasoning_settings=STRUCTURED_OUTPUT_SPEC_VERSION,
@@ -119,11 +122,15 @@ def identity_for_cli_session(
         auth_mode="AUTHENTICATED_CLI_SESSION",
         runtime_id=runtime_id,
         runtime_version=runtime_version,
+        configuration_fingerprint=configuration_fingerprint,
     )
 
 
 LIVE_ADAPTER_IDS = frozenset({"openai", "anthropic", "gemini"})
-CLI_RUNTIME_IDS = frozenset({"codex-cli"})
+
+
+def is_cli_session_configuration_id(adapter_id: str) -> bool:
+    return adapter_id == "codex-cli" or adapter_id.startswith("codex-cli-")
 
 
 def resolve_scripted_adapter(adapter_id: str, model_id: str | None = None):
@@ -204,7 +211,7 @@ def run_cli(
     parser.add_argument(
         "--adapter",
         default=None,
-        help="scripted baseline name or live adapter id (openai, anthropic, gemini, codex-cli)",
+        help="scripted baseline name or live adapter/configuration id (openai, anthropic, gemini, codex-cli-*)",
     )
     parser.add_argument(
         "--model",
@@ -475,7 +482,7 @@ def _load_configured_adapter(
     scripted = resolve_scripted_adapter(adapter_id, model_id)
     if scripted is not None:
         return scripted
-    if adapter_id in LIVE_ADAPTER_IDS or adapter_id in CLI_RUNTIME_IDS:
+    if adapter_id in LIVE_ADAPTER_IDS or is_cli_session_configuration_id(adapter_id):
         if resolve_live is None:
             return (
                 f"adapter {adapter_id!r} UNAVAILABLE: live adapters are resolved by "

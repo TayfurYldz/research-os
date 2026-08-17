@@ -114,6 +114,7 @@ class CodexReadinessTests(unittest.TestCase):
         adapter = CodexCliSessionAdapter(
             allowed_capabilities=(CODEX_DIAGNOSTIC_STRUCTURED_OUTPUT_CAPABILITY,),
             executable="codex",
+            model="diagnostic-model",
             runner=runner,
         )
         result = adapter.complete(

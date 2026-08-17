@@ -415,7 +415,13 @@ class Gate13OperationalReadinessTests(unittest.TestCase):
         self.assertEqual(check.health.value, "HEALTHY")
         self.assertFalse(check.contains_secrets)
         codex = probe_codex_cli()
-        self.assertFalse(codex.available)
+        self.assertIsNotNone(codex.readiness)
+        assert codex.readiness is not None
+        if not codex.readiness.installed:
+            self.assertFalse(codex.available)
+            self.assertEqual(codex.readiness.stage.value, "NOT_INSTALLED")
+        else:
+            self.assertFalse(codex.readiness.benchmark_compatible)
         strix = probe_strix_runtime()
         self.assertFalse(strix["available"])
         self.assertEqual(SUBSCRIPTION_OAUTH_STATUS, "NOT_IMPLEMENTED")

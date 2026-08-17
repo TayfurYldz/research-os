@@ -45,6 +45,17 @@ class ModelRuntimeTests(unittest.TestCase):
         self.assertNotEqual(api.configuration_fingerprint, cli.configuration_fingerprint)
         self.assertNotEqual(api.to_mapping(), cli.to_mapping())
         self.assertFalse(api.to_mapping()["contains_secrets"])
+        terra = cli_session_runtime_identity(
+            adapter_id="codex.cli.session",
+            runtime_id="codex-cli-terra",
+            model_id="gpt-5.6-terra",
+        )
+        gpt55 = cli_session_runtime_identity(
+            adapter_id="codex.cli.session",
+            runtime_id="codex-cli-gpt55",
+            model_id="gpt-5.5",
+        )
+        self.assertNotEqual(terra.configuration_fingerprint, gpt55.configuration_fingerprint)
 
     def test_model_request_rejects_secret_keys(self) -> None:
         with self.assertRaises(ModelPortError):

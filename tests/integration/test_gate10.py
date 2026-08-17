@@ -173,7 +173,11 @@ class Gate10RuntimeStrixBoundaryTests(unittest.TestCase):
             uow.commit()
 
     def test_runtime_identities_and_availability_are_reported_without_fabrication(self) -> None:
-        from integrations.models.cli_session import CodexCliSessionAdapter, probe_codex_cli
+        from integrations.models.cli_session import (
+            CodexCliSessionAdapter,
+            load_codex_model_configurations,
+            probe_codex_cli,
+        )
         from integrations.models.external_agent import probe_external_agent
         from integrations.models.factory import probe_live_adapter
         from integrations.models.local_runtime import probe_local_model
@@ -206,24 +210,31 @@ class Gate10RuntimeStrixBoundaryTests(unittest.TestCase):
         self.assertNotEqual(api_identity.configuration_fingerprint, cli_identity.configuration_fingerprint)
 
         if cli.available and cli.executable is not None:
-            adapter = CodexCliSessionAdapter(
-                allowed_capabilities=(CODEX_DIAGNOSTIC_STRUCTURED_OUTPUT_CAPABILITY,),
-                executable=cli.executable,
-                version=cli.version,
-            )
-            try:
-                adapter.complete(
-                    ModelCallRequest(
-                        role=ModelRole.GENERATOR,
-                        correlation_id="gate10-cli",
-                        context_fingerprint="gate10",
-                        instructions="Reply with a JSON object only.",
-                        payload={"echo": "ping"},
-                    )
+            configs = load_codex_model_configurations()
+            selected = configs[0] if configs else None
+            if selected is None:
+                print("GATE 10 CLI diagnostic skipped: no configured model", flush=True)
+            else:
+                adapter = CodexCliSessionAdapter(
+                    allowed_capabilities=(CODEX_DIAGNOSTIC_STRUCTURED_OUTPUT_CAPABILITY,),
+                    executable=cli.executable,
+                    version=cli.version,
+                    model=selected.model,
+                    configuration_id=selected.configuration_id,
                 )
-                print("GATE 10 CLI diagnostic COMPLETED", flush=True)
-            except Exception as exc:
-                print(f"GATE 10 CLI diagnostic outcome={type(exc).__name__}", flush=True)
+                try:
+                    adapter.complete(
+                        ModelCallRequest(
+                            role=ModelRole.GENERATOR,
+                            correlation_id="gate10-cli",
+                            context_fingerprint="gate10",
+                            instructions="Reply with a JSON object only.",
+                            payload={"echo": "ping"},
+                        )
+                    )
+                    print("GATE 10 CLI diagnostic COMPLETED", flush=True)
+                except Exception as exc:
+                    print(f"GATE 10 CLI diagnostic outcome={type(exc).__name__}", flush=True)
 
         factory = PostgresUnitOfWorkFactory(self.engine)
         with factory.open() as uow:

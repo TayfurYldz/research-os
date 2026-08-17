@@ -176,17 +176,24 @@ def cli_session_runtime_identity(
     runtime_id: str,
     runtime_version: str | None = None,
     session_reference: str | None = None,
+    model_id: str | None = None,
+    runtime_configuration: Mapping[str, Any] | None = None,
 ) -> ModelRuntimeIdentity:
-    fingerprint = fingerprint_configuration(
-        {
-            "runtime_kind": RuntimeKind.CLI_SESSION.value,
-            "adapter_id": adapter_id,
-            "runtime_id": runtime_id,
-            "auth_mode": AuthMode.AUTHENTICATED_CLI_SESSION.value,
-            "runtime_version": runtime_version,
-            "session_reference": session_reference,
-        }
-    )
+    payload: dict[str, Any] = {
+        "runtime_kind": RuntimeKind.CLI_SESSION.value,
+        "adapter_id": adapter_id,
+        "runtime_id": runtime_id,
+        "auth_mode": AuthMode.AUTHENTICATED_CLI_SESSION.value,
+        "runtime_version": runtime_version,
+        "session_reference": session_reference,
+    }
+    if model_id is not None:
+        payload["model_id"] = _require_text(model_id, "model_id")
+    if runtime_configuration:
+        payload["runtime_configuration"] = reject_secret_keys(
+            runtime_configuration, "runtime_configuration"
+        )
+    fingerprint = fingerprint_configuration(payload)
     return ModelRuntimeIdentity(
         runtime_kind=RuntimeKind.CLI_SESSION,
         runtime_class=RuntimeClass.AGENT_RUNTIME,

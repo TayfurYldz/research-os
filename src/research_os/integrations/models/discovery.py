@@ -10,7 +10,10 @@ from enum import Enum
 from os import environ
 from typing import Any
 
-from research_os.integrations.models.cli_session import probe_codex_cli
+from research_os.integrations.models.cli_session import (
+    CodexCliConfigurationError,
+    probe_codex_configurations,
+)
 from research_os.integrations.models.external_agent import probe_external_agent
 from research_os.integrations.models.factory import LIVE_ADAPTER_IDS, probe_live_adapter
 from research_os.integrations.models.local_runtime import probe_local_model
@@ -39,6 +42,8 @@ class RuntimeDiscoveryEntry:
     runtime_version: str | None = None
     runtime_class: str | None = None
     structured_readiness: RuntimeReadiness | None = None
+    model: str | None = None
+    configuration_fingerprint: str | None = None
 
     def to_mapping(self) -> dict[str, Any]:
         payload = {
@@ -49,6 +54,8 @@ class RuntimeDiscoveryEntry:
             "counts_as_model_runtime": self.counts_as_model_runtime,
             "runtime_version": self.runtime_version,
             "runtime_class": self.runtime_class,
+            "model": self.model,
+            "configuration_fingerprint": self.configuration_fingerprint,
             "contains_secrets": False,
         }
         if self.structured_readiness is not None:
@@ -84,7 +91,11 @@ def _kind_status(entries: list[RuntimeDiscoveryEntry], kind: str) -> str:
     return Readiness.UNAVAILABLE.value
 
 
-def discover_configured_runtimes(*, env: dict[str, str] | None = None) -> RuntimeDiscoveryReport:
+def discover_configured_runtimes(
+    *,
+    env: dict[str, str] | None = None,
+    argv_runner=None,
+) -> RuntimeDiscoveryReport:
     source = dict(environ if env is None else env)
     entries: list[RuntimeDiscoveryEntry] = []
 
@@ -121,32 +132,48 @@ def discover_configured_runtimes(*, env: dict[str, str] | None = None) -> Runtim
         )
     )
 
-    cli = probe_codex_cli()
-    cli_readiness_struct = cli.readiness
-    if cli_readiness_struct is not None and cli_readiness_struct.benchmark_compatible:
-        cli_readiness = Readiness.AVAILABLE
-        cli_reason = cli.detail
-        cli_counts = True
-    elif cli.executable is not None:
-        cli_readiness = Readiness.CONFIGURED_NOT_READY
-        cli_reason = cli.detail
-        cli_counts = False
-    else:
-        cli_readiness = Readiness.UNAVAILABLE
-        cli_reason = cli.detail
-        cli_counts = False
-    entries.append(
-        RuntimeDiscoveryEntry(
-            runtime_kind=RuntimeKind.CLI_SESSION.value,
-            configuration_id="codex-cli",
-            readiness=cli_readiness,
-            reason=cli_reason,
-            counts_as_model_runtime=cli_counts,
-            runtime_version=cli.version,
-            runtime_class="AGENT_RUNTIME",
-            structured_readiness=cli_readiness_struct,
+    try:
+        cli_results = probe_codex_configurations(env=source, runner=argv_runner)
+    except CodexCliConfigurationError as exc:
+        cli_results = ()
+        entries.append(
+            RuntimeDiscoveryEntry(
+                runtime_kind=RuntimeKind.CLI_SESSION.value,
+                configuration_id="codex-cli",
+                readiness=Readiness.CONFIGURED_NOT_READY,
+                reason=str(exc),
+                counts_as_model_runtime=False,
+                runtime_class="AGENT_RUNTIME",
+            )
         )
-    )
+    for cli in cli_results:
+        cli_readiness_struct = cli.readiness
+        if cli_readiness_struct is not None and cli_readiness_struct.benchmark_compatible:
+            cli_readiness = Readiness.AVAILABLE
+            cli_reason = cli.detail
+            cli_counts = True
+        elif cli.executable is not None:
+            cli_readiness = Readiness.CONFIGURED_NOT_READY
+            cli_reason = cli.detail
+            cli_counts = False
+        else:
+            cli_readiness = Readiness.UNAVAILABLE
+            cli_reason = cli.detail
+            cli_counts = False
+        entries.append(
+            RuntimeDiscoveryEntry(
+                runtime_kind=RuntimeKind.CLI_SESSION.value,
+                configuration_id=cli.configuration_id or "codex-cli",
+                readiness=cli_readiness,
+                reason=cli_reason,
+                counts_as_model_runtime=cli_counts,
+                runtime_version=cli.version,
+                runtime_class="AGENT_RUNTIME",
+                structured_readiness=cli_readiness_struct,
+                model=cli.model,
+                configuration_fingerprint=cli.configuration_fingerprint,
+            )
+        )
 
     local_endpoint = source.get(LOCAL_ENDPOINT_ENV)
     local = probe_local_model(endpoint_reference=local_endpoint if local_endpoint else None)

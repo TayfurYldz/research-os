@@ -13,15 +13,24 @@ if str(SRC) not in sys.path:
 
 from research_os.benchmark.runner import identity_for_cli_session, identity_for_live, run_cli
 from research_os.interface.git_provenance import collect_source_provenance
-from research_os.integrations.models.cli_session import CodexCliSessionAdapter, probe_codex_cli
+from research_os.integrations.models.cli_session import (
+    CodexCliSessionAdapter,
+    load_codex_model_configurations,
+    probe_codex_cli,
+)
 from research_os.integrations.models.discovery import discover_configured_runtimes, gate_04b_status
 from research_os.integrations.models.factory import resolve_live_adapter
 from research_os.tools.capabilities import CODEX_DIAGNOSTIC_STRUCTURED_OUTPUT_CAPABILITY
 
 
 def resolve_live(adapter_id: str, model_id: str | None):
-    if adapter_id == "codex-cli":
-        availability = probe_codex_cli()
+    configs = load_codex_model_configurations()
+    config = next((item for item in configs if item.configuration_id == adapter_id), None)
+    if config is not None:
+        availability = probe_codex_cli(
+            executable_name=config.executable,
+            configuration=config,
+        )
         payload = json.dumps(availability.to_mapping(), ensure_ascii=True)
         if (
             availability.readiness is None
@@ -34,11 +43,15 @@ def resolve_live(adapter_id: str, model_id: str | None):
             allowed_capabilities=(CODEX_DIAGNOSTIC_STRUCTURED_OUTPUT_CAPABILITY,),
             executable=availability.executable,
             version=availability.version,
+            model=config.model,
+            configuration_id=config.configuration_id,
         )
         identity = identity_for_cli_session(
             adapter_identity="codex.cli.session",
-            runtime_id="codex-cli",
+            runtime_id=config.configuration_id,
             runtime_version=availability.version,
+            provider_model_id=config.model,
+            configuration_fingerprint=availability.configuration_fingerprint,
         )
         return port, identity
 

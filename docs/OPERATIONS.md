@@ -44,11 +44,32 @@ Worker HEALTHY requires a real diagnostic protocol probe (spawn → valid reques
 
 Documented CLI only. Tokens are not scraped. Codex is not auto-installed.
 
+Multiple Codex CLI ModelRuntime configurations share one authenticated executable/session.
+Models are operational configuration, not architecture.
+
+```
+RESEARCH_OS_CODEX_MODELS=codex-cli-terra=gpt-5.6-terra,codex-cli-gpt55=gpt-5.5
+```
+
+or a model list that derives stable IDs:
+
+```
+RESEARCH_OS_CODEX_MODELS=gpt-5.6-terra,gpt-5.5
+```
+
+Optional executable override: `RESEARCH_OS_CODEX_EXECUTABLE`. Duplicate or empty entries fail closed.
+
+Current diagnostic defaults (overrideable): `codex-cli-terra` → `gpt-5.6-terra`, `codex-cli-gpt55` → `gpt-5.5`.
+
+Each configuration is probed independently:
+
 1. NOT_INSTALLED — executable missing
 2. INSTALLED / VERSION_KNOWN — `codex --version` succeeded
 3. AUTH_READY — `codex login status` exit 0
-4. DIAGNOSTIC_READY / MODELPORT_COMPATIBLE — request-consuming `codex exec --sandbox read-only` transport
-5. BENCHMARK_COMPATIBLE — authenticated and ModelPort-compatible; only then eligible for GATE 04B
+4. DIAGNOSTIC_READY / MODELPORT_COMPATIBLE — request-consuming `codex exec --ignore-user-config --ephemeral --sandbox read-only -m <model>`
+5. BENCHMARK_COMPATIBLE — AUTH_READY and that model's request-consuming exec succeeded
+
+Compatibility is not inferred across Codex configurations. Discovering two configs is not GATE 04B PASS.
 
 ## Strix readiness
 
