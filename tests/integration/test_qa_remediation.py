@@ -49,12 +49,29 @@ if TEST_URL:
 
 @unittest.skipUnless(TEST_URL, f"{TEST_DATABASE_URL_ENV} is required; skip is not PASS")
 class QaRemediationPostgresTests(unittest.TestCase):
+    engine = None
+    factory = None
+
     @classmethod
     def setUpClass(cls) -> None:
         assert TEST_URL is not None
         alembic_upgrade(TEST_URL)
         cls.engine = create_sync_engine(TEST_URL)
         cls.factory = PostgresUnitOfWorkFactory(cls.engine)
+
+    @classmethod
+    def tearDownClass(cls) -> None:
+        try:
+            pool = None if cls.engine is None else cls.engine.pool
+            if pool is not None and hasattr(pool, "checkedout"):
+                leftover = pool.checkedout()
+                if leftover:
+                    raise AssertionError(
+                        f"checked-out connections survived class lifecycle: {leftover}"
+                    )
+        finally:
+            if cls.engine is not None:
+                cls.engine.dispose()
 
     def setUp(self) -> None:
         truncate_spine(self.engine)

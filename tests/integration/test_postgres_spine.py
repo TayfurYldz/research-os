@@ -650,6 +650,17 @@ class PostgresSpineTests(unittest.TestCase):
         assert result.raw_result is not None
         self.assertEqual(result.raw_result["nested"]["n"], 1)
 
+    def test_unit_of_work_leaves_no_checked_out_connection(self) -> None:
+        assert self.engine is not None
+        pool = self.engine.pool
+        if not hasattr(pool, "checkedout"):
+            self.skipTest("engine pool does not expose checkedout()")
+        self.assertEqual(pool.checkedout(), 0)
+        with PostgresUnitOfWork(self.engine) as uow:
+            self.assertEqual(pool.checkedout(), 1)
+            uow.rollback()
+        self.assertEqual(pool.checkedout(), 0)
+
     def test_migration_chain_reaches_current_head(self) -> None:
         assert self.engine is not None
         with self.engine.connect() as connection:
