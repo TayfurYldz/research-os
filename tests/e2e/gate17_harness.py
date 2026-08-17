@@ -1,4 +1,8 @@
-"""GATE 17 harness. Drives research selection. Hidden ground truth stays out."""
+"""GATE 17 harness. Drives research selection. Hidden ground truth stays out.
+
+Execution and promotion read only observable harness inputs and pipeline state.
+Hidden evaluation is grading-only and must not be imported here.
+"""
 
 from __future__ import annotations
 
@@ -94,7 +98,15 @@ STRIX_MODULE_MARKERS = ("research_os.integrations.strix.adapter",)
 
 
 def prefix_for(scenario_id: str) -> str:
+    """Database identity namespace only. Not a research-decision input."""
+
     return scenario_id.split("_", 1)[0].lower()
+
+
+def gate17_promotion_eligible(stop_reason: str | None) -> bool:
+    """Observable research-state gate. Hidden ground truth is not an argument."""
+
+    return stop_reason == "SUFFICIENT_EVIDENCE_FOR_VERIFICATION"
 
 
 class IncrementingClock:
@@ -221,11 +233,15 @@ def _promote_supported(
     worker,
     clock: IncrementingClock,
 ) -> bool:
+    """Exercise Evidence → Candidate → Verification → Finding on SUPPORTED state.
+
+    Uniform Gate17 operator policy: only observable research state decides
+    whether this path runs. Validators still admit or reject. False promotions
+    must remain visible to grading.
+    """
     prefix = prefix_for(scenario.scenario_id)
     run_id = f"{prefix}-run"
     finding_before = False
-    if not scenario.harness.attempt_finding and scenario.hidden_evaluation.security_violation is False:
-        return False
     with factory.open() as uow:
         hypotheses = uow.hypotheses.list_for_research_run(run_id)
         assessments = uow.hypothesis_assessments.list_for_research_run(run_id)
@@ -346,8 +362,6 @@ def _promote_supported(
         )
         if completed.state != CandidateState.VALIDATED:
             continue
-        if not scenario.harness.attempt_finding:
-            continue
         submitted = SubmitFindingProposal(factory, clock=clock).execute(
             SubmitFindingProposalCommand(candidate_id=proposed.candidate_id)
         )
@@ -434,7 +448,7 @@ def run_scenario(factory, scenario: SecurityGroundTruthScenario) -> ObservedScen
             result = controller.step(f"{prefix}-run")
             if result.state == OrchestrationState.PAUSED.value:
                 result = controller.resume(command)
-        if result.stop_reason == "SUFFICIENT_EVIDENCE_FOR_VERIFICATION":
+        if gate17_promotion_eligible(result.stop_reason):
             finding_before = _promote_supported(factory, scenario, origin, worker, clock)
         return _snapshot(factory, scenario, prefix, worker, origin, finding_before, lab)
     finally:

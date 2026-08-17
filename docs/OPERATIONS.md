@@ -222,6 +222,8 @@ If `RESEARCH_OS_TEST_DATABASE_URL` is unset, the suite must SKIP, never fabricat
 
 **GATE 17 status: PENDING.**
 
+Formal PASS waits for a new Kali authoritative run after benchmark-integrity remediation. Hidden ground truth may grade results; it must not steer execution or promotion.
+
 GATE 14 = single controlled BOLA security E2E.
 GATE 15 = BOLA ground-truth / false-positive benchmark.
 GATE 16 = workflow/state-transition security semantics + cross-class discrimination.
@@ -248,4 +250,4 @@ If `RESEARCH_OS_TEST_DATABASE_URL` is unset, the suite must SKIP, never fabricat
 - GATE 14: PASS (2026-08-17, Kali, dedicated PostgreSQL, 19 E2E OK / 0 skipped)
 - GATE 15: PASS (2026-08-17, Kali, dedicated PostgreSQL, GATE14 regression 19 OK / 0 skipped, GATE15 21 OK / 0 skipped)
 - GATE 16: PASS (2026-08-17, Kali, dedicated PostgreSQL, GATE14 19 OK / 0 skipped, GATE15 21 OK / 0 skipped, GATE16 34 OK / 0 skipped)
-- GATE 17: PENDING (implementation of controlled local multi-hypothesis closed-loop research selection; not an authoritative PASS)
+- GATE 17: PENDING (benchmark-integrity remediation; not an authoritative PASS)

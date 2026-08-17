@@ -16,8 +16,9 @@ passed on Kali against dedicated PostgreSQL. It does not mean live models,
 autonomous discovery quality, bug-bounty performance, production readiness,
 or broad security-research validation.
 
-GATE 17 remains PENDING until a later authoritative run. Implementation tests
-must not set GATE_17_STATUS to PASS. GATE 17 does not prove general autonomous
+GATE 17 remains PENDING until a later authoritative Kali run after
+benchmark-integrity remediation. Implementation tests must not set
+GATE_17_STATUS to PASS. GATE 17 does not prove general autonomous
 vulnerability discovery, live model quality, or production readiness.
 
 PRODUCTION_READY must stay false until operational and live-research gates

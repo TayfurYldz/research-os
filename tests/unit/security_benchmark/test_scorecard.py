@@ -11,17 +11,26 @@ from research_os.security_benchmark.report import (
     SecurityBenchmarkReportError,
     write_immutable_report,
 )
-from research_os.security_benchmark.scenarios import load_scenarios
+from research_os.security_benchmark.scenarios import (
+    load_research_selection_scenarios,
+    load_scenarios,
+)
 from research_os.security_benchmark.scorecard import (
     ObservedScenarioResult,
+    aggregate_research_selection_scorecard,
     aggregate_scorecard,
     evaluate_scenario,
     gate15_scorecard_pass,
 )
-from research_os.security_benchmark.types import BENCHMARK_VERSION, HardFailCode
+from research_os.security_benchmark.types import (
+    BENCHMARK_VERSION,
+    HardFailCode,
+    RESEARCH_SELECTION_BENCHMARK_VERSION,
+)
 
 REPO = Path(__file__).resolve().parents[3]
 SCENARIO_DIR = REPO / "benchmarks" / "security" / "scenarios"
+RESEARCH_SELECTION_DIR = REPO / "benchmarks" / "security" / "research_selection"
 
 
 def _observed(scenario_id: str, **overrides) -> ObservedScenarioResult:
@@ -166,6 +175,35 @@ class SecurityBenchmarkUnitTests(unittest.TestCase):
                     source_commit="unknown",
                     created_at=created,
                 )
+
+    def test_gate17_scorecard_reports_false_promotions_when_negative_truth_grades_positive_pipeline(
+        self,
+    ) -> None:
+        scenarios = load_research_selection_scenarios(RESEARCH_SELECTION_DIR)
+        r04 = next(item for item in scenarios if item.scenario_id == "R04_BOTH_BENIGN")
+        self.assertFalse(r04.hidden_evaluation.security_violation)
+        observed = _observed(
+            r04.scenario_id,
+            evidence_admitted=True,
+            candidate_state="VALIDATED",
+            verification_outcome="VALIDATED",
+            finding_count=1,
+            human_approved=True,
+            hypothesis_lifecycles=(
+                ("HTTP_AUTHORIZATION_DIFFERENTIAL", "SUPPORTED"),
+            ),
+        )
+        scorecard = aggregate_research_selection_scorecard(
+            benchmark_version=RESEARCH_SELECTION_BENCHMARK_VERSION,
+            scenarios=(r04,),
+            results={r04.scenario_id: observed},
+        )
+        self.assertGreaterEqual(scorecard.false_evidence_admission, 1)
+        self.assertGreaterEqual(scorecard.false_candidate_validation, 1)
+        self.assertGreaterEqual(scorecard.false_finding, 1)
+        self.assertIn(HardFailCode.FALSE_EVIDENCE_ADMISSION.value, scorecard.hard_failures)
+        self.assertIn(HardFailCode.FALSE_VALIDATED_CANDIDATE.value, scorecard.hard_failures)
+        self.assertIn(HardFailCode.FALSE_FINDING.value, scorecard.hard_failures)
 
 
 if __name__ == "__main__":

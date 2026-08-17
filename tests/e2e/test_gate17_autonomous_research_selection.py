@@ -11,6 +11,7 @@ import ast
 import os
 import sys
 import unittest
+from dataclasses import replace
 from pathlib import Path
 
 from sqlalchemy import text
@@ -22,7 +23,7 @@ if str(_SRC) not in sys.path:
 if str(_REPO / "tests") not in sys.path:
     sys.path.insert(0, str(_REPO / "tests"))
 
-from e2e.gate17_harness import prefix_for, run_scenario
+from e2e.gate17_harness import gate17_promotion_eligible, prefix_for, run_scenario
 from integration.harness import PostgresUnitOfWorkFactory, alembic_upgrade, truncate_spine
 from research_os.data.postgres.engine import (
     TEST_DATABASE_URL_ENV,
@@ -49,7 +50,9 @@ from research_os.security_benchmark.report import write_immutable_report
 from research_os.security_benchmark.scenarios import load_research_selection_scenarios
 from research_os.security_benchmark.scorecard import aggregate_research_selection_scorecard
 from research_os.security_benchmark.types import (
+    ExpectedSecurityClass,
     FORBIDDEN_PIPELINE_KEYS,
+    HardFailCode,
     RESEARCH_SELECTION_BENCHMARK_VERSION,
 )
 
@@ -69,6 +72,27 @@ NEGATIVE_IDS = (
     "R11B_COUNTERFACTUAL_BOLA_PUBLIC",
     "R12B_COUNTERFACTUAL_WORKFLOW_UNCHANGED",
 )
+
+
+def _execution_signature(result):
+    return (
+        result.selected_purposes,
+        result.worker_invocation_count,
+        result.http_request_count,
+        result.research_stop_reason,
+        result.evidence_admitted,
+        result.candidate_state,
+        result.verification_outcome,
+        result.finding_count,
+        result.human_approved,
+        result.adaptive_depth,
+        tuple(sorted(result.hypothesis_lifecycles)),
+        tuple(sorted(result.selection_reason_codes)),
+        result.worker_out_of_scope_count,
+        result.redundant_experiment_executed,
+        tuple(sorted(result.candidate_classifications)),
+        tuple(sorted(result.finding_classifications)),
+    )
 
 
 @unittest.skipUnless(
@@ -429,6 +453,84 @@ class Gate17AutonomousResearchSelectionTests(unittest.TestCase):
         with self.engine.connect() as connection:
             version = connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one()
         self.assertEqual(version, "a19_001_http_state_class")
+
+    def test_55_execution_harness_does_not_read_hidden_evaluation(self) -> None:
+        path = Path(__file__).resolve().parent / "gate17_harness.py"
+        source = path.read_text(encoding="utf-8")
+        tree = ast.parse(source, filename=str(path))
+        forbidden = {
+            "hidden_evaluation",
+            "expected_class",
+            "security_violation",
+            "attempt_finding",
+        }
+        found = []
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Attribute) and node.attr in forbidden:
+                found.append(f"{node.lineno}:{node.attr}")
+        self.assertEqual(found, [])
+        self.assertNotIn(".hidden_evaluation", source)
+        self.assertEqual(prefix_for("R01_BOLA_TRUE_WORKFLOW_DECOY"), "r01")
+        self.assertTrue(gate17_promotion_eligible("SUFFICIENT_EVIDENCE_FOR_VERIFICATION"))
+        self.assertFalse(gate17_promotion_eligible("BUDGET_EXHAUSTED"))
+
+    def test_56_hidden_ground_truth_does_not_steer_execution(self) -> None:
+        assert self.scenarios is not None
+        assert self.engine is not None
+        original = next(
+            item for item in self.scenarios if item.scenario_id == "R01_BOLA_TRUE_WORKFLOW_DECOY"
+        )
+        negative_hidden = replace(
+            original.hidden_evaluation,
+            expected_class=ExpectedSecurityClass.SECURE,
+            security_violation=False,
+            expected_surviving_hypothesis_classes=(),
+        )
+        positive = replace(original, hidden_evaluation=original.hidden_evaluation)
+        negative = replace(original, hidden_evaluation=negative_hidden)
+        self.assertEqual(positive.harness, negative.harness)
+        self.assertEqual(positive.scenario_id, negative.scenario_id)
+        self.assertNotEqual(positive.hidden_evaluation, negative.hidden_evaluation)
+        factory = PostgresUnitOfWorkFactory(self.engine)
+        truncate_spine(self.engine)
+        positive_result = run_scenario(factory, positive)
+        truncate_spine(self.engine)
+        negative_result = run_scenario(factory, negative)
+        self.assertEqual(
+            _execution_signature(positive_result),
+            _execution_signature(negative_result),
+        )
+        positive_score = aggregate_research_selection_scorecard(
+            benchmark_version=RESEARCH_SELECTION_BENCHMARK_VERSION,
+            scenarios=(positive,),
+            results={positive.scenario_id: positive_result},
+        )
+        negative_score = aggregate_research_selection_scorecard(
+            benchmark_version=RESEARCH_SELECTION_BENCHMARK_VERSION,
+            scenarios=(negative,),
+            results={negative.scenario_id: negative_result},
+        )
+        self.assertGreater(positive_result.finding_count, 0)
+        self.assertEqual(positive_score.false_evidence_admission, 0)
+        self.assertEqual(positive_score.false_candidate_validation, 0)
+        self.assertEqual(positive_score.false_finding, 0)
+        self.assertGreaterEqual(negative_score.false_evidence_admission, 1)
+        self.assertGreaterEqual(negative_score.false_candidate_validation, 1)
+        self.assertGreaterEqual(negative_score.false_finding, 1)
+        self.assertIn(HardFailCode.FALSE_EVIDENCE_ADMISSION.value, negative_score.hard_failures)
+        self.assertIn(HardFailCode.FALSE_VALIDATED_CANDIDATE.value, negative_score.hard_failures)
+        self.assertIn(HardFailCode.FALSE_FINDING.value, negative_score.hard_failures)
+
+    def test_57_negative_fixture_is_not_harness_protected_from_promotion(self) -> None:
+        result = self._result("R04_BOTH_BENIGN")
+        self.assertFalse(result.evidence_admitted)
+        self.assertIsNone(result.candidate_state)
+        self.assertEqual(result.finding_count, 0)
+        self.assertFalse(gate17_promotion_eligible(result.research_stop_reason))
+        path = Path(__file__).resolve().parent / "gate17_harness.py"
+        source = path.read_text(encoding="utf-8")
+        self.assertNotIn("security_violation is False", source)
+        self.assertNotIn("attempt_finding", source)
 
 
 if __name__ == "__main__":

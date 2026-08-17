@@ -714,7 +714,7 @@ GATE 14 proved one controlled BOLA/IDOR E2E. GATE 15 proved false-positive / gro
 
 GATE 17 is the first explicit validation that Research OS can connect observations and decide what to investigate next: competing hypotheses, experiment options, lexicographic selection, Core authorization, ingestion, assessment append, and a changed next decision. It reuses only `http.authorization.differential` and `http.state_transition`. It does not add a third vulnerability class, scanners, crawlers, fuzzers, shell, or arbitrary HTTP.
 
-**GATE 17 status: PENDING.** Implementation tests must not set PASS. A later authoritative PASS means only: controlled local multi-hypothesis closed-loop research selection and adaptive experiment choice were validated.
+**GATE 17 status: PENDING.** Formal PASS waits for a new Kali authoritative run after benchmark-integrity remediation. Implementation tests must not set PASS. A later authoritative PASS means only: Controlled local multi-hypothesis closed-loop research selection and adaptive experiment choice were validated against the dedicated real PostgreSQL test database.
 
 GATE 17 does **not** prove general autonomous vulnerability discovery, real-world bug bounty performance, live model quality, or production readiness.
 
@@ -722,7 +722,7 @@ No Alembic migration is expected or added. Selection traces reuse `research_oppo
 
 `LIVE_MODEL_VALIDATED=no`, `SECURITY_RESEARCH_VALIDATED=no`, `PRODUCTION_READY=no`. GATE 04B remains PENDING. GATE 14/15/16 remain PASS.
 
-**Verify:** `python -m unittest tests.e2e.test_gate17_autonomous_research_selection` on Kali with `RESEARCH_OS_TEST_DATABASE_URL` set. Do not set `GATE_17_STATUS=PASS` from this implementation.
+**Verify:** `python -m unittest tests.e2e.test_gate17_autonomous_research_selection` on Kali with `RESEARCH_OS_TEST_DATABASE_URL` set. Do not set `GATE_17_STATUS=PASS` from this remediation.
 
 ---
 

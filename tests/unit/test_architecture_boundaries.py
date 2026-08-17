@@ -316,6 +316,8 @@ class ArchitectureBoundaryTests(unittest.TestCase):
                 for token in forbidden_ids:
                     if token in text:
                         found.append(f"{path.relative_to(REPO_ROOT)} contains {token}")
+                if "prefix_for" in text:
+                    found.append(f"{path.relative_to(REPO_ROOT)} contains prefix_for")
         self.assertEqual(found, [])
         research_text = "\n".join(
             path.read_text(encoding="utf-8") for path in RESEARCH_DIR.rglob("*.py")
@@ -323,6 +325,32 @@ class ArchitectureBoundaryTests(unittest.TestCase):
         self.assertNotIn("if scenario_id", research_text)
         self.assertNotIn("priority_score =", research_text)
         self.assertNotIn("weighted_score =", research_text)
+
+    def test_gate17_execution_harness_does_not_read_hidden_truth(self) -> None:
+        path = REPO_ROOT / "tests" / "e2e" / "gate17_harness.py"
+        source = path.read_text(encoding="utf-8")
+        tree = ast.parse(source, filename=str(path))
+        forbidden_attrs = {
+            "hidden_evaluation",
+            "expected_class",
+            "security_violation",
+            "attempt_finding",
+            "human_decision",
+            "expected_max_promotion_stage",
+            "forbidden_promotions",
+            "required_falsified_classes",
+            "expected_surviving_hypothesis_classes",
+            "pair_group",
+            "leakage_canary",
+        }
+        found = []
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Attribute) and node.attr in forbidden_attrs:
+                found.append(f"{node.lineno}:{node.attr}")
+            if isinstance(node, ast.Name) and node.id in forbidden_attrs:
+                found.append(f"{node.lineno}:{node.id}")
+        self.assertEqual(found, [])
+        self.assertNotIn(".hidden_evaluation", source)
 
 
 if __name__ == "__main__":
