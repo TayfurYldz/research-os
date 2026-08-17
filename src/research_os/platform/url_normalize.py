@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import ipaddress
 import re
-from urllib.parse import urlsplit
+from urllib.parse import urljoin, urlsplit
 
 from research_os.core.scope_compiler import (
     NORMALIZATION_PATH_AMBIGUOUS,
@@ -25,6 +25,30 @@ IPV4_ERROR = "IPV4"
 PARSE_ERROR = "PARSE"
 PATH_AMBIGUOUS = NORMALIZATION_PATH_AMBIGUOUS
 EMPTY_HOST = "EMPTY_HOST"
+UNSUPPORTED_REDIRECT_SCHEMES = frozenset({"javascript", "data", "file", "blob", "about"})
+
+
+def resolve_redirect_location(response_url: str, location: str) -> ScopeCandidate:
+    """RFC 3986 relative resolution against the actual response URL, then normalize.
+
+    Does not follow the redirect. Unsupported schemes fail closed.
+    """
+
+    if not isinstance(response_url, str) or not response_url.strip():
+        return _error(response_url if isinstance(response_url, str) else "", PARSE_ERROR)
+    raw_location = location if isinstance(location, str) else ""
+    try:
+        resolved = urljoin(response_url.strip(), raw_location.strip())
+    except ValueError:
+        return _error(raw_location, PARSE_ERROR)
+    try:
+        parts = urlsplit(resolved)
+    except ValueError:
+        return _error(resolved, PARSE_ERROR)
+    scheme = (parts.scheme or "").lower()
+    if scheme in UNSUPPORTED_REDIRECT_SCHEMES or not scheme:
+        return _error(resolved, PARSE_ERROR)
+    return normalize_url(resolved)
 
 
 def normalize_url(raw_target: str) -> ScopeCandidate:
@@ -102,6 +126,8 @@ def _canonical_host(host: str) -> tuple[str | None, str | None]:
         return str(ipaddress.IPv4Address(stripped)), None
     except ValueError:
         pass
+    if any(label.lower() == "xn--" for label in stripped.split(".") if label):
+        return None, IDNA_ERROR
     try:
         return stripped.encode("idna").decode("ascii").lower(), None
     except (UnicodeError, UnicodeDecodeError, UnicodeEncodeError):

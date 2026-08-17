@@ -70,6 +70,9 @@ def _handler_for(lab: Gate20AuthLab):
         def do_POST(self) -> None:
             parsed = urlparse(self.path)
             if parsed.path == "/login-redirect":
+                length = int(self.headers.get("Content-Length") or 0)
+                if length:
+                    self.rfile.read(length)
                 self.send_response(302)
                 self.send_header("Location", "/login")
                 self.end_headers()

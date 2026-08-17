@@ -7,7 +7,7 @@ It does not call a model, create Evidence, or update Hypothesis truth.
 from __future__ import annotations
 
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from enum import Enum
 from typing import Any, Mapping
 
@@ -16,14 +16,18 @@ from research_os.application.capability_binding import (
     capability_view_for_plan,
 )
 from research_os.application.http_transaction_authorization import (
+    HTTP_SCOPE_CAPABILITIES,
     authorize_http_transaction_plan,
+    scope_evaluation_from_compiled_check,
 )
+from research_os.application.authorized_network_envelope import AuthorizedNetworkEnvelope
 from research_os.application.identity import (
     attempt_id_for,
     execution_decision_audit_id,
     new_opaque_id,
 )
 from research_os.application.session_binding import bind_identity_session
+from research_os.application.scope_reauthorization import reauthorization_request_from_worker_result
 from research_os.application.session_lifecycle import authenticating_session_record
 from research_os.platform.secrets import CompositeSecretPort
 from research_os.application.ingest_worker_invocation import (
@@ -104,6 +108,7 @@ class ResearchLoopStatus(Enum):
     AUTHORIZED_NOT_DISPATCHED = "AUTHORIZED_NOT_DISPATCHED"
     ALREADY_TERMINAL = "ALREADY_TERMINAL"
     INPUT_REJECTED = "INPUT_REJECTED"
+    REAUTHORIZATION_REQUIRED = "REAUTHORIZATION_REQUIRED"
 
 
 @dataclass(frozen=True)
@@ -134,6 +139,7 @@ class AuthorizedDispatch:
     core_decision: ExecutionDecisionKind
     core_reason_code: ReasonCode
     resolved_secret_values: Mapping[str, str] | None = None
+    network_envelope: AuthorizedNetworkEnvelope | None = None
 
 
 @dataclass(frozen=True)
@@ -153,6 +159,8 @@ class ResearchLoopOutcome:
     observation_ids: tuple[str, ...] = ()
     ingestion_status: IngestionStatus | None = None
     hypothesis_claim_unchanged: bool = True
+    reauthorization_request: Mapping[str, Any] | None = None
+    network_envelope: AuthorizedNetworkEnvelope | None = None
 
 
 class ExecutePlannedExperiment:
@@ -247,19 +255,6 @@ class ExecutePlannedExperiment:
                     core_decision=ExecutionDecisionKind.DENY,
                     core_reason_code=_binding_reason(exc.reason_code),
                 )
-            decision = evaluate_execution(
-                ExecutionRequest(
-                    authorization_source=source,
-                    scope=command.scope,
-                    issued_budget=_issued_budget_from_record(issued),
-                    budget_usage=_usage_or_ledger(command.budget_usage, uow, issued.budget_id),
-                    requested_budget_id=bound_plan.requested_budget_id,
-                    side_effect_level=bound_plan.side_effect_level,
-                    requested_subject=bound_plan.target_reference,
-                    capability=capability_view,
-                    approval=command.approval,
-                )
-            )
             http_decision = authorize_http_transaction_plan(bound_plan, command.compiled_scope)
             if http_decision.input_rejected:
                 uow.rollback()
@@ -271,15 +266,46 @@ class ExecutePlannedExperiment:
                     core_decision=ExecutionDecisionKind.DENY,
                     core_reason_code=http_decision.reason_code,
                 )
+            if bound_plan.required_capability in HTTP_SCOPE_CAPABILITIES:
+                if command.compiled_scope is None or http_decision.scope_check is None:
+                    core_scope: ScopeEvaluationInput = ScopeEvaluationInput(
+                        matches=(),
+                        ambiguous=False,
+                    )
+                else:
+                    core_scope = scope_evaluation_from_compiled_check(
+                        http_decision.scope_check,
+                        command.compiled_scope,
+                    )
+            else:
+                core_scope = command.scope
+            decision = evaluate_execution(
+                ExecutionRequest(
+                    authorization_source=source,
+                    scope=core_scope,
+                    issued_budget=_issued_budget_from_record(issued),
+                    budget_usage=_usage_or_ledger(command.budget_usage, uow, issued.budget_id),
+                    requested_budget_id=bound_plan.requested_budget_id,
+                    side_effect_level=bound_plan.side_effect_level,
+                    requested_subject=bound_plan.target_reference,
+                    capability=capability_view,
+                    approval=command.approval,
+                )
+            )
             if (
-                decision.decision is ExecutionDecisionKind.ALLOW
+                bound_plan.required_capability in HTTP_SCOPE_CAPABILITIES
                 and not http_decision.accepted
             ):
+                matched_ids = (
+                    http_decision.scope_check.matched_rule_ids
+                    if http_decision.scope_check is not None
+                    else ()
+                )
                 decision = ExecutionDecision(
                     decision=ExecutionDecisionKind.DENY,
                     reason_code=http_decision.reason_code or ReasonCode.SCOPE_NOT_EXPLICITLY_ALLOWED,
                     authorization_source_id=decision.authorization_source_id,
-                    matched_scope_rule_ids=(),
+                    matched_scope_rule_ids=matched_ids,
                     budget_id=decision.budget_id,
                     side_effect_level=decision.side_effect_level,
                     approval_id=decision.approval_id,
@@ -296,6 +322,7 @@ class ExecutePlannedExperiment:
                 session=loaded_session,
                 secret_port=self._secret_port,
                 now=now,
+                research_run_id=experiment.research_run_id,
             )
             if session_decision.input_rejected:
                 uow.rollback()
@@ -413,6 +440,12 @@ class ExecutePlannedExperiment:
                     experiment_id=experiment.experiment_id,
                 )
             uow.commit()
+        envelope = http_decision.envelope
+        if envelope is not None:
+            envelope = replace(
+                envelope,
+                authorization_decision_reference=audit_id,
+            )
         return AuthorizedDispatch(
             experiment_id=experiment.experiment_id,
             hypothesis_id=hypothesis_id,
@@ -425,6 +458,7 @@ class ExecutePlannedExperiment:
             core_decision=decision.decision,
             core_reason_code=decision.reason_code,
             resolved_secret_values=session_decision.resolved_secrets,
+            network_envelope=envelope,
         )
 
     def dispatch(self, authorized: AuthorizedDispatch) -> ResearchLoopOutcome:
@@ -513,6 +547,21 @@ class ExecutePlannedExperiment:
             attempt = attempts[0]
             if attempt.state == ExecutionAttemptState.DISPATCHING.value:
                 return self._mark_unknown(uow, experiment, attempt, experiment.hypothesis_id)
+            results = uow.worker_results.list_for_experiment(experiment_id)
+            if (
+                attempt.state == ExecutionAttemptState.COMPLETED.value
+                and any(item.status == "REAUTHORIZATION_REQUIRED" for item in results)
+            ):
+                return ResearchLoopOutcome(
+                    status=ResearchLoopStatus.REAUTHORIZATION_REQUIRED,
+                    hypothesis_id=experiment.hypothesis_id,
+                    experiment_id=experiment.experiment_id,
+                    experiment_execution_state=experiment.execution_state,
+                    authorization_decision_reference=attempt.authorization_decision_reference,
+                    request_id=attempt.request_id,
+                    attempt_id=attempt.attempt_id,
+                    attempt_state=attempt.state,
+                )
             return self._outcome_for_existing(experiment, experiment.hypothesis_id, attempt)
 
     def _mark_unknown(
@@ -588,12 +637,22 @@ class ExecutePlannedExperiment:
                     )
                     uow.commit()
             elif ingestion.status is IngestionStatus.NO_OBSERVATION:
-                loop_status = ResearchLoopStatus.NO_OBSERVATION
+                if loop_status is not ResearchLoopStatus.REAUTHORIZATION_REQUIRED:
+                    loop_status = ResearchLoopStatus.NO_OBSERVATION
             elif ingestion.status in {
                 IngestionStatus.INGESTED,
                 IngestionStatus.ALREADY_INGESTED,
             }:
                 loop_status = ResearchLoopStatus.OBSERVATION_PRODUCED
+        reauthorization_request = None
+        if (
+            loop_status is ResearchLoopStatus.REAUTHORIZATION_REQUIRED
+            and invocation.worker_result is not None
+        ):
+            reauthorization_request = reauthorization_request_from_worker_result(
+                authorized.worker_request,
+                invocation.worker_result,
+            )
         return ResearchLoopOutcome(
             status=loop_status,
             hypothesis_id=authorized.hypothesis_id,
@@ -609,6 +668,8 @@ class ExecutePlannedExperiment:
             worker_result_id=None if ingestion is None else ingestion.worker_result_id,
             observation_ids=() if ingestion is None else ingestion.observation_ids,
             ingestion_status=None if ingestion is None else ingestion.status,
+            reauthorization_request=reauthorization_request,
+            network_envelope=authorized.network_envelope,
         )
 
     def _load_context(
@@ -851,6 +912,13 @@ def _classify_invocation(
     invocation: WorkerInvocationOutcome,
 ) -> tuple[str, str, ResearchLoopStatus]:
     if invocation.invocation_status is InvocationStatus.COMPLETED:
+        result = invocation.worker_result if isinstance(invocation.worker_result, Mapping) else {}
+        if result.get("status") == "REAUTHORIZATION_REQUIRED":
+            return (
+                ExecutionAttemptState.COMPLETED.value,
+                ExperimentExecutionState.AUTHORIZATION_CHECK.value,
+                ResearchLoopStatus.REAUTHORIZATION_REQUIRED,
+            )
         return (
             ExecutionAttemptState.COMPLETED.value,
             ExperimentExecutionState.EXECUTION_SUCCEEDED.value,

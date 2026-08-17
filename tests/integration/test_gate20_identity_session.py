@@ -246,6 +246,7 @@ class Gate20IdentitySessionTests(unittest.TestCase):
                 scope=_allow_scope(),
                 compiled_scope=_compiled_scope(self.origin),
                 identity_id="id-alice",
+                identity=_alice(),
             )
         )
         self.assertEqual(authed.status, ResearchLoopStatus.OBSERVATION_PRODUCED)

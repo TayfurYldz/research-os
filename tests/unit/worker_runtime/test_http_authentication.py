@@ -62,6 +62,8 @@ class HttpAuthenticationWorkerTests(unittest.TestCase):
         self.assertTrue(diagnostics["requires_core_re_evaluation"])
         self.assertFalse(diagnostics["followed"])
         self.assertFalse(diagnostics["self_authorized"])
+        self.assertEqual(diagnostics["raw_location"], "/login")
+        self.assertTrue(str(diagnostics["response_url"]).endswith("/login-redirect"))
 
     def test_fingerprint_mismatch_denied(self) -> None:
         request = _login_request(self.origin)

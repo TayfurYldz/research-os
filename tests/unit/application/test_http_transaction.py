@@ -216,16 +216,25 @@ class HttpTransactionApplicationTests(unittest.TestCase):
         self.assertEqual(len(port.calls), 1)
         result = port.calls[0]["request"]
         del result
-        self.assertEqual(outcome.status, ResearchLoopStatus.NO_OBSERVATION)
+        self.assertEqual(outcome.status, ResearchLoopStatus.REAUTHORIZATION_REQUIRED)
+        self.assertEqual(outcome.experiment_execution_state, "AUTHORIZATION_CHECK")
+        self.assertIsNotNone(outcome.reauthorization_request)
+        self.assertEqual(outcome.reauthorization_request["reason"], "redirect")
+        self.assertFalse(outcome.reauthorization_request["discovery_context"]["followed"])
         invocation = factory.store.worker_results
         self.assertTrue(invocation)
         raw = next(iter(invocation.values())).raw_result
         diagnostics = next(iter(invocation.values())).diagnostics
         if isinstance(diagnostics, dict):
-            check = reevaluate_redirect_location(diagnostics.get("location") or EXTERNAL_REDIRECT, _compiled_scope(self.origin))
+            check = reevaluate_redirect_location(
+                diagnostics.get("raw_location") or diagnostics.get("location") or EXTERNAL_REDIRECT,
+                _compiled_scope(self.origin),
+                response_url=diagnostics.get("response_url"),
+            )
             self.assertEqual(check.decision, ScopeDecision.DENY)
             self.assertEqual(check.reason_code, ReasonCode.SCOPE_NOT_EXPLICITLY_ALLOWED)
         self.assertEqual(raw.get("reason"), "redirect_or_new_origin")
+        self.assertEqual(list(factory.store.observations.values()), [])
 
     def test_path_ambiguity_denied_before_dispatch(self) -> None:
         from research_os.research.compiler import ExperimentCompileError
@@ -285,6 +294,79 @@ class HttpTransactionApplicationTests(unittest.TestCase):
         registry = NormalizerRegistry()
         self.assertEqual(registry.get("http.transaction", "read").action, "read")
         self.assertEqual(registry.get("http.transaction", "mutate").action, "mutate")
+
+    def test_compiled_scope_rule_ids_are_audited_not_generic_scope(self) -> None:
+        use_case, factory, port = _use_case()
+        generic = ScopeEvaluationInput(
+            matches=(ScopeRuleMatch("rule-generic", ScopeRuleEffect.ALLOW, True, "scope-src"),),
+            ambiguous=False,
+        )
+        outcome = use_case.execute(
+            ExecutePlannedExperimentCommand(
+                experiment_id="exp-1",
+                plan=_plan(self.origin),
+                scope=generic,
+                compiled_scope=_compiled_scope(self.origin),
+            )
+        )
+        self.assertEqual(outcome.status, ResearchLoopStatus.OBSERVATION_PRODUCED)
+        matched: list[str] = []
+        for item in factory.store.audit_events.values():
+            payload = item.payload
+            if isinstance(payload, dict) and "matched_scope_rule_ids" in payload:
+                matched.extend(payload["matched_scope_rule_ids"])
+        self.assertIn("rule-allow", matched)
+        self.assertNotIn("rule-generic", matched)
+        self.assertEqual(len(port.calls), 1)
+
+    def test_generic_allow_cannot_authorize_a_different_compiled_target(self) -> None:
+        use_case, factory, port = _use_case()
+        generic = ScopeEvaluationInput(
+            matches=(ScopeRuleMatch("rule-generic", ScopeRuleEffect.ALLOW, True, "scope-src"),),
+            ambiguous=False,
+        )
+        outcome = use_case.execute(
+            ExecutePlannedExperimentCommand(
+                experiment_id="exp-1",
+                plan=_plan(self.origin),
+                scope=generic,
+                compiled_scope=_compiled_scope("http://127.0.0.1:9"),
+            )
+        )
+        self.assertEqual(outcome.status, ResearchLoopStatus.DISPATCH_DENIED)
+        self.assertEqual(len(port.calls), 0)
+        matched: list[str] = []
+        for item in factory.store.audit_events.values():
+            payload = item.payload
+            if isinstance(payload, dict) and "matched_scope_rule_ids" in payload:
+                matched.extend(payload["matched_scope_rule_ids"])
+        self.assertNotIn("rule-generic", matched)
+
+    def test_authorized_dispatch_carries_core_derived_envelope(self) -> None:
+        from research_os.application.execute_planned_experiment import AuthorizedDispatch
+
+        use_case, _, _ = _use_case()
+        authorized = use_case.authorize(
+            ExecutePlannedExperimentCommand(
+                experiment_id="exp-1",
+                plan=_plan(self.origin, path="/ok"),
+                scope=_allow_scope(),
+                compiled_scope=_compiled_scope(self.origin, path_prefix="/ok"),
+            )
+        )
+        self.assertIsInstance(authorized, AuthorizedDispatch)
+        envelope = authorized.network_envelope
+        self.assertIsNotNone(envelope)
+        assert envelope is not None
+        self.assertEqual(envelope.document_path, "/ok")
+        self.assertFalse(envelope.origin_wide)
+        self.assertEqual(envelope.allowed_path_prefixes, ("/ok",))
+        self.assertTrue(envelope.loopback_only)
+        self.assertEqual(envelope.source_scope_rule_ids, ("rule-allow",))
+        self.assertEqual(
+            envelope.authorization_decision_reference,
+            authorized.authorization_decision_reference,
+        )
 
 
 class HttpTransactionCapabilityAuthorizationTests(unittest.TestCase):

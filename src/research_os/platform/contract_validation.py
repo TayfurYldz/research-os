@@ -20,6 +20,7 @@ from research_os.platform.package_resources import contract_schema_documents
 
 WORKER_REQUEST_ID = "urn:research-os:contracts:v1:worker-request"
 WORKER_RESULT_ID = "urn:research-os:contracts:v1:worker-result"
+REAUTHORIZATION_REQUEST_ID = "urn:research-os:contracts:v1:reauthorization-request"
 SUPPORTED_CONTRACT_VERSION = "v1"
 
 CORRELATION_KEYS = (
@@ -68,7 +69,7 @@ class ContractValidator:
                 Resource.from_contents(contents, default_specification=DRAFT202012),
             )
         self._registry = registry
-        for required in (WORKER_REQUEST_ID, WORKER_RESULT_ID):
+        for required in (WORKER_REQUEST_ID, WORKER_RESULT_ID, REAUTHORIZATION_REQUEST_ID):
             if required not in self._schemas:
                 raise ContractValidationError(f"missing canonical schema {required}")
 
@@ -87,6 +88,10 @@ class ContractValidator:
     def validate_worker_result(self, document: Mapping[str, Any]) -> None:
         self._validate_version(document)
         self._validate(WORKER_RESULT_ID, document)
+
+    def validate_reauthorization_request(self, document: Mapping[str, Any]) -> None:
+        self._validate_version(document)
+        self._validate(REAUTHORIZATION_REQUEST_ID, document)
 
     def correlation_matches(
         self, request: Mapping[str, Any], result: Mapping[str, Any]

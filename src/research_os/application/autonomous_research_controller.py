@@ -1013,7 +1013,7 @@ class AutonomousResearchController:
             return self._stop(
                 current, StopReason.REQUIRE_HUMAN_REVIEW, "human_review", experiment_id=experiment_id
             )
-        if loop.experiment_id:
+        if loop.experiment_id and loop.status is not ResearchLoopStatus.REAUTHORIZATION_REQUIRED:
             self._evaluate.execute(EvaluateExperimentFeedbackCommand(experiment_id=loop.experiment_id))
         usage = self._usage(config, current)
         if usage.cycles_completed + 1 >= config.bounds.max_cycles:

@@ -37,6 +37,7 @@ def bind_identity_session(
     session: SessionContextRecord | None,
     secret_port: SecretPort | None,
     now: datetime,
+    research_run_id: str | None = None,
 ) -> SessionBindingDecision:
     if plan.required_capability == HTTP_AUTHENTICATION_CAPABILITY:
         return _bind_login(
@@ -53,9 +54,12 @@ def bind_identity_session(
         return _bind_existing_session(
             plan,
             identity_id=identity_id,
+            identity=identity,
+            profile=profile,
             session=session,
             secret_port=secret_port,
             now=now,
+            research_run_id=research_run_id,
         )
     return SessionBindingDecision(accepted=True)
 
@@ -116,6 +120,13 @@ def _bind_login(
             reason_code=ReasonCode.SCHEMA_MISMATCH,
             message="identity is not bound to this authentication profile",
         )
+    if identity.target_reference != plan.target_reference:
+        return SessionBindingDecision(
+            accepted=False,
+            input_rejected=True,
+            reason_code=ReasonCode.SCHEMA_MISMATCH,
+            message="identity is bound to a different target",
+        )
     if plan.arguments.get("path") != profile.path:
         return SessionBindingDecision(
             accepted=False,
@@ -167,9 +178,12 @@ def _bind_existing_session(
     plan: ExperimentPlan,
     *,
     identity_id: str | None,
+    identity: Identity | None,
+    profile: HttpFormLoginProfile | None,
     session: SessionContextRecord | None,
     secret_port: SecretPort | None,
     now: datetime,
+    research_run_id: str | None,
 ) -> SessionBindingDecision:
     if not identity_id:
         return SessionBindingDecision(
@@ -177,6 +191,20 @@ def _bind_existing_session(
             input_rejected=True,
             reason_code=ReasonCode.SCHEMA_MISMATCH,
             message="session_context_reference is not authority without identity_id",
+        )
+    if identity is None:
+        return SessionBindingDecision(
+            accepted=False,
+            input_rejected=True,
+            reason_code=ReasonCode.SCHEMA_MISMATCH,
+            message="session reuse requires the configured identity",
+        )
+    if identity.identity_id != identity_id:
+        return SessionBindingDecision(
+            accepted=False,
+            input_rejected=True,
+            reason_code=ReasonCode.SCHEMA_MISMATCH,
+            message="identity_id does not match the configured identity",
         )
     if session is None:
         return SessionBindingDecision(
@@ -191,6 +219,37 @@ def _bind_existing_session(
             input_rejected=True,
             reason_code=ReasonCode.SCHEMA_MISMATCH,
             message="session is bound to a different identity",
+        )
+    if research_run_id is None or session.research_run_id != research_run_id:
+        return SessionBindingDecision(
+            accepted=False,
+            input_rejected=True,
+            reason_code=ReasonCode.SCHEMA_MISMATCH,
+            message="session is bound to a different research run",
+        )
+    if identity.target_reference != plan.target_reference:
+        return SessionBindingDecision(
+            accepted=False,
+            input_rejected=True,
+            reason_code=ReasonCode.SCHEMA_MISMATCH,
+            message="identity is bound to a different target",
+        )
+    if session.authentication_profile_reference != identity.authentication_profile_reference:
+        return SessionBindingDecision(
+            accepted=False,
+            input_rejected=True,
+            reason_code=ReasonCode.SCHEMA_MISMATCH,
+            message="session is bound to a different authentication profile",
+        )
+    if (
+        profile is not None
+        and session.authentication_profile_reference != profile.profile_id
+    ):
+        return SessionBindingDecision(
+            accepted=False,
+            input_rejected=True,
+            reason_code=ReasonCode.SCHEMA_MISMATCH,
+            message="session is bound to a different authentication profile",
         )
     plan_origin = str(plan.arguments.get("authorized_origin") or "")
     if not origins_match(session.origin, plan_origin):

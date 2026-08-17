@@ -6,7 +6,7 @@ import http.client
 import json
 import socket
 from typing import Any, Mapping
-from urllib.parse import urlencode, urlsplit
+from urllib.parse import urlencode, urljoin, urlsplit
 
 HTTP_AUTHENTICATION_CAPABILITY = "http.authentication"
 ALLOWED_HOSTS = frozenset({"127.0.0.1"})
@@ -18,10 +18,12 @@ CRLF_MARKERS = ("\r", "\n", "\x00")
 
 
 class _RedirectStopped(Exception):
-    def __init__(self, status: int, new_url: str) -> None:
+    def __init__(self, status: int, raw_location: str, response_url: str) -> None:
         super().__init__("redirect stopped")
         self.status = status
-        self.new_url = new_url
+        self.raw_location = raw_location
+        self.response_url = response_url
+        self.new_url = _resolve_location(response_url, raw_location)
 
 
 class _BoundExceeded(Exception):
@@ -86,11 +88,19 @@ def execute_http_authentication(
         new_origin = _origin_of(exc.new_url) if exc.new_url else ""
         return (
             "REAUTHORIZATION_REQUIRED",
-            {"stopped": True, "reason": "redirect_or_new_origin", "status": exc.status},
+            {
+                "stopped": True,
+                "reason": "redirect_or_new_origin",
+                "status": exc.status,
+                "method": "POST",
+                "path": path,
+            },
             {
                 "redirect": True,
                 "new_origin": new_origin,
                 "location": exc.new_url,
+                "raw_location": exc.raw_location,
+                "response_url": exc.response_url,
                 "requires_core_re_evaluation": True,
                 "followed": False,
                 "self_authorized": False,
@@ -159,12 +169,9 @@ def _origin_of(url: str) -> str:
     return f"{parsed.scheme}://{host}:{port}"
 
 
-def _absolute_location(location: str, authorized_origin: str) -> str:
-    if location.startswith("http://") or location.startswith("https://"):
-        return location
-    if location.startswith("/"):
-        return f"{authorized_origin}{location}"
-    return f"{authorized_origin}/{location}"
+def _resolve_location(response_url: str, location: str) -> str:
+    raw = location if isinstance(location, str) else ""
+    return urljoin(response_url, raw.strip())
 
 
 def _post(origin: str, path: str, headers: Mapping[str, str], body: bytes) -> dict[str, Any]:
@@ -179,7 +186,7 @@ def _post(origin: str, path: str, headers: Mapping[str, str], body: bytes) -> di
         if status in REDIRECT_STATUSES:
             location = response.getheader("Location") or ""
             response.read(DEFAULT_MAX_RESPONSE_BYTES + 1)
-            raise _RedirectStopped(status, _absolute_location(location, origin))
+            raise _RedirectStopped(status, location or "", f"{origin}{path}")
         body_bytes = response.read(DEFAULT_MAX_RESPONSE_BYTES + 1)
         cookies = _parse_set_cookie(response.getheader("Set-Cookie"))
     finally:

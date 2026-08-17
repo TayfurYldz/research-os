@@ -25,7 +25,7 @@ from research_os.application.transition_a.http_authentication import HTTP_AUTHEN
 from research_os.core.enums import ReasonCode, ScopeRuleEffect
 from research_os.core.scope import ScopeEvaluationInput, ScopeRuleMatch
 from research_os.core.scope_compiler import ScopeRuleDefinition, compile_scope_rules
-from research_os.data.records import ExperimentRecord, SessionContextRecord
+from research_os.data.records import ExperimentRecord, ResearchRunRecord, SessionContextRecord
 from research_os.platform.secrets import CompositeSecretPort, EnvSecretResolver, InMemorySecretStore
 from research_os.platform.worker import InvocationStatus, WorkerInvocationOutcome
 from research_os.research.compiler import ExperimentCompileError, ExperimentIntent, compile_experiment_intent
@@ -110,10 +110,10 @@ def _secret_port() -> CompositeSecretPort:
     )
 
 
-def _add_experiment(store: _Store, experiment_id: str) -> None:
+def _add_experiment(store: _Store, experiment_id: str, *, research_run_id: str = "run-1") -> None:
     store.experiments[experiment_id] = ExperimentRecord(
         experiment_id=experiment_id,
-        research_run_id="run-1",
+        research_run_id=research_run_id,
         hypothesis_id="hyp-1",
         budget_id="budget-1",
         execution_state="PLANNED",
@@ -163,11 +163,11 @@ def _login_plan(origin: str, identity: Identity, session_context_id: str, userna
     )
 
 
-def _authed_get(origin: str, session_context_id: str):
+def _authed_get(origin: str, session_context_id: str, *, target_reference: str = "target-1"):
     return plan_http_transaction(
         "hyp-1",
         budget_id="budget-1",
-        target_reference="target-1",
+        target_reference=target_reference,
         template=HttpRequestTemplate(
             authorized_origin=origin,
             method="GET",
@@ -336,6 +336,7 @@ class Gate20IdentitySessionTests(unittest.TestCase):
                 scope=_allow_scope(),
                 compiled_scope=_compiled_scope(other),
                 identity_id="id-alice",
+                identity=_alice(),
             )
         )
         self.assertEqual(outcome.status, ResearchLoopStatus.DISPATCH_DENIED)
@@ -406,6 +407,7 @@ class Gate20IdentitySessionTests(unittest.TestCase):
                 scope=_allow_scope(),
                 compiled_scope=_compiled_scope(self.origin),
                 identity_id="id-alice",
+                identity=_alice(),
             )
         )
         self.assertEqual(expired.status, ResearchLoopStatus.DISPATCH_DENIED)
@@ -421,6 +423,7 @@ class Gate20IdentitySessionTests(unittest.TestCase):
                 scope=_allow_scope(),
                 compiled_scope=_compiled_scope(self.origin),
                 identity_id="id-alice",
+                identity=_alice(),
             )
         )
         self.assertEqual(revoked.status, ResearchLoopStatus.DISPATCH_DENIED)
@@ -501,6 +504,7 @@ class Gate20IdentitySessionTests(unittest.TestCase):
                 scope=_allow_scope(),
                 compiled_scope=_compiled_scope(self.origin),
                 identity_id="id-alice",
+                identity=_alice(),
             )
         )
         self.assertEqual(outcome.status, ResearchLoopStatus.INPUT_REJECTED)
@@ -528,12 +532,77 @@ class Gate20IdentitySessionTests(unittest.TestCase):
                 scope=_allow_scope(),
                 compiled_scope=_compiled_scope(self.origin),
                 identity_id="id-alice",
+                identity=_alice(),
             )
         )
         self.assertEqual(outcome.status, ResearchLoopStatus.OBSERVATION_PRODUCED)
         payload = list(store.observations.values())[-1].payload
         self.assertEqual(payload["status_code"], 200)
         self.assertNotIn("cookie", json.dumps(payload).lower())
+
+    def test_session_from_run_a_cannot_execute_experiment_in_run_b(self) -> None:
+        secrets = _secret_port()
+        use_case, _, _, store = _use_case(secret_port=secrets)
+        use_case.execute(
+            ExecutePlannedExperimentCommand(
+                experiment_id="exp-1",
+                plan=_login_plan(self.origin, _alice(), "session-alice", ALICE_USERNAME),
+                scope=_allow_scope(),
+                compiled_scope=_compiled_scope(self.origin),
+                identity_id="id-alice",
+                identity=_alice(),
+                authentication_profile=PROFILE,
+            )
+        )
+        store.research_runs["run-2"] = ResearchRunRecord(
+            research_run_id="run-2",
+            program_id="prog-1",
+            authorization_source_id="as-1",
+            initiated_by_actor_id="operator-1",
+            initiated_by_actor_type="HUMAN_OPERATOR",
+            started_at=CREATED_AT,
+        )
+        _add_experiment(store, "exp-2", research_run_id="run-2")
+        outcome = use_case.execute(
+            ExecutePlannedExperimentCommand(
+                experiment_id="exp-2",
+                plan=_authed_get(self.origin, "session-alice"),
+                scope=_allow_scope(),
+                compiled_scope=_compiled_scope(self.origin),
+                identity_id="id-alice",
+                identity=_alice(),
+            )
+        )
+        self.assertEqual(outcome.status, ResearchLoopStatus.INPUT_REJECTED)
+        self.assertEqual(outcome.core_reason_code, ReasonCode.SCHEMA_MISMATCH)
+
+    def test_same_identity_origin_wrong_target_is_rejected(self) -> None:
+        secrets = _secret_port()
+        use_case, _, _, store = _use_case(secret_port=secrets)
+        use_case.execute(
+            ExecutePlannedExperimentCommand(
+                experiment_id="exp-1",
+                plan=_login_plan(self.origin, _alice(), "session-alice", ALICE_USERNAME),
+                scope=_allow_scope(),
+                compiled_scope=_compiled_scope(self.origin),
+                identity_id="id-alice",
+                identity=_alice(),
+                authentication_profile=PROFILE,
+            )
+        )
+        _add_experiment(store, "exp-2")
+        outcome = use_case.execute(
+            ExecutePlannedExperimentCommand(
+                experiment_id="exp-2",
+                plan=_authed_get(self.origin, "session-alice", target_reference="target-2"),
+                scope=_allow_scope(),
+                compiled_scope=_compiled_scope(self.origin),
+                identity_id="id-alice",
+                identity=_alice(),
+            )
+        )
+        self.assertEqual(outcome.status, ResearchLoopStatus.INPUT_REJECTED)
+        self.assertEqual(outcome.core_reason_code, ReasonCode.SCHEMA_MISMATCH)
 
     def test_redirect_during_login_does_not_follow(self) -> None:
         use_case, _, worker, store = _use_case()
@@ -570,9 +639,15 @@ class Gate20IdentitySessionTests(unittest.TestCase):
                 ),
             )
         )
-        self.assertEqual(outcome.status, ResearchLoopStatus.NO_OBSERVATION)
+        results = list(store.worker_results.values())
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0].status, "REAUTHORIZATION_REQUIRED")
+        self.assertEqual(outcome.status, ResearchLoopStatus.REAUTHORIZATION_REQUIRED)
+        self.assertEqual(outcome.experiment_execution_state, "AUTHORIZATION_CHECK")
+        self.assertIsNotNone(outcome.reauthorization_request)
         self.assertEqual(len(worker.calls), 1)
         self.assertEqual(store.session_contexts["session-alice"].state, SessionState.AUTHENTICATING.value)
+        self.assertEqual(list(store.observations.values()), [])
 
     def test_caller_cannot_inject_cookie_or_authorization_headers(self) -> None:
         with self.assertRaises(ExperimentCompileError):
@@ -617,6 +692,69 @@ class Gate20IdentitySessionTests(unittest.TestCase):
                     evaluation_strategy="http.authentication.v1",
                 )
             )
+
+
+class ReauthorizationControlLoopTests(unittest.TestCase):
+    def test_reauthorization_required_is_not_classified_as_no_observation(self) -> None:
+        origin = "http://127.0.0.1:9"
+        store = _Store()
+        seed_spine(store)
+        factory = FakeUnitOfWorkFactory(store=store)
+
+        def handler(request):
+            return WorkerInvocationOutcome(
+                invocation_status=InvocationStatus.COMPLETED,
+                started_at=CREATED_AT,
+                completed_at=CREATED_AT,
+                worker_result={
+                    "contract_version": "v1",
+                    "correlation": dict(request["correlation"]),
+                    "worker_id": "local-python-diagnostic",
+                    "status": "REAUTHORIZATION_REQUIRED",
+                    "started_at": "2026-08-16T21:00:00Z",
+                    "completed_at": "2026-08-16T21:00:01Z",
+                    "raw_result": {
+                        "stopped": True,
+                        "reason": "redirect_or_new_origin",
+                        "status": 302,
+                        "method": "POST",
+                        "path": "/login",
+                    },
+                    "diagnostics": {
+                        "redirect": True,
+                        "raw_location": "/next",
+                        "response_url": f"{origin}/login",
+                        "location": f"{origin}/next",
+                        "followed": False,
+                        "self_authorized": False,
+                        "requires_core_re_evaluation": True,
+                    },
+                },
+                exit_code=0,
+            )
+
+        worker = RecordingWorkerPort(store=store, handler=handler)
+        use_case = ExecutePlannedExperiment(
+            factory, worker, clock=FixedClock(), secret_port=_secret_port()
+        )
+        outcome = use_case.execute(
+            ExecutePlannedExperimentCommand(
+                experiment_id="exp-1",
+                plan=_login_plan(origin, _alice(), "session-alice", ALICE_USERNAME),
+                scope=_allow_scope(),
+                compiled_scope=_compiled_scope(origin),
+                identity_id="id-alice",
+                identity=_alice(),
+                authentication_profile=PROFILE,
+            )
+        )
+        self.assertEqual(outcome.status, ResearchLoopStatus.REAUTHORIZATION_REQUIRED)
+        self.assertEqual(outcome.experiment_execution_state, "AUTHORIZATION_CHECK")
+        self.assertIsNotNone(outcome.reauthorization_request)
+        self.assertEqual(outcome.reauthorization_request["reason"], "redirect")
+        self.assertFalse(outcome.reauthorization_request["discovery_context"]["followed"])
+        self.assertEqual(list(store.observations.values()), [])
+        self.assertEqual(list(store.worker_results.values())[0].status, "REAUTHORIZATION_REQUIRED")
 
 
 if __name__ == "__main__":

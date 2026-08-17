@@ -398,7 +398,7 @@ class Gate14SecurityLabE2ETests(unittest.TestCase):
         factory = self._factory()
         plan = _plan(self._origin(), actor="alice", own="alice", cross="bob", mode="redirect")
         outcome, _ = self._run_probe(factory, "exp-redirect", plan)
-        self.assertEqual(outcome.status, ResearchLoopStatus.NO_OBSERVATION)
+        self.assertEqual(outcome.status, ResearchLoopStatus.REAUTHORIZATION_REQUIRED)
         with factory.open() as uow:
             results = uow.worker_results.list_for_experiment("exp-redirect")
             observations = uow.observations.list_for_experiment("exp-redirect")

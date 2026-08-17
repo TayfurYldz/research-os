@@ -9,7 +9,7 @@ import http.client
 import json
 import socket
 from typing import Any, Mapping
-from urllib.parse import urlsplit
+from urllib.parse import urljoin, urlsplit
 
 HTTP_AUTHORIZATION_DIFFERENTIAL_CAPABILITY = "http.authorization.differential"
 HTTP_AUTHORIZATION_DIFFERENTIAL_ACTION = "probe"
@@ -23,10 +23,12 @@ REDIRECT_STATUSES = frozenset({301, 302, 303, 307, 308})
 
 
 class _RedirectStopped(Exception):
-    def __init__(self, status: int, new_url: str) -> None:
+    def __init__(self, status: int, raw_location: str, response_url: str) -> None:
         super().__init__("redirect stopped")
         self.status = status
-        self.new_url = new_url
+        self.raw_location = raw_location
+        self.response_url = response_url
+        self.new_url = _resolve_location(response_url, raw_location)
 
 
 class _BoundExceeded(Exception):
@@ -79,6 +81,9 @@ def execute_http_authorization(request: Mapping[str, Any]) -> tuple[str, dict[st
                 {
                     "redirect": True,
                     "new_origin": new_origin,
+                    "location": exc.new_url,
+                    "raw_location": exc.raw_location,
+                    "response_url": exc.response_url,
                     "requires_core_re_evaluation": True,
                     "followed": False,
                 },
@@ -128,12 +133,9 @@ def _origin_of(url: str) -> str:
     return f"{parsed.scheme}://{host}:{port}"
 
 
-def _absolute_location(location: str, authorized_origin: str) -> str:
-    if location.startswith("http://") or location.startswith("https://"):
-        return location
-    if location.startswith("/"):
-        return f"{authorized_origin}{location}"
-    return f"{authorized_origin}/{location}"
+def _resolve_location(response_url: str, location: str) -> str:
+    raw = location if isinstance(location, str) else ""
+    return urljoin(response_url, raw.strip())
 
 
 def _get(url: str, authorized_origin: str, actor: str | None) -> dict[str, Any]:
@@ -160,7 +162,7 @@ def _get(url: str, authorized_origin: str, actor: str | None) -> dict[str, Any]:
         if status in REDIRECT_STATUSES:
             location = response.getheader("Location") or ""
             response.read(MAX_RESPONSE_BYTES + 1)
-            raise _RedirectStopped(status, _absolute_location(location, authorized_origin))
+            raise _RedirectStopped(status, location or "", url)
         body = response.read(MAX_RESPONSE_BYTES + 1)
     finally:
         connection.close()
