@@ -220,9 +220,23 @@ If `RESEARCH_OS_TEST_DATABASE_URL` is unset, the suite must SKIP, never fabricat
 
 ## GATE 17 — autonomous multi-hypothesis research selection
 
-**GATE 17 status: PENDING.**
+**GATE 17 status: PASS** (2026-08-17).
 
-Formal PASS waits for a new Kali authoritative run after benchmark-integrity remediation. Hidden ground truth may grade results; it must not steer execution or promotion.
+Authoritative environment:
+
+- Kali Linux
+- dedicated real PostgreSQL test database
+- `RESEARCH_OS_TEST_DATABASE_URL`
+- authoritative tested commit `48d807d`
+- GATE 14 regression: 19 OK, 0 skipped
+- GATE 15 regression: 21 OK, 0 skipped
+- GATE 16 regression: 34 OK, 0 skipped
+- GATE 17 autonomous research-selection benchmark: 57 OK, 0 skipped
+- repo-wide: unit 586 OK, contract 2 OK, architecture 15 OK, integration 112 OK
+- no Codex / LLM / Strix
+- no external network
+- no migration
+- 0 `psycopg.Connection` ResourceWarnings
 
 GATE 14 = single controlled BOLA security E2E.
 GATE 15 = BOLA ground-truth / false-positive benchmark.
@@ -230,9 +244,13 @@ GATE 16 = workflow/state-transition security semantics + cross-class discriminat
 GATE 17 = autonomous multi-hypothesis research selection + adaptive closed-loop experiment choice.
 GATE 04B = live model comparison.
 
-These gates do not imply one another. GATE 17 implementation must not set PASS, `SECURITY_RESEARCH_VALIDATED`, or `PRODUCTION_READY`.
+These gates do not imply one another.
 
-No new security capability. No internet. No Codex / LLM / Strix. No migration.
+GATE 17 proves only: Controlled local multi-hypothesis closed-loop research selection and adaptive experiment choice were validated against the dedicated real PostgreSQL test database with truth-blind benchmark execution.
+
+Hidden ground truth may grade results; it must not steer execution or promotion.
+
+It does **not** prove general autonomous vulnerability discovery, real-world bug bounty performance, live model quality, broad security-research validation, or production readiness. Do not set `LIVE_MODEL_VALIDATED`, `SECURITY_RESEARCH_VALIDATED`, or `PRODUCTION_READY`. GATE 04B remains PENDING.
 
 ```
 python -m unittest tests.e2e.test_gate17_autonomous_research_selection
@@ -245,9 +263,9 @@ If `RESEARCH_OS_TEST_DATABASE_URL` is unset, the suite must SKIP, never fabricat
 - ARCHITECTURE_VALIDATED: architecture package complete
 - DIAGNOSTIC_E2E_VALIDATED: yes after Gate 12/13 PASS on real PostgreSQL, process crash/restart, and clean install. Not live-model validation.
 - LIVE_MODEL_VALIDATED: no while GATE 04B is PENDING
-- SECURITY_RESEARCH_VALIDATED: no; GATE 14/15/16 PASS are local authorized lab pipeline E2E, a local BOLA ground-truth false-positive benchmark, and a local workflow/state-transition class with cross-class discrimination, not real-world research validation
+- SECURITY_RESEARCH_VALIDATED: no; GATE 14/15/16/17 PASS cover controlled local pipeline, ground-truth, cross-class, and adaptive research-selection validation, not broad or real-world security-research validation
 - PRODUCTION_READY: no until operational and live-research gates that have not passed actually pass
 - GATE 14: PASS (2026-08-17, Kali, dedicated PostgreSQL, 19 E2E OK / 0 skipped)
 - GATE 15: PASS (2026-08-17, Kali, dedicated PostgreSQL, GATE14 regression 19 OK / 0 skipped, GATE15 21 OK / 0 skipped)
 - GATE 16: PASS (2026-08-17, Kali, dedicated PostgreSQL, GATE14 19 OK / 0 skipped, GATE15 21 OK / 0 skipped, GATE16 34 OK / 0 skipped)
-- GATE 17: PENDING (benchmark-integrity remediation; not an authoritative PASS)
+- GATE 17: PASS (2026-08-17, commit 48d807d, Kali, dedicated PostgreSQL, GATE14 19 OK / 0 skipped, GATE15 21 OK / 0 skipped, GATE16 34 OK / 0 skipped, GATE17 57 OK / 0 skipped)

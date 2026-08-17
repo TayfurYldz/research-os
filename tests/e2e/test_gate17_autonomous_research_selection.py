@@ -1,7 +1,7 @@
 """GATE 17 — Autonomous multi-hypothesis research selection.
 
 Skipped when RESEARCH_OS_TEST_DATABASE_URL is absent (PENDING, not PASS).
-Does not set GATE_17_STATUS to PASS, SECURITY_RESEARCH_VALIDATED, or PRODUCTION_READY.
+Does not set SECURITY_RESEARCH_VALIDATED or PRODUCTION_READY.
 No Codex/LLM/Strix/internet target. No third vulnerability class.
 """
 
@@ -439,7 +439,7 @@ class Gate17AutonomousResearchSelectionTests(unittest.TestCase):
 
     def test_52_gate14_regression_status(self) -> None:
         self.assertEqual(GATE_14_STATUS, "PASS")
-        self.assertEqual(GATE_17_STATUS, "PENDING")
+        self.assertEqual(GATE_17_STATUS, "PASS")
 
     def test_53_gate15_regression_status(self) -> None:
         self.assertEqual(GATE_15_STATUS, "PASS")
