@@ -9,6 +9,7 @@ from research_os.maturity import (
     ARCHITECTURE_VALIDATED,
     DIAGNOSTIC_E2E_VALIDATED,
     GATE_04B_STATUS,
+    GATE_14_STATUS,
     LIVE_MODEL_VALIDATED,
     PRODUCTION_READY,
     SECURITY_RESEARCH_VALIDATED,
@@ -27,6 +28,7 @@ class OperatorStatusSnapshot:
     reconciliation: str
     observability: str
     gate_04b: str = GATE_04B_STATUS
+    gate_14: str = GATE_14_STATUS
     test_postgresql: str = "not configured"
     application_dsn: str = "unset"
     test_dsn: str = "unset"
@@ -99,6 +101,8 @@ def render_operator_status(snapshot: OperatorStatusSnapshot) -> str:
             f"  {snapshot.observability}",
             "GATE 04B:",
             f"  {snapshot.gate_04b}",
+            "GATE 14:",
+            f"  {snapshot.gate_14}",
             "MATURITY:",
             f"  ARCHITECTURE_VALIDATED: {ARCHITECTURE_VALIDATED}",
             f"  DIAGNOSTIC_E2E_VALIDATED: {DIAGNOSTIC_E2E_VALIDATED}",

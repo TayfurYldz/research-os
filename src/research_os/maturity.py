@@ -1,7 +1,9 @@
 """Project maturity flags. These are not research conclusions and are not auto-advanced.
 
 ARCHITECTURE_VALIDATED means Decisions 001–050 and GATE 01–13 architecture exist.
-It does not mean live models or real security research were proven.
+GATE 14 PASS means the controlled authorized local HTTP authorization-differential
+pipeline E2E ran on Kali against dedicated PostgreSQL. It does not mean live models,
+autonomous discovery quality, bug-bounty performance, or production readiness.
 
 PRODUCTION_READY must stay false until operational and live-research gates
 that this environment has not passed actually pass.
@@ -17,7 +19,7 @@ PRODUCTION_READY = False
 
 GATE_12_STATUS = "PASS"
 GATE_13_STATUS = "PASS"
-GATE_14_STATUS = "PENDING"
+GATE_14_STATUS = "PASS"
 GATE_04B_STATUS = "PENDING"
 SUBSCRIPTION_OAUTH_STATUS = "NOT_IMPLEMENTED"
 

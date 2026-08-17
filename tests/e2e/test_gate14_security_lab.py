@@ -2,7 +2,7 @@
 
 Skipped when RESEARCH_OS_TEST_DATABASE_URL is absent (PENDING, not PASS).
 Does not set SECURITY_RESEARCH_VALIDATED or PRODUCTION_READY.
-GATE 04B remains PENDING. No Codex/LLM/Strix/internet target.
+GATE 14 may be PASS while GATE 04B remains PENDING. No Codex/LLM/Strix/internet target.
 """
 
 from __future__ import annotations
@@ -732,7 +732,7 @@ class Gate14SecurityLabE2ETests(unittest.TestCase):
             reloaded.dispose()
 
     def test_20_no_codex_or_model_runtime_and_maturity_unchanged(self) -> None:
-        self.assertEqual(GATE_14_STATUS, "PENDING")
+        self.assertEqual(GATE_14_STATUS, "PASS")
         self.assertEqual(GATE_04B_STATUS, "PENDING")
         self.assertFalse(LIVE_MODEL_VALIDATED)
         self.assertFalse(SECURITY_RESEARCH_VALIDATED)

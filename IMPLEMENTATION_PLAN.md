@@ -640,17 +640,21 @@ Required proof:
 - Out-of-scope target never reaches the Worker
 - Real PostgreSQL via `RESEARCH_OS_TEST_DATABASE_URL` (skip/PENDING if unset)
 
-**GATE 14 status: PENDING** until this suite actually runs successfully on Kali with real PostgreSQL. Do not mark PASS merely because tests were written.
+**GATE 14 status: PASS** (2026-08-17) on Kali Linux against dedicated real PostgreSQL (`RESEARCH_OS_TEST_DATABASE_URL`), Alembic head `a18_001_http_auth_class`, `tests.e2e.test_gate14_security_lab` **19 OK / 0 skipped**. Controlled localhost HTTP lab only. No Codex / LLM / Strix.
 
-**Verify (Kali, after `RESEARCH_OS_TEST_DATABASE_URL` is set):**
+GATE 14 proves: controlled authorized local security-research pipeline E2E for HTTP authorization differential / BOLA semantics (Worker probe → Transition A Observation → deterministic Evidence admission → Candidate → independent verification → Human Review / Core Approval → Finding, plus secure-control and out-of-scope negatives).
 
-```
-python -m unittest tests.unit.research.test_authorization_differential tests.e2e.test_gate14_security_lab
-python -m unittest discover -s tests/unit -p "test_*.py"
-python -m unittest discover -s tests/contract -p "test_*.py"
-python -m unittest tests.unit.test_architecture_boundaries
-python -m unittest discover -s tests/integration -p "test_*.py"
-```
+GATE 14 does **not** prove:
+
+- autonomous vulnerability discovery quality
+- real-world bug bounty performance
+- multi-model live validation
+- production readiness
+- broad security-research validation
+
+`LIVE_MODEL_VALIDATED=no`, `SECURITY_RESEARCH_VALIDATED=no`, `PRODUCTION_READY=no`. GATE 04B remains PENDING. GATE 01–13 statuses are unchanged.
+
+**Verify:** `python -m unittest tests.e2e.test_gate14_security_lab` on Kali with `RESEARCH_OS_TEST_DATABASE_URL` set. Do not set `SECURITY_RESEARCH_VALIDATED` or `PRODUCTION_READY` because this gate passed.
 
 ---
 

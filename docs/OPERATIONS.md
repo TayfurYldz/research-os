@@ -118,18 +118,35 @@ GATE 12/13 are PASS only after those suites actually run with 0 required skips. 
 
 ## GATE 14 — local security-research E2E
 
-Requires isolated PostgreSQL (`RESEARCH_OS_TEST_DATABASE_URL`). If unset, the suite must SKIP/PENDING, never PASS.
+**GATE 14 status: PASS** (2026-08-17).
+
+Validation environment:
+
+- Kali Linux
+- real PostgreSQL
+- dedicated `RESEARCH_OS_TEST_DATABASE_URL`
+- Alembic head `a18_001_http_auth_class`
+- `python -m unittest tests.e2e.test_gate14_security_lab`
+- 19 E2E tests OK
+- 0 skipped
+- controlled localhost HTTP lab only
+- no Codex / LLM / Strix
+
+Proves: controlled authorized local security-research pipeline E2E for HTTP authorization differential / BOLA semantics.
+
+Does **not** prove autonomous vulnerability discovery quality, real-world bug bounty performance, multi-model live validation, production readiness, or broad security-research validation. Do not set `SECURITY_RESEARCH_VALIDATED` or `PRODUCTION_READY`. GATE 04B remains PENDING.
 
 ```
 python -m unittest tests.e2e.test_gate14_security_lab
 ```
 
-Lab binds `127.0.0.1` only. No internet target. No Codex/LLM. GATE 14 remains PENDING until this command succeeds on Kali with real PostgreSQL. Do not set `SECURITY_RESEARCH_VALIDATED` or `PRODUCTION_READY`.
+If `RESEARCH_OS_TEST_DATABASE_URL` is unset, the suite must SKIP, never fabricate PASS.
 
 ## Maturity
 
 - ARCHITECTURE_VALIDATED: architecture package complete
 - DIAGNOSTIC_E2E_VALIDATED: yes after Gate 12/13 PASS on real PostgreSQL, process crash/restart, and clean install. Not live-model validation.
 - LIVE_MODEL_VALIDATED: no while GATE 04B is PENDING
-- SECURITY_RESEARCH_VALIDATED: no until authorized real-world research is proven
+- SECURITY_RESEARCH_VALIDATED: no; GATE 14 PASS is local authorized lab pipeline E2E, not real-world research validation
 - PRODUCTION_READY: no until operational and live-research gates that have not passed actually pass
+- GATE 14: PASS (2026-08-17, Kali, dedicated PostgreSQL, 19 E2E OK / 0 skipped)
