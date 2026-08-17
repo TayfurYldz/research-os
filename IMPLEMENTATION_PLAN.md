@@ -750,6 +750,22 @@ GATE 18 does **not** prove autonomous vulnerability discovery, broad security-re
 
 **Verify:** Kali + dedicated PostgreSQL + `RESEARCH_OS_TEST_DATABASE_URL`. Do not set `SECURITY_RESEARCH_VALIDATED` or `PRODUCTION_READY` because this gate passed.
 
+## GATE 19 — Authorized HTTP Substrate
+
+GATE 18 made capability, risk, scope, and execution authoritative. GATE 19 adds the first general HTTP transaction capability on that substrate: typed, capability-bound, Core-authorized experiments with bounded methods, paths, queries, headers, and bodies. Exact-host scope, redirect reauthorization, capability fingerprint enforcement, and Worker execution bounds remain unchanged.
+
+**GATE 19 status: PASS** (2026-08-17). Implementation commit `95c88bc`. Authoritative tested HEAD `b442a672a7df86482d0f5a60eb156483b691d44c`. Kali Linux against dedicated real PostgreSQL (`RESEARCH_OS_TEST_DATABASE_URL`). Alembic head `a21_001_session_context`. Repo-wide: unit **676 OK**, contract **2 OK**, architecture **22 OK**, integration **120 OK**. Explicit G18 plan binding **5 OK**. Explicit G19 HTTP transaction **2 OK**. GATE 14 regression **19 OK / 0 skipped**. GATE 15 regression **21 OK / 0 skipped**. GATE 16 regression **34 OK / 0 skipped**. GATE 17 regression **57 OK / 0 skipped**. No Codex / LLM. No G21. No skipped tests treated as PASS.
+
+GATE 19 PASS means Research OS can construct and execute typed, capability-bound, Core-authorized general HTTP experiments using bounded request methods, paths, queries, headers and bodies, while preserving exact scope evaluation, redirect reauthorization, capability fingerprint enforcement and Worker execution bounds.
+
+GATE 19 does **not** prove autonomous endpoint discovery, crawler/recon capability, browser automation, arbitrary internet HTTP, broad vulnerability discovery, real-world bug bounty performance, or production readiness.
+
+Current limitations: loopback HTTP substrate only; no HTTPS breadth claim; no crawler; no automatic endpoint discovery; no browser state; HTTP transaction does not by itself imply vulnerability semantics.
+
+`LIVE_MODEL_VALIDATED=no`, `SECURITY_RESEARCH_VALIDATED=no`, `PRODUCTION_READY=no`. GATE 04B remains PENDING. GATE 20 remains PENDING at this closure. GATE 14/15/16/17/18/19 remain PASS.
+
+**Verify:** Kali + dedicated PostgreSQL + `RESEARCH_OS_TEST_DATABASE_URL`. Do not set `SECURITY_RESEARCH_VALIDATED` or `PRODUCTION_READY` because this gate passed.
+
 ---
 
 ## Research Brain (Research capability — not Core)

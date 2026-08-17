@@ -296,15 +296,70 @@ It does **not** prove autonomous vulnerability discovery, broad security-researc
 
 If `RESEARCH_OS_TEST_DATABASE_URL` is unset, PostgreSQL-required suites must SKIP, never fabricate PASS.
 
+## GATE 19 — authorized HTTP substrate
+
+**GATE 19 status: PASS** (2026-08-17).
+
+Implementation commit: `95c88bc`
+
+Authoritative tested HEAD: `b442a672a7df86482d0f5a60eb156483b691d44c`
+
+Authoritative environment:
+
+- Kali Linux
+- dedicated real PostgreSQL test database
+- `RESEARCH_OS_TEST_DATABASE_URL`
+- no SQLite substitution
+- no skipped tests treated as PASS
+- Alembic head `a21_001_session_context`
+- GATE 04B remains PENDING
+- no live model validation
+- no G21 implementation
+- repo-wide: unit 676 OK, contract 2 OK, architecture 22 OK, integration 120 OK
+- explicit G18 plan binding: 5 OK
+- explicit G19 HTTP transaction: 2 OK
+- GATE 14 regression: 19 OK, 0 skipped
+- GATE 15 regression: 21 OK, 0 skipped
+- GATE 16 regression: 34 OK, 0 skipped
+- GATE 17 regression: 57 OK, 0 skipped
+- only Alembic `path_separator` DeprecationWarning remains; no production-behavior failure
+
+GATE 19 PASS means Research OS can construct and execute typed, capability-bound, Core-authorized general HTTP experiments using bounded request methods, paths, queries, headers and bodies, while preserving exact scope evaluation, redirect reauthorization, capability fingerprint enforcement and Worker execution bounds.
+
+GATE 19 does **not** prove:
+
+- autonomous endpoint discovery
+- crawler/recon capability
+- browser automation
+- arbitrary internet HTTP
+- broad vulnerability discovery
+- real-world bug bounty performance
+- production readiness
+
+Current limitations:
+
+- loopback HTTP substrate only
+- no HTTPS breadth claim
+- no crawler
+- no automatic endpoint discovery
+- no browser state
+- HTTP transaction does not by itself imply vulnerability semantics
+
+Do not set `LIVE_MODEL_VALIDATED`, `SECURITY_RESEARCH_VALIDATED`, or `PRODUCTION_READY`. GATE 04B remains PENDING. GATE 20 remains PENDING at this closure.
+
+If `RESEARCH_OS_TEST_DATABASE_URL` is unset, PostgreSQL-required suites must SKIP, never fabricate PASS.
+
 ## Maturity
 
 - ARCHITECTURE_VALIDATED: architecture package complete
 - DIAGNOSTIC_E2E_VALIDATED: yes after Gate 12/13 PASS on real PostgreSQL, process crash/restart, and clean install. Not live-model validation.
 - LIVE_MODEL_VALIDATED: no while GATE 04B is PENDING
-- SECURITY_RESEARCH_VALIDATED: no; GATE 14/15/16/17/18 PASS cover controlled local pipeline, ground-truth, cross-class, adaptive research-selection, and capability/risk/scope substrate validation, not broad or real-world security-research validation
+- SECURITY_RESEARCH_VALIDATED: no; GATE 14/15/16/17/18/19 PASS cover controlled local pipeline, ground-truth, cross-class, adaptive research-selection, capability/risk/scope substrate, and bounded authorized HTTP transaction validation, not broad or real-world security-research validation
 - PRODUCTION_READY: no until operational and live-research gates that have not passed actually pass
 - GATE 14: PASS (2026-08-17, Kali, dedicated PostgreSQL, 19 E2E OK / 0 skipped)
 - GATE 15: PASS (2026-08-17, Kali, dedicated PostgreSQL, GATE14 regression 19 OK / 0 skipped, GATE15 21 OK / 0 skipped)
 - GATE 16: PASS (2026-08-17, Kali, dedicated PostgreSQL, GATE14 19 OK / 0 skipped, GATE15 21 OK / 0 skipped, GATE16 34 OK / 0 skipped)
 - GATE 17: PASS (2026-08-17, commit 48d807d, Kali, dedicated PostgreSQL, GATE14 19 OK / 0 skipped, GATE15 21 OK / 0 skipped, GATE16 34 OK / 0 skipped, GATE17 57 OK / 0 skipped)
 - GATE 18: PASS (2026-08-17, commit 241e901fb2c6730ee293cca71942de45d3796282, Kali, dedicated PostgreSQL, Alembic head a20_001_capability_plan_binding, unit 627 OK, contract 2 OK, architecture 20 OK, integration 117 OK, GATE14 19 OK / 0 skipped, GATE15 21 OK / 0 skipped, GATE16 34 OK / 0 skipped, GATE17 57 OK / 0 skipped)
+- GATE 19: PASS (2026-08-17, implementation 95c88bc, authoritative tested HEAD b442a672a7df86482d0f5a60eb156483b691d44c, Kali, dedicated PostgreSQL, Alembic head a21_001_session_context, unit 676 OK, contract 2 OK, architecture 22 OK, integration 120 OK, GATE14 19 OK / 0 skipped, GATE15 21 OK / 0 skipped, GATE16 34 OK / 0 skipped, GATE17 57 OK / 0 skipped)
+- GATE 20: PENDING

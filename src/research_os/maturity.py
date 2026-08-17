@@ -31,6 +31,14 @@ vulnerability discovery, broad security-research capability, real-world bug
 bounty performance, live model quality, production readiness,
 crawler/browser/recon capability, or XBOW/Edra parity.
 
+GATE 19 PASS means Research OS can construct and execute typed, capability-bound,
+Core-authorized general HTTP experiments using bounded request methods, paths,
+queries, headers and bodies, while preserving exact scope evaluation, redirect
+reauthorization, capability fingerprint enforcement and Worker execution bounds.
+It does not prove autonomous endpoint discovery, crawler/recon capability,
+browser automation, arbitrary internet HTTP, broad vulnerability discovery,
+real-world bug bounty performance, or production readiness.
+
 PRODUCTION_READY must stay false until operational and live-research gates
 that this environment has not passed actually pass.
 """
@@ -50,6 +58,8 @@ GATE_15_STATUS = "PASS"
 GATE_16_STATUS = "PASS"
 GATE_17_STATUS = "PASS"
 GATE_18_STATUS = "PASS"
+GATE_19_STATUS = "PASS"
+GATE_20_STATUS = "PENDING"
 GATE_04B_STATUS = "PENDING"
 SUBSCRIPTION_OAUTH_STATUS = "NOT_IMPLEMENTED"
 
@@ -69,6 +79,8 @@ def maturity_mapping() -> dict[str, object]:
         "GATE_16": GATE_16_STATUS,
         "GATE_17": GATE_17_STATUS,
         "GATE_18": GATE_18_STATUS,
+        "GATE_19": GATE_19_STATUS,
+        "GATE_20": GATE_20_STATUS,
         "SUBSCRIPTION_OAUTH": SUBSCRIPTION_OAUTH_STATUS,
         "contains_secrets": False,
     }

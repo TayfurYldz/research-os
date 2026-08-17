@@ -8,7 +8,7 @@ import sys
 from typing import Mapping
 
 from research_os.application.operator_status import OperatorStatusSnapshot, render_operator_status
-from research_os.maturity import GATE_04B_STATUS, GATE_14_STATUS, GATE_15_STATUS, GATE_16_STATUS, GATE_17_STATUS, GATE_18_STATUS, SUBSCRIPTION_OAUTH_STATUS
+from research_os.maturity import GATE_04B_STATUS, GATE_14_STATUS, GATE_15_STATUS, GATE_16_STATUS, GATE_17_STATUS, GATE_18_STATUS, GATE_19_STATUS, GATE_20_STATUS, SUBSCRIPTION_OAUTH_STATUS
 from research_os.platform.health import ComponentHealth
 
 
@@ -133,6 +133,8 @@ def build_status_snapshot(*, env: Mapping[str, str] | None = None, argv_runner=N
         gate_16=GATE_16_STATUS,
         gate_17=GATE_17_STATUS,
         gate_18=GATE_18_STATUS,
+        gate_19=GATE_19_STATUS,
+        gate_20=GATE_20_STATUS,
     )
 
 
