@@ -7,6 +7,7 @@ from typing import Any, Mapping
 
 from .http_authorization import execute_http_authorization
 from .http_state_transition import execute_http_state_transition
+from .http_transaction import execute_http_transaction
 
 Executor = Callable[
     [Mapping[str, Any]], tuple[str, dict[str, Any], dict[str, Any] | None]
@@ -37,4 +38,5 @@ IMPLEMENTATION_EXECUTORS: dict[str, Executor] = {
     "diagnostic.echo": _execute_echo,
     "http.authorization.differential": execute_http_authorization,
     "http.state_transition": execute_http_state_transition,
+    "http.transaction": execute_http_transaction,
 }

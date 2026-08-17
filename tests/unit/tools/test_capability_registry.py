@@ -52,12 +52,17 @@ class CapabilityRegistryTests(unittest.TestCase):
         echo = registry.get("diagnostic.echo")
         auth = registry.get("http.authorization.differential")
         state = registry.get("http.state_transition")
-        assert echo is not None and auth is not None and state is not None
+        transaction = registry.get("http.transaction")
+        assert echo is not None and auth is not None and state is not None and transaction is not None
         self.assertEqual(echo.action("echo").minimum_side_effect_level, 0)
         self.assertEqual(echo.action("echo").maximum_side_effect_level, 0)
         self.assertEqual(auth.action("probe").minimum_side_effect_level, 0)
         self.assertEqual(state.action("probe").minimum_side_effect_level, 1)
         self.assertEqual(state.action("probe").maximum_side_effect_level, 1)
+        self.assertEqual(transaction.action("read").minimum_side_effect_level, 0)
+        self.assertEqual(transaction.action("read").maximum_side_effect_level, 0)
+        self.assertEqual(transaction.action("mutate").minimum_side_effect_level, 1)
+        self.assertEqual(transaction.action("mutate").maximum_side_effect_level, 1)
         self.assertEqual(echo.executor_class, "WORKER")
         self.assertNotIn("strix.diagnostic.ping", {item.capability_id for item in registry.worker_definitions()})
 
@@ -124,6 +129,7 @@ class CapabilityRegistryTests(unittest.TestCase):
                 "diagnostic.echo",
                 "http.authorization.differential",
                 "http.state_transition",
+                "http.transaction",
             },
         )
 

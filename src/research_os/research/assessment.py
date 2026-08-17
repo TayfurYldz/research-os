@@ -29,6 +29,7 @@ HTTP_AUTHORIZATION_DIFFERENTIAL_EVALUATION_STRATEGY = (
     "http.authorization.differential.v1"
 )
 HTTP_STATE_TRANSITION_EVALUATION_STRATEGY = "http.state_transition.v1"
+HTTP_TRANSACTION_EVALUATION_STRATEGY = "http.transaction.v1"
 
 UNUSABLE_EXECUTION_OUTCOMES = frozenset(
     {
@@ -142,12 +143,14 @@ def default_evaluator_registry() -> ExperimentEvaluatorRegistry:
         HttpAuthorizationDifferentialEvaluator,
     )
     from research_os.research.evaluators.diagnostic_echo import DiagnosticEchoEvaluator
+    from research_os.research.evaluators.http_transaction import HttpTransactionEvaluator
     from research_os.research.evaluators.state_transition import HttpStateTransitionEvaluator
 
     registry = ExperimentEvaluatorRegistry()
     registry.register(DiagnosticEchoEvaluator())
     registry.register(HttpAuthorizationDifferentialEvaluator())
     registry.register(HttpStateTransitionEvaluator())
+    registry.register(HttpTransactionEvaluator())
     return registry
 
 

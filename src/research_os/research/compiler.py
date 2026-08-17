@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from typing import Any, Mapping
 
 from research_os.research.types import ExperimentPlan, ResearchInputError
+from research_os.tools.http_transaction_policy import extra_argument_validator_for
 from research_os.tools.registry import (
     WORKER_EXECUTOR_CLASS,
     CapabilityRegistry,
@@ -110,6 +111,11 @@ def compile_experiment_intent(
     issue = validate_action_arguments(action.argument_schema, intent.arguments)
     if issue is not None:
         raise ExperimentCompileError(issue.reason_code, issue.message)
+    extra = extra_argument_validator_for(definition.capability_id)
+    if extra is not None:
+        extra_issue = extra(action.action_id, intent.arguments)
+        if extra_issue is not None:
+            raise ExperimentCompileError(extra_issue.reason_code, extra_issue.message)
     if intent.requested_side_effect is not None:
         if intent.requested_side_effect < action.minimum_side_effect_level:
             raise ExperimentCompileError(

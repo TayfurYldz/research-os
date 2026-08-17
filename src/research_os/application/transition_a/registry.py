@@ -10,7 +10,12 @@ from research_os.application.transition_a.authorization_differential import (
 from research_os.application.transition_a.diagnostic_echo import DiagnosticEchoNormalizer
 from research_os.application.transition_a.drafts import ObservationDraft
 from research_os.application.transition_a.errors import UnsupportedNormalizerError
+from research_os.application.transition_a.http_transaction import HttpTransactionNormalizer
 from research_os.application.transition_a.state_transition import HttpStateTransitionNormalizer
+from research_os.tools.capabilities import (
+    HTTP_TRANSACTION_MUTATE_ACTION,
+    HTTP_TRANSACTION_READ_ACTION,
+)
 
 
 class ObservationNormalizer(Protocol):
@@ -30,7 +35,13 @@ class NormalizerRegistry:
         registered = (
             normalizers
             if normalizers is not None
-            else (DiagnosticEchoNormalizer(), HttpAuthorizationDifferentialNormalizer(), HttpStateTransitionNormalizer())
+            else (
+                DiagnosticEchoNormalizer(),
+                HttpAuthorizationDifferentialNormalizer(),
+                HttpStateTransitionNormalizer(),
+                HttpTransactionNormalizer(HTTP_TRANSACTION_READ_ACTION),
+                HttpTransactionNormalizer(HTTP_TRANSACTION_MUTATE_ACTION),
+            )
         )
         self._normalizers: dict[tuple[str, str], ObservationNormalizer] = {}
         for normalizer in registered:

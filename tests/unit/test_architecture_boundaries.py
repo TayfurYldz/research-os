@@ -292,6 +292,14 @@ class ArchitectureBoundaryTests(unittest.TestCase):
                     found.append(f"{path.name} imports {name}")
         self.assertEqual(found, [])
 
+    def test_http_transaction_worker_copies_stay_in_sync(self) -> None:
+        runtime = SRC_ROOT / "worker_runtime" / "python" / "http_transaction.py"
+        packaged = WORKERS_DIR / "python" / "research_os_worker" / "http_transaction.py"
+        self.assertEqual(
+            runtime.read_text(encoding="utf-8"),
+            packaged.read_text(encoding="utf-8"),
+        )
+
     def test_http_state_transition_worker_copies_stay_in_sync(self) -> None:
         runtime = SRC_ROOT / "worker_runtime" / "python" / "http_state_transition.py"
         packaged = WORKERS_DIR / "python" / "research_os_worker" / "http_state_transition.py"
@@ -328,6 +336,7 @@ class ArchitectureBoundaryTests(unittest.TestCase):
                 "diagnostic.echo.json",
                 "http.authorization.differential.json",
                 "http.state_transition.json",
+                "http.transaction.json",
             },
         )
         for name in worker_files:

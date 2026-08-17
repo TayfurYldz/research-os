@@ -1,0 +1,97 @@
+{
+  "capability_id": "http.transaction",
+  "version": "1",
+  "implementation_reference": "http.transaction",
+  "executor_class": "WORKER",
+  "actions": {
+    "read": {
+      "action_id": "read",
+      "argument_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["authorized_origin", "method", "path"],
+        "properties": {
+          "authorized_origin": { "type": "string", "minLength": 1, "maxLength": 256 },
+          "method": { "type": "string", "enum": ["GET", "HEAD", "OPTIONS"] },
+          "path": { "type": "string", "minLength": 1, "maxLength": 256 },
+          "query": {
+            "type": "object",
+            "additionalProperties": { "type": "string", "maxLength": 128 },
+            "maxProperties": 16
+          },
+          "headers": {
+            "type": "object",
+            "additionalProperties": { "type": "string", "maxLength": 128 },
+            "maxProperties": 8
+          },
+          "content_type": { "type": "string", "maxLength": 128 },
+          "session_context_reference": { "type": "string", "minLength": 1, "maxLength": 128 },
+          "max_response_bytes": { "type": "integer", "minimum": 1, "maximum": 4096 },
+          "timeout_ms": { "type": "integer", "minimum": 1, "maximum": 2000 }
+        }
+      },
+      "result_schema": {
+        "type": "object",
+        "additionalProperties": true
+      },
+      "minimum_side_effect_level": 0,
+      "maximum_side_effect_level": 0,
+      "target_types": ["opaque_reference"],
+      "network_policy": {
+        "allowed_methods": ["GET", "HEAD", "OPTIONS"],
+        "max_requests": 1,
+        "redirect": "STOP",
+        "loopback_only": true
+      },
+      "requirements": ["loopback"],
+      "supports_reproduction": true,
+      "supports_negative_control": true,
+      "normalizer_reference": "platform.url_normalize.v1"
+    },
+    "mutate": {
+      "action_id": "mutate",
+      "argument_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["authorized_origin", "method", "path"],
+        "properties": {
+          "authorized_origin": { "type": "string", "minLength": 1, "maxLength": 256 },
+          "method": { "type": "string", "enum": ["POST", "PUT", "PATCH", "DELETE"] },
+          "path": { "type": "string", "minLength": 1, "maxLength": 256 },
+          "query": {
+            "type": "object",
+            "additionalProperties": { "type": "string", "maxLength": 128 },
+            "maxProperties": 16
+          },
+          "headers": {
+            "type": "object",
+            "additionalProperties": { "type": "string", "maxLength": 128 },
+            "maxProperties": 8
+          },
+          "body": { "type": "string", "maxLength": 4096 },
+          "content_type": { "type": "string", "maxLength": 128 },
+          "session_context_reference": { "type": "string", "minLength": 1, "maxLength": 128 },
+          "max_response_bytes": { "type": "integer", "minimum": 1, "maximum": 4096 },
+          "timeout_ms": { "type": "integer", "minimum": 1, "maximum": 2000 }
+        }
+      },
+      "result_schema": {
+        "type": "object",
+        "additionalProperties": true
+      },
+      "minimum_side_effect_level": 1,
+      "maximum_side_effect_level": 1,
+      "target_types": ["opaque_reference"],
+      "network_policy": {
+        "allowed_methods": ["POST", "PUT", "PATCH", "DELETE"],
+        "max_requests": 1,
+        "redirect": "STOP",
+        "loopback_only": true
+      },
+      "requirements": ["loopback"],
+      "supports_reproduction": true,
+      "supports_negative_control": true,
+      "normalizer_reference": "platform.url_normalize.v1"
+    }
+  }
+}

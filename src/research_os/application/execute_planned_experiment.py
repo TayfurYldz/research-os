@@ -15,6 +15,9 @@ from research_os.application.capability_binding import (
     CapabilityBindingError,
     capability_view_for_plan,
 )
+from research_os.application.http_transaction_authorization import (
+    authorize_http_transaction_plan,
+)
 from research_os.application.identity import (
     attempt_id_for,
     execution_decision_audit_id,
@@ -43,6 +46,7 @@ from research_os.core.enums import (
 )
 from research_os.core.execution import ExecutionDecision, ExecutionRequest, evaluate_execution
 from research_os.core.scope import ScopeEvaluationInput
+from research_os.core.scope_compiler import CompiledScope
 from research_os.data.budget_ledger import usage_from_consumptions
 from research_os.data.errors import BudgetOverspendError, PersistenceError
 from research_os.data.records import (
@@ -105,6 +109,7 @@ class ExecutePlannedExperimentCommand:
     scope: ScopeEvaluationInput
     approval: ApprovalView | None = None
     budget_usage: BudgetUsage | None = None
+    compiled_scope: CompiledScope | None = None
 
 
 @dataclass(frozen=True)
@@ -241,6 +246,30 @@ class ExecutePlannedExperiment:
                     approval=command.approval,
                 )
             )
+            http_decision = authorize_http_transaction_plan(bound_plan, command.compiled_scope)
+            if http_decision.input_rejected:
+                uow.rollback()
+                return ResearchLoopOutcome(
+                    status=ResearchLoopStatus.INPUT_REJECTED,
+                    hypothesis_id=hypothesis_id,
+                    experiment_id=experiment.experiment_id,
+                    experiment_execution_state=experiment.execution_state,
+                    core_decision=ExecutionDecisionKind.DENY,
+                    core_reason_code=http_decision.reason_code,
+                )
+            if (
+                decision.decision is ExecutionDecisionKind.ALLOW
+                and not http_decision.accepted
+            ):
+                decision = ExecutionDecision(
+                    decision=ExecutionDecisionKind.DENY,
+                    reason_code=http_decision.reason_code or ReasonCode.SCOPE_NOT_EXPLICITLY_ALLOWED,
+                    authorization_source_id=decision.authorization_source_id,
+                    matched_scope_rule_ids=(),
+                    budget_id=decision.budget_id,
+                    side_effect_level=decision.side_effect_level,
+                    approval_id=decision.approval_id,
+                )
             audit_id = execution_decision_audit_id(request_id)
             uow.audit_events.insert(
                 _execution_decision_audit(
