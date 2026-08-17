@@ -1,0 +1,89 @@
+"""Containment handshake. Chromium must not exist before the supervising parent
+confirms kernel-enforced resource containment.
+
+The Worker announces itself, then blocks. The parent places the Worker pid under
+a kernel resource boundary and only then sends the acknowledgement. Because every
+Chromium process is a descendant of this Worker, refusing engine creation until
+the acknowledgement arrives removes the window in which an uncontained browser
+tree could exist.
+
+This is local Platform/Worker transport. It is not authorization and it carries
+no scope, identity, or budget authority.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from typing import Any, Mapping
+
+HELLO_MESSAGE_TYPE = "hello"
+CONTAINMENT_MESSAGE_TYPE = "containment_ready"
+BROWSER_WORKER_PROTOCOL = "browser.worker.v1"
+CONTAINMENT_NOT_ESTABLISHED = "CONTAINMENT_NOT_ESTABLISHED"
+
+
+@dataclass(frozen=True)
+class ContainmentAck:
+    mechanism: str
+    max_memory_bytes: int
+    max_processes: int
+
+
+_ACK: ContainmentAck | None = None
+
+
+def hello_document(pid: int) -> dict[str, Any]:
+    return {
+        "message_type": HELLO_MESSAGE_TYPE,
+        "protocol": BROWSER_WORKER_PROTOCOL,
+        "pid": pid,
+    }
+
+
+def accept_containment(
+    message: Mapping[str, Any],
+    *,
+    max_memory_bytes: int,
+    max_processes: int,
+) -> tuple[ContainmentAck | None, str | None]:
+    """Validate the parent acknowledgement against the Worker's declared limits.
+
+    The parent may enforce a tighter ceiling than the Worker declares. It may
+    never enforce a wider one, because the declared limit would then be a claim
+    the kernel does not back.
+    """
+
+    if message.get("message_type") != CONTAINMENT_MESSAGE_TYPE:
+        return None, "the first message must be the containment acknowledgement"
+    if message.get("protocol") != BROWSER_WORKER_PROTOCOL:
+        return None, "containment acknowledgement protocol mismatch"
+    mechanism = message.get("mechanism")
+    memory = message.get("max_memory_bytes")
+    processes = message.get("max_processes")
+    if not isinstance(mechanism, str) or not mechanism.strip():
+        return None, "containment acknowledgement has no enforcement mechanism"
+    if not isinstance(memory, int) or isinstance(memory, bool) or memory < 1:
+        return None, "containment acknowledgement has no enforced memory ceiling"
+    if not isinstance(processes, int) or isinstance(processes, bool) or processes < 1:
+        return None, "containment acknowledgement has no enforced process ceiling"
+    if memory > max_memory_bytes:
+        return None, "the enforced memory ceiling is wider than the declared limit"
+    if processes > max_processes:
+        return None, "the enforced process ceiling is wider than the declared limit"
+    return ContainmentAck(
+        mechanism=mechanism, max_memory_bytes=memory, max_processes=processes
+    ), None
+
+
+def set_containment(ack: ContainmentAck) -> None:
+    global _ACK
+    _ACK = ack
+
+
+def containment() -> ContainmentAck | None:
+    return _ACK
+
+
+def reset_containment() -> None:
+    global _ACK
+    _ACK = None

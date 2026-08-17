@@ -12,6 +12,7 @@ from research_os.platform.secrets import SecretPort, SecretReference, SecretSche
 from research_os.research.identity_session import HttpFormLoginProfile, Identity, SessionState
 from research_os.research.types import ExperimentPlan
 from research_os.tools.capabilities import (
+    BROWSER_PAGE_CAPABILITY,
     HTTP_AUTHENTICATION_CAPABILITY,
     HTTP_AUTHENTICATION_LOGIN_ACTION,
     HTTP_TRANSACTION_CAPABILITY,
@@ -47,7 +48,7 @@ def bind_identity_session(
             profile=profile,
             secret_port=secret_port,
         )
-    if plan.required_capability == HTTP_TRANSACTION_CAPABILITY:
+    if plan.required_capability in {HTTP_TRANSACTION_CAPABILITY, BROWSER_PAGE_CAPABILITY}:
         session_ref = plan.arguments.get("session_context_reference")
         if session_ref is None:
             return SessionBindingDecision(accepted=True)

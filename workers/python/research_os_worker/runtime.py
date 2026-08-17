@@ -48,6 +48,10 @@ def build_result(request: Mapping[str, Any], started_at: str) -> dict[str, Any]:
 
 
 def run(stdin: TextIO = sys.stdin, stdout: TextIO = sys.stdout, stderr: TextIO = sys.stderr) -> int:
+    if os.environ.get("RESEARCH_OS_BROWSER_WORKER") == "1":
+        from .persistent_runtime import run_persistent
+
+        return run_persistent(stdin, stdout, stderr)
     started_at = utc_now_rfc3339()
     raw = stdin.read()
     try:
@@ -60,3 +64,7 @@ def run(stdin: TextIO = sys.stdin, stdout: TextIO = sys.stdout, stderr: TextIO =
     stdout.write("\n")
     stdout.flush()
     return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(run())

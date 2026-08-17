@@ -81,6 +81,48 @@
       "type": "object",
       "additionalProperties": { "type": "string" },
       "description": "Ephemeral secret values resolved at the execution boundary. MUST NOT be persisted in SoR, Observation, Evidence, or audit payloads."
+    },
+    "network_envelope": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Core-derived dispatch-time network bounds. Not a scope grant. Worker may only tighten.",
+      "required": [
+        "normalized_scheme",
+        "normalized_host",
+        "normalized_port",
+        "document_path",
+        "origin_wide",
+        "allowed_path_prefixes",
+        "denied_path_prefixes",
+        "loopback_only",
+        "source_scope_rule_ids"
+      ],
+      "properties": {
+        "normalized_scheme": { "type": "string", "minLength": 1 },
+        "normalized_host": { "type": "string", "minLength": 1 },
+        "normalized_port": { "type": "integer", "minimum": 1 },
+        "document_path": { "type": "string", "minLength": 1 },
+        "origin_wide": { "type": "boolean" },
+        "allowed_path_prefixes": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "denied_path_prefixes": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "loopback_only": { "type": "boolean" },
+        "source_scope_rule_ids": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "authorization_decision_reference": { "type": "string", "minLength": 1 }
+      }
+    },
+    "max_attempted_requests": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Per-action attempted HTTP(S) request cap derived from remaining IssuedBudget intersect capability max. Not authorization."
     }
   }
 }

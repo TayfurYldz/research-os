@@ -36,6 +36,51 @@ class AuthorizedNetworkEnvelope:
         if not self.document_path.startswith("/"):
             raise ValueError("document_path must be an absolute path")
 
+    def to_mapping(self) -> dict[str, object]:
+        """Serialize dispatch-time bounds. Not a grant and not Worker scope policy."""
+
+        payload: dict[str, object] = {
+            "normalized_scheme": self.normalized_scheme,
+            "normalized_host": self.normalized_host,
+            "normalized_port": self.normalized_port,
+            "document_path": self.document_path,
+            "origin_wide": self.origin_wide,
+            "allowed_path_prefixes": list(self.allowed_path_prefixes),
+            "denied_path_prefixes": list(self.denied_path_prefixes),
+            "loopback_only": self.loopback_only,
+            "source_scope_rule_ids": list(self.source_scope_rule_ids),
+        }
+        if self.authorization_decision_reference is not None:
+            payload["authorization_decision_reference"] = self.authorization_decision_reference
+        return payload
+
+
+def envelope_from_mapping(payload: object) -> AuthorizedNetworkEnvelope | None:
+    if not isinstance(payload, dict):
+        return None
+    try:
+        allowed = payload.get("allowed_path_prefixes") or ()
+        denied = payload.get("denied_path_prefixes") or ()
+        rule_ids = payload.get("source_scope_rule_ids") or ()
+        return AuthorizedNetworkEnvelope(
+            normalized_scheme=str(payload["normalized_scheme"]),
+            normalized_host=str(payload["normalized_host"]),
+            normalized_port=int(payload["normalized_port"]),
+            document_path=str(payload["document_path"]),
+            origin_wide=bool(payload.get("origin_wide")),
+            allowed_path_prefixes=tuple(str(item) for item in allowed),
+            denied_path_prefixes=tuple(str(item) for item in denied),
+            loopback_only=bool(payload.get("loopback_only")),
+            source_scope_rule_ids=tuple(str(item) for item in rule_ids),
+            authorization_decision_reference=(
+                str(payload["authorization_decision_reference"])
+                if payload.get("authorization_decision_reference") is not None
+                else None
+            ),
+        )
+    except (KeyError, TypeError, ValueError):
+        return None
+
 
 def derive_authorized_network_envelope(
     candidate: ScopeCandidate,

@@ -7,6 +7,7 @@ from typing import Any, Mapping, Protocol
 from research_os.application.transition_a.authorization_differential import (
     HttpAuthorizationDifferentialNormalizer,
 )
+from research_os.application.transition_a.browser_page import BrowserPageNormalizer
 from research_os.application.transition_a.diagnostic_echo import DiagnosticEchoNormalizer
 from research_os.application.transition_a.drafts import ObservationDraft
 from research_os.application.transition_a.errors import UnsupportedNormalizerError
@@ -14,6 +15,9 @@ from research_os.application.transition_a.http_authentication import HttpAuthent
 from research_os.application.transition_a.http_transaction import HttpTransactionNormalizer
 from research_os.application.transition_a.state_transition import HttpStateTransitionNormalizer
 from research_os.tools.capabilities import (
+    BROWSER_PAGE_INTERACT_ACTION,
+    BROWSER_PAGE_NAVIGATE_ACTION,
+    BROWSER_PAGE_OBSERVE_ACTION,
     HTTP_TRANSACTION_MUTATE_ACTION,
     HTTP_TRANSACTION_READ_ACTION,
 )
@@ -43,6 +47,9 @@ class NormalizerRegistry:
                 HttpTransactionNormalizer(HTTP_TRANSACTION_READ_ACTION),
                 HttpTransactionNormalizer(HTTP_TRANSACTION_MUTATE_ACTION),
                 HttpAuthenticationNormalizer(),
+                BrowserPageNormalizer(BROWSER_PAGE_OBSERVE_ACTION),
+                BrowserPageNormalizer(BROWSER_PAGE_NAVIGATE_ACTION),
+                BrowserPageNormalizer(BROWSER_PAGE_INTERACT_ACTION),
             )
         )
         self._normalizers: dict[tuple[str, str], ObservationNormalizer] = {}

@@ -54,7 +54,7 @@ from research_os.core.enums import (
 from research_os.core.execution import ExecutionDecision, ExecutionRequest, evaluate_execution
 from research_os.core.scope import ScopeEvaluationInput
 from research_os.core.scope_compiler import CompiledScope
-from research_os.data.budget_ledger import usage_from_consumptions
+from research_os.data.budget_ledger import remaining_for_resource, usage_from_consumptions
 from research_os.data.errors import BudgetOverspendError, PersistenceError
 from research_os.data.records import (
     AuditEventRecord,
@@ -71,6 +71,8 @@ from research_os.platform.contract_validation import ContractValidator
 from research_os.platform.worker import InvocationStatus, WorkerInvocationOutcome, WorkerPort
 from research_os.research.identity_session import HttpFormLoginProfile, Identity
 from research_os.research.types import ExperimentPlan
+from research_os.tools.browser_page_policy import BROWSER_PAGE_MAX_NETWORK_REQUESTS
+from research_os.tools.capabilities import BROWSER_PAGE_CAPABILITY
 
 WORKER_CONTRACT_VERSION = "v1"
 AUDIT_EXECUTION_DECISION = "EXECUTION_DECISION"
@@ -394,6 +396,15 @@ class ExecutePlannedExperiment:
                 request_id=request_id,
                 correlation_id=correlation_id,
                 authorization_decision_reference=audit_id,
+                network_envelope=http_decision.envelope,
+                identity_id=(
+                    session_decision.session.identity_id
+                    if (
+                        session_decision.session is not None
+                        and bound_plan.required_capability == BROWSER_PAGE_CAPABILITY
+                    )
+                    else None
+                ),
             )
             self._validator.validate_worker_request(worker_request)
             if (
@@ -446,6 +457,8 @@ class ExecutePlannedExperiment:
                 envelope,
                 authorization_decision_reference=audit_id,
             )
+            worker_request = dict(worker_request)
+            worker_request["network_envelope"] = envelope.to_mapping()
         return AuthorizedDispatch(
             experiment_id=experiment.experiment_id,
             hypothesis_id=hypothesis_id,
@@ -502,7 +515,10 @@ class ExecutePlannedExperiment:
                 ExperimentExecutionState.RUNNING.value,
             )
             try:
-                _record_dispatch_consumption(uow, attempt, issued, occurred_at=now)
+                request_amount = _request_consumption_amount(uow, attempt, issued)
+                _record_dispatch_consumption(
+                    uow, attempt, issued, occurred_at=now, request_amount=request_amount
+                )
             except BudgetOverspendError:
                 uow.rollback()
                 return ResearchLoopOutcome(
@@ -515,10 +531,16 @@ class ExecutePlannedExperiment:
                     attempt_state=ExecutionAttemptState.AUTHORIZED.value,
                     core_reason_code=ReasonCode.BUDGET_EXHAUSTED,
                 )
+            reserved_requests = request_amount
+            worker_capability = attempt.worker_capability
             uow.commit()
         invocation = self._worker.invoke(
             _request_with_resolved_secrets(
-                authorized.worker_request, authorized.resolved_secret_values
+                authorized.worker_request,
+                authorized.resolved_secret_values,
+                max_attempted_requests=(
+                    reserved_requests if worker_capability == BROWSER_PAGE_CAPABILITY else None
+                ),
             ),
             timeout_ms=authorized.timeout_ms,
         )
@@ -862,12 +884,18 @@ def _execution_decision_audit(
 
 
 def _request_with_resolved_secrets(
-    request: Mapping[str, Any], values: Mapping[str, str] | None
+    request: Mapping[str, Any],
+    values: Mapping[str, str] | None,
+    *,
+    max_attempted_requests: int | None = None,
 ) -> Mapping[str, Any]:
-    if not values:
+    if not values and max_attempted_requests is None:
         return request
     payload = dict(request)
-    payload["resolved_secret_values"] = dict(values)
+    if values:
+        payload["resolved_secret_values"] = dict(values)
+    if max_attempted_requests is not None:
+        payload["max_attempted_requests"] = max_attempted_requests
     return payload
 
 
@@ -880,8 +908,13 @@ def _build_worker_request(
     request_id: str,
     correlation_id: str,
     authorization_decision_reference: str,
+    network_envelope: AuthorizedNetworkEnvelope | None = None,
+    identity_id: str | None = None,
 ) -> dict[str, Any]:
-    return {
+    arguments = dict(plan.arguments)
+    if identity_id is not None:
+        arguments["identity_id"] = identity_id
+    payload: dict[str, Any] = {
         "contract_version": WORKER_CONTRACT_VERSION,
         "correlation": {
             "correlation_id": correlation_id,
@@ -904,8 +937,11 @@ def _build_worker_request(
         "capability_version": capability_view.capability_version,
         "capability_definition_fingerprint": capability_view.definition_fingerprint,
         "secret_references": [],
-        "arguments": dict(plan.arguments),
+        "arguments": arguments,
     }
+    if network_envelope is not None:
+        payload["network_envelope"] = network_envelope.to_mapping()
+    return payload
 
 
 def _classify_invocation(
@@ -918,6 +954,12 @@ def _classify_invocation(
                 ExecutionAttemptState.COMPLETED.value,
                 ExperimentExecutionState.AUTHORIZATION_CHECK.value,
                 ResearchLoopStatus.REAUTHORIZATION_REQUIRED,
+            )
+        if result.get("status") == "BUDGET_EXHAUSTED":
+            return (
+                ExecutionAttemptState.COMPLETED.value,
+                ExperimentExecutionState.BUDGET_EXHAUSTED.value,
+                ResearchLoopStatus.DISPATCH_DENIED,
             )
         return (
             ExecutionAttemptState.COMPLETED.value,
@@ -957,21 +999,39 @@ def _usage_or_ledger(
     return usage_from_consumptions(uow.budget_consumptions.list_for_budget(budget_id))
 
 
+def _request_consumption_amount(
+    uow: UnitOfWork,
+    attempt: ExecutionAttemptRecord,
+    issued: IssuedBudgetRecord,
+) -> int:
+    if attempt.worker_capability != BROWSER_PAGE_CAPABILITY:
+        return 1
+    usage = usage_from_consumptions(uow.budget_consumptions.list_for_budget(issued.budget_id))
+    remaining = remaining_for_resource(issued, usage, "REQUEST")
+    if remaining < 1:
+        raise BudgetOverspendError("consumption would exceed issued allowance")
+    return min(remaining, BROWSER_PAGE_MAX_NETWORK_REQUESTS)
+
+
 def _record_dispatch_consumption(
     uow: UnitOfWork,
     attempt: ExecutionAttemptRecord,
     issued: IssuedBudgetRecord,
     *,
     occurred_at,
+    request_amount: int = 1,
 ) -> None:
-    for resource_type, unit in (("WORKER_INVOCATION", "count"), ("REQUEST", "count")):
+    for resource_type, unit, amount in (
+        ("WORKER_INVOCATION", "count", 1),
+        ("REQUEST", "count", request_amount),
+    ):
         uow.budget_consumptions.insert_within_allowance(
             BudgetConsumptionRecord(
                 consumption_id=new_opaque_id(),
                 budget_id=issued.budget_id,
                 research_run_id=attempt.research_run_id,
                 resource_type=resource_type,
-                amount=1,
+                amount=amount,
                 unit=unit,
                 occurred_at=occurred_at,
                 provenance="execute_planned_experiment.dispatch",

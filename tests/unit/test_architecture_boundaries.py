@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import ast
+import json
 import unittest
 from pathlib import Path
 
@@ -73,7 +74,7 @@ class ArchitectureBoundaryTests(unittest.TestCase):
         self.assertEqual(
             _violations(
                 CORE_DIR,
-                forbidden_roots=EXECUTION_ROOTS + PERSISTENCE_LIBS + SCHEMA_LIBS,
+                forbidden_roots=EXECUTION_ROOTS + PERSISTENCE_LIBS + SCHEMA_LIBS + ("playwright",),
                 forbidden_prefixes=(
                     "research_os.data",
                     "research_os.workers",
@@ -107,6 +108,7 @@ class ArchitectureBoundaryTests(unittest.TestCase):
                     "chromadb",
                     "faiss",
                     "pinecone",
+                    "playwright",
                 ),
                 forbidden_prefixes=(
                     "research_os.data",
@@ -129,10 +131,11 @@ class ArchitectureBoundaryTests(unittest.TestCase):
                 APPLICATION_DIR,
                 forbidden_roots=EXECUTION_ROOTS
                 + PERSISTENCE_LIBS
-                + ("openai", "anthropic", "google", "langchain"),
+                + ("openai", "anthropic", "google", "langchain", "playwright"),
                 forbidden_prefixes=(
                     "research_os.data.postgres",
                     "research_os.platform.local_process_worker",
+                    "research_os.platform.persistent_browser_worker",
                     "research_os.workers",
                     "research_os.benchmark",
                     "research_os.security_benchmark",
@@ -341,6 +344,7 @@ class ArchitectureBoundaryTests(unittest.TestCase):
         self.assertEqual(
             worker_files,
             {
+                "browser.page.json",
                 "diagnostic.echo.json",
                 "http.authentication.json",
                 "http.authorization.differential.json",
@@ -369,7 +373,76 @@ class ArchitectureBoundaryTests(unittest.TestCase):
         packaged = SRC_ROOT / "resources" / "contracts" / "v1" / "worker" / "worker-request.schema.json"
         self.assertEqual(canonical.read_text(encoding="utf-8"), packaged.read_text(encoding="utf-8"))
 
-    def test_tools_does_not_import_core_or_workers(self) -> None:
+    def test_browser_worker_modules_stay_in_sync(self) -> None:
+        names = (
+            "browser_page.py",
+            "browser_containment.py",
+            "browser_engine.py",
+            "browser_envelope.py",
+            "playwright_chromium_engine.py",
+            "persistent_runtime.py",
+        )
+        for name in names:
+            runtime = SRC_ROOT / "worker_runtime" / "python" / name
+            packaged = WORKERS_DIR / "python" / "research_os_worker" / name
+            self.assertEqual(
+                runtime.read_text(encoding="utf-8"),
+                packaged.read_text(encoding="utf-8"),
+                msg=name,
+            )
+
+    def test_playwright_is_confined_to_worker_engine(self) -> None:
+        allowed = {
+            SRC_ROOT / "worker_runtime" / "python" / "playwright_chromium_engine.py",
+            WORKERS_DIR / "python" / "research_os_worker" / "playwright_chromium_engine.py",
+        }
+        found = []
+        for directory in (
+            CORE_DIR,
+            RESEARCH_DIR,
+            APPLICATION_DIR,
+            SRC_ROOT / "data",
+            SRC_ROOT / "tools",
+            PLATFORM_DIR,
+            SRC_ROOT / "worker_runtime",
+            WORKERS_DIR,
+        ):
+            if not directory.exists():
+                continue
+            for path in directory.rglob("*.py"):
+                text = path.read_text(encoding="utf-8")
+                if "playwright" not in text.lower() and "from playwright" not in text:
+                    continue
+                tree = ast.parse(text, filename=str(path))
+                for name in _imported_modules(tree):
+                    root = name.split(".", 1)[0]
+                    if root == "playwright" or name.startswith("playwright."):
+                        if path.resolve() not in {item.resolve() for item in allowed}:
+                            found.append(f"{path.relative_to(REPO_ROOT)} imports {name}")
+        self.assertEqual(found, [])
+
+    def test_existing_capability_fingerprints_are_unchanged(self) -> None:
+        from research_os.tools.fingerprint import fingerprint_capability_document
+        from research_os.tools.registry import load_capability_registry
+
+        load_capability_registry.cache_clear()
+        registry = load_capability_registry()
+        expected = {
+            "diagnostic.echo": "d86e9a66407367f2853f801a6f537d63dc264cc892c45036703081d806e5c98d",
+            "http.authentication": "5284151e468907b7fc30b2db6f614e402776d64112fa42f52381b132a600a26b",
+            "http.authorization.differential": "3cdb4f4f2a0d99b1ed568c38481dd2fa414b7afb00a6906f3c3ea99945a85968",
+            "http.state_transition": "98156c04bf02b910aa501deabb0564c20a57fdb69fe3bc65a764afc648690d87",
+            "http.transaction": "11f19ed59b600741958db89f124eb0250783943c5face746a1cd2ac2b8013eaa",
+        }
+        canonical = SRC_ROOT / "resources" / "contracts" / "v1" / "capabilities"
+        for capability_id, digest in expected.items():
+            definition = registry.get(capability_id)
+            assert definition is not None
+            document = json.loads(
+                (canonical / f"{capability_id}.json").read_text(encoding="utf-8")
+            )
+            self.assertEqual(definition.definition_fingerprint, digest)
+            self.assertEqual(fingerprint_capability_document(document), digest)
         self.assertEqual(
             _violations(
                 SRC_ROOT / "tools",

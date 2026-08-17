@@ -18,8 +18,10 @@ from research_os.safe_data import (
 class RecursiveSecretTests(unittest.TestCase):
     def test_nested_token_rejected(self) -> None:
         with self.assertRaises(SecretMaterialError) as ctx:
-            reject_secret_keys({"nested": {"token": "secret"}}, "payload")
-        self.assertNotIn("secret", str(ctx.exception))
+            reject_secret_keys({"nested": {"token": "sk-live-must-not-echo"}}, "payload")
+        message = str(ctx.exception)
+        self.assertNotIn("sk-live-must-not-echo", message)
+        self.assertIn("payload.nested.token", message)
 
     def test_nested_authorization_list_rejected(self) -> None:
         with self.assertRaises(SecretMaterialError):

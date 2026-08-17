@@ -404,6 +404,97 @@ Do not set `LIVE_MODEL_VALIDATED`, `SECURITY_RESEARCH_VALIDATED`, or `PRODUCTION
 
 If `RESEARCH_OS_TEST_DATABASE_URL` is unset, PostgreSQL-required suites must SKIP, never fabricate PASS.
 
+## GATE 21 — browser / application state
+
+**GATE 21 status: PENDING.** Formal PASS requires later Kali + real PostgreSQL + real Chromium validation. This section documents local implementation and setup only.
+
+Capability: `browser.page` actions `observe` (SE0), `navigate` (SE0), `interact` (SE1). Loopback HTTP only.
+
+Browser extra (does not change the default G14–G20 install):
+
+```
+pip install -e ".[browser]"
+playwright install chromium
+```
+
+Playwright browser installation is setup-time only. Research OS runtime must not silently download Chromium.
+
+Local validation:
+
+```
+python -m unittest discover -s tests/unit -q
+python -m unittest discover -s tests/contract -q
+python -m unittest tests.unit.test_architecture_boundaries -q
+python -m unittest discover -s tests/integration -q
+python -m unittest tests.e2e.test_gate14_security_lab
+python -m unittest tests.e2e.test_gate15_security_ground_truth
+python -m unittest tests.e2e.test_gate16_state_transition_security
+python -m unittest tests.e2e.test_gate17_autonomous_research_selection
+python -m unittest tests.e2e.test_gate21_browser_page
+python -m unittest tests.e2e.test_gate21_linux_cgroup
+```
+
+### Browser resource containment
+
+The browser process tree runs under a kernel-enforced ceiling. There is no
+unlimited fallback: if enforcement cannot be established the browser runtime is
+NOT READY, `browser.page` fails closed with `START_FAILED`, and every other
+Worker capability keeps working.
+
+`max_memory_bytes` has one meaning on every host: the maximum aggregate memory
+available to the contained Browser Worker plus its Chromium process tree.
+
+| Host | Mechanism | Aggregate memory ceiling | Process ceiling |
+| --- | --- | --- | --- |
+| Linux | cgroup v2 owned child | `memory.max` over the whole contained tree | `pids.max` |
+| Windows | Job Object | `JOB_OBJECT_LIMIT_JOB_MEMORY` / `JobMemoryLimit` across all job members | `ActiveProcessLimit` |
+
+Windows additionally applies `JOB_OBJECT_LIMIT_PROCESS_MEMORY` with the same
+value, which is stricter per process and never a substitute for the aggregate
+bound. `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE` remains set. The applied flags and
+values are read back from the kernel with `QueryInformationJobObject` during the
+containment handshake, so a job whose limits were not applied fails closed.
+
+`memory.oom.group=1` and `memory.swap.max=0` are applied when the kernel exposes
+them, so a cgroup OOM does not leave a partial Chromium tree running.
+
+Ordering is enforced by a local handshake, not by timing: the Worker announces
+its pid, blocks, and refuses to create Chromium until the parent has attached it
+to the resource boundary and acknowledged the enforced values. An acknowledgement
+that is missing, or wider than the Worker's declared limits, is rejected.
+
+Linux requires a delegated, writable cgroup v2 subtree with the `memory` and
+`pids` controllers. When the current subtree already owns processes and has no
+delegation, start Research OS under a delegated scope:
+
+```
+systemd-run --user --scope -p Delegate=yes -- python -m unittest tests.e2e.test_gate21_linux_cgroup
+```
+
+`RESEARCH_OS_BROWSER_CGROUP_ROOT` may instead point at an already delegated
+subtree inside `/sys/fs/cgroup`. It is host configuration; a WorkerRequest can
+never influence the cgroup path.
+
+On the authoritative validation host set `RESEARCH_OS_REQUIRE_CGROUP_TESTS=1` so
+an unavailable cgroup environment fails the suite instead of skipping it. A
+skipped containment suite is never a pass.
+
+GATE 21 does **not** claim:
+
+- autonomous discovery
+- crawler behavior
+- bug bounty performance
+- browser-based vulnerability discovery
+- general internet browsing
+- production readiness
+- GATE 21 PASS
+
+Alembic head remains `a21_001_session_context`. No GATE 21 migration.
+
+If Chromium is unavailable, implementation may exist, but `GATE21_IMPLEMENTATION_READY_FOR_KALI` is FAIL. A skipped real-browser suite is not PASS.
+
+Kernel memory and process enforcement is implemented on both supported hosts, and both bound the aggregate browser process tree. Linux cgroup enforcement is proved by `tests.e2e.test_gate21_linux_cgroup`, which must run on the authoritative Kali host; the Windows Job Object limits are proved by reading them back from the kernel in `tests.unit.platform_runtime.test_browser_resource_control`.
+
 ## Maturity
 
 - ARCHITECTURE_VALIDATED: architecture package complete

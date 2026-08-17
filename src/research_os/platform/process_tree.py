@@ -21,10 +21,14 @@ CREATE_NEW_PROCESS_GROUP = 0x00000200
 CREATE_SUSPENDED = 0x00000004
 JobObjectExtendedLimitInformation = 9
 JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE = 0x2000
+JOB_OBJECT_LIMIT_ACTIVE_PROCESS = 0x00000008
+JOB_OBJECT_LIMIT_PROCESS_MEMORY = 0x00000100
+JOB_OBJECT_LIMIT_JOB_MEMORY = 0x00000200
 PROCESS_ALL_ACCESS = 0x1F0FFF
 PROCESS_SET_QUOTA = 0x0100
 PROCESS_TERMINATE = 0x0001
 PROCESS_SUSPEND_RESUME = 0x0800
+PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
 INFINITE = 0xFFFFFFFF
 
 
@@ -69,6 +73,9 @@ def spawn_supervised(
     stdin: int | None = subprocess.PIPE,
     stdout: int | None = subprocess.PIPE,
     stderr: int | None = subprocess.PIPE,
+    active_process_limit: int | None = None,
+    job_memory_limit_bytes: int | None = None,
+    process_memory_limit_bytes: int | None = None,
 ) -> SupervisedProcess:
     if not argv or not str(argv[0]).strip():
         raise FileNotFoundError("executable is empty")
@@ -86,7 +93,12 @@ def spawn_supervised(
     if os.name == "posix" and process.pid:
         supervised.process_group = process.pid
     if os.name == "nt":
-        handle, reason = _windows_assign_job(process.pid)
+        handle, reason = _windows_assign_job(
+            process.pid,
+            active_process_limit=active_process_limit,
+            job_memory_limit_bytes=job_memory_limit_bytes,
+            process_memory_limit_bytes=process_memory_limit_bytes,
+        )
         resume_reason = _windows_resume(process.pid)
         supervised.job_handle = handle
         if handle is None:
@@ -246,38 +258,117 @@ def _posix_terminate(supervised: SupervisedProcess, *, grace_seconds: float) -> 
     pid = supervised.process_group or supervised.process.pid
     if pid is None:
         return
+    tracked = _posix_descendants(pid) | {pid}
     try:
         os.killpg(pid, signal.SIGTERM)
     except ProcessLookupError:
-        return
+        pass
     except PermissionError:
         supervised.process.terminate()
+    _posix_signal_pids(tracked, signal.SIGTERM)
     try:
         supervised.process.wait(timeout=grace_seconds)
-        return
     except subprocess.TimeoutExpired:
         pass
+    tracked |= _posix_descendants(pid)
+    tracked |= _posix_descendants_of(tracked)
     try:
         os.killpg(pid, signal.SIGKILL)
     except (ProcessLookupError, PermissionError):
-        supervised.process.kill()
+        try:
+            supervised.process.kill()
+        except OSError:
+            pass
+    _posix_signal_pids(tracked, signal.SIGKILL)
     try:
         supervised.process.wait(timeout=grace_seconds)
     except subprocess.TimeoutExpired:
         supervised.cleanup_failed = True
         supervised.cleanup_reason = "posix process group still alive after SIGKILL"
+    leftover = {item for item in tracked if _pid_alive(item)}
+    if leftover:
+        supervised.cleanup_failed = True
+        supervised.cleanup_reason = "posix descendants still alive after SIGKILL"
 
 
-def _windows_assign_job(pid: int | None) -> tuple[int | None, str | None]:
-    if pid is None:
-        return None, "missing pid"
+def _posix_signal_pids(pids: set[int], sig: int) -> None:
+    for pid in pids:
+        try:
+            os.kill(pid, sig)
+        except (ProcessLookupError, PermissionError, OSError):
+            continue
+
+
+def _pid_alive(pid: int) -> bool:
     try:
-        import ctypes
-        from ctypes import wintypes
-    except ImportError:
-        return None, "ctypes unavailable"
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    except OSError:
+        return False
+    return True
 
-    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+
+def posix_tree_members(root_pid: int) -> set[int]:
+    """Root pid plus every live descendant, read from /proc. POSIX only."""
+
+    return _posix_descendants_of({root_pid})
+
+
+def _posix_descendants(root_pid: int) -> set[int]:
+    return _posix_descendants_of({root_pid}) - {root_pid}
+
+
+def _posix_descendants_of(roots: set[int]) -> set[int]:
+    if os.name != "posix" or not roots:
+        return set(roots)
+    proc = Path("/proc")
+    if not proc.is_dir():
+        return set(roots)
+    children: dict[int, set[int]] = {}
+    for entry in proc.iterdir():
+        if not entry.name.isdigit():
+            continue
+        pid = int(entry.name)
+        ppid = _posix_ppid(entry)
+        if ppid is None:
+            continue
+        children.setdefault(ppid, set()).add(pid)
+    found = set(roots)
+    stack = list(roots)
+    while stack:
+        current = stack.pop()
+        for child in children.get(current, ()):
+            if child not in found:
+                found.add(child)
+                stack.append(child)
+    return found
+
+
+def _posix_ppid(proc_dir: Path) -> int | None:
+    try:
+        stat = (proc_dir / "stat").read_text(encoding="utf-8")
+    except OSError:
+        return None
+    close = stat.rfind(")")
+    if close < 0:
+        return None
+    fields = stat[close + 1 :].split()
+    if len(fields) < 2:
+        return None
+    try:
+        return int(fields[1])
+    except ValueError:
+        return None
+
+
+def _windows_job_structures():
+    """ctypes mirrors of the Win32 job object limit structures."""
+
+    import ctypes
+    from ctypes import wintypes
 
     class IO_COUNTERS(ctypes.Structure):
         _fields_ = [
@@ -312,6 +403,59 @@ def _windows_assign_job(pid: int | None) -> tuple[int | None, str | None]:
             ("PeakJobMemoryUsed", ctypes.c_size_t),
         ]
 
+    return JOBOBJECT_EXTENDED_LIMIT_INFORMATION
+
+
+def windows_job_limits(job_handle: int) -> dict[str, int] | None:
+    """Read the limits the kernel actually applied to a job. None means undecidable."""
+
+    if not job_handle:
+        return None
+    try:
+        import ctypes
+        from ctypes import wintypes
+    except ImportError:
+        return None
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    extended = _windows_job_structures()
+    info = extended()
+    returned = wintypes.DWORD()
+    kernel32.QueryInformationJobObject.restype = wintypes.BOOL
+    ok = kernel32.QueryInformationJobObject(
+        wintypes.HANDLE(job_handle),
+        JobObjectExtendedLimitInformation,
+        ctypes.byref(info),
+        ctypes.sizeof(info),
+        ctypes.byref(returned),
+    )
+    if not ok:
+        return None
+    return {
+        "limit_flags": int(info.BasicLimitInformation.LimitFlags),
+        "active_process_limit": int(info.BasicLimitInformation.ActiveProcessLimit),
+        "job_memory_limit": int(info.JobMemoryLimit),
+        "process_memory_limit": int(info.ProcessMemoryLimit),
+    }
+
+
+def _windows_assign_job(
+    pid: int | None,
+    *,
+    active_process_limit: int | None = None,
+    job_memory_limit_bytes: int | None = None,
+    process_memory_limit_bytes: int | None = None,
+) -> tuple[int | None, str | None]:
+    if pid is None:
+        return None, "missing pid"
+    try:
+        import ctypes
+        from ctypes import wintypes
+    except ImportError:
+        return None, "ctypes unavailable"
+
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    JOBOBJECT_EXTENDED_LIMIT_INFORMATION = _windows_job_structures()
+
     kernel32.CreateJobObjectW.restype = wintypes.HANDLE
     kernel32.CreateJobObjectW.argtypes = [wintypes.LPVOID, wintypes.LPCWSTR]
     kernel32.SetInformationJobObject.restype = wintypes.BOOL
@@ -323,7 +467,19 @@ def _windows_assign_job(pid: int | None) -> tuple[int | None, str | None]:
     if not job:
         return None, f"CreateJobObjectW failed ({ctypes.get_last_error()})"
     info = JOBOBJECT_EXTENDED_LIMIT_INFORMATION()
-    info.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
+    flags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
+    if active_process_limit is not None and active_process_limit > 0:
+        flags |= JOB_OBJECT_LIMIT_ACTIVE_PROCESS
+        info.BasicLimitInformation.ActiveProcessLimit = int(active_process_limit)
+    if job_memory_limit_bytes is not None and job_memory_limit_bytes > 0:
+        # Aggregate ceiling for every process in the job, which is the tree-wide
+        # bound. A per-process limit alone would not bound the tree.
+        flags |= JOB_OBJECT_LIMIT_JOB_MEMORY
+        info.JobMemoryLimit = int(job_memory_limit_bytes)
+    if process_memory_limit_bytes is not None and process_memory_limit_bytes > 0:
+        flags |= JOB_OBJECT_LIMIT_PROCESS_MEMORY
+        info.ProcessMemoryLimit = int(process_memory_limit_bytes)
+    info.BasicLimitInformation.LimitFlags = flags
     if not kernel32.SetInformationJobObject(
         job,
         JobObjectExtendedLimitInformation,
@@ -346,6 +502,35 @@ def _windows_assign_job(pid: int | None) -> tuple[int | None, str | None]:
         kernel32.CloseHandle(job)
         return None, f"AssignProcessToJobObject failed ({ctypes.get_last_error()})"
     return int(job), None
+
+
+def windows_process_in_job(pid: int | None, job_handle: int) -> bool | None:
+    """Kernel check that pid is a member of job_handle. None means undecidable."""
+
+    if pid is None or not job_handle:
+        return None
+    try:
+        import ctypes
+        from ctypes import wintypes
+    except ImportError:
+        return None
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel32.OpenProcess.restype = wintypes.HANDLE
+    handle = kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
+    if not handle:
+        return None
+    kernel32.IsProcessInJob.restype = wintypes.BOOL
+    kernel32.IsProcessInJob.argtypes = [
+        wintypes.HANDLE,
+        wintypes.HANDLE,
+        ctypes.POINTER(wintypes.BOOL),
+    ]
+    member = wintypes.BOOL()
+    ok = kernel32.IsProcessInJob(handle, job_handle, ctypes.byref(member))
+    kernel32.CloseHandle(handle)
+    if not ok:
+        return None
+    return bool(member.value)
 
 
 def _windows_resume(pid: int | None) -> str | None:

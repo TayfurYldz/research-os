@@ -126,6 +126,7 @@ class CapabilityRegistryTests(unittest.TestCase):
         self.assertEqual(
             set(registry.ids()),
             {
+                "browser.page",
                 "diagnostic.echo",
                 "http.authentication",
                 "http.authorization.differential",

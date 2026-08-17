@@ -1,0 +1,121 @@
+{
+  "capability_id": "browser.page",
+  "version": "1",
+  "implementation_reference": "browser.page",
+  "executor_class": "WORKER",
+  "actions": {
+    "observe": {
+      "action_id": "observe",
+      "argument_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["authorized_origin", "path"],
+        "properties": {
+          "authorized_origin": { "type": "string", "minLength": 1, "maxLength": 256 },
+          "path": { "type": "string", "minLength": 1, "maxLength": 256 },
+          "session_context_reference": { "type": "string", "minLength": 1, "maxLength": 128 },
+          "identity_id": { "type": "string", "minLength": 1, "maxLength": 128 },
+          "browser_context_reference": { "type": "string", "minLength": 1, "maxLength": 128 },
+          "page_reference": { "type": "string", "minLength": 1, "maxLength": 128 },
+          "timeout_ms": { "type": "integer", "minimum": 1, "maximum": 8000 }
+        }
+      },
+      "result_schema": {
+        "type": "object",
+        "additionalProperties": true
+      },
+      "minimum_side_effect_level": 0,
+      "maximum_side_effect_level": 0,
+      "target_types": ["opaque_reference"],
+      "network_policy": {
+        "allowed_methods": ["GET"],
+        "max_requests": 16,
+        "redirect": "STOP",
+        "loopback_only": true
+      },
+      "requirements": ["loopback"],
+      "supports_reproduction": false,
+      "supports_negative_control": true,
+      "normalizer_reference": "browser.page.v1"
+    },
+    "navigate": {
+      "action_id": "navigate",
+      "argument_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["authorized_origin", "path"],
+        "properties": {
+          "authorized_origin": { "type": "string", "minLength": 1, "maxLength": 256 },
+          "path": { "type": "string", "minLength": 1, "maxLength": 256 },
+          "session_context_reference": { "type": "string", "minLength": 1, "maxLength": 128 },
+          "identity_id": { "type": "string", "minLength": 1, "maxLength": 128 },
+          "browser_context_reference": { "type": "string", "minLength": 1, "maxLength": 128 },
+          "timeout_ms": { "type": "integer", "minimum": 1, "maximum": 5000 }
+        }
+      },
+      "result_schema": {
+        "type": "object",
+        "additionalProperties": true
+      },
+      "minimum_side_effect_level": 0,
+      "maximum_side_effect_level": 0,
+      "target_types": ["opaque_reference"],
+      "network_policy": {
+        "allowed_methods": ["GET"],
+        "max_requests": 16,
+        "redirect": "STOP",
+        "loopback_only": true
+      },
+      "requirements": ["loopback"],
+      "supports_reproduction": false,
+      "supports_negative_control": true,
+      "normalizer_reference": "browser.page.v1"
+    },
+    "interact": {
+      "action_id": "interact",
+      "argument_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "authorized_origin",
+          "path",
+          "browser_context_reference",
+          "page_reference",
+          "element_reference",
+          "snapshot_fingerprint",
+          "kind"
+        ],
+        "properties": {
+          "authorized_origin": { "type": "string", "minLength": 1, "maxLength": 256 },
+          "path": { "type": "string", "minLength": 1, "maxLength": 256 },
+          "session_context_reference": { "type": "string", "minLength": 1, "maxLength": 128 },
+          "identity_id": { "type": "string", "minLength": 1, "maxLength": 128 },
+          "browser_context_reference": { "type": "string", "minLength": 1, "maxLength": 128 },
+          "page_reference": { "type": "string", "minLength": 1, "maxLength": 128 },
+          "element_reference": { "type": "string", "minLength": 1, "maxLength": 128 },
+          "snapshot_fingerprint": { "type": "string", "minLength": 1, "maxLength": 128 },
+          "kind": { "type": "string", "enum": ["click", "fill", "select", "submit"] },
+          "value": { "type": "string", "maxLength": 256 },
+          "timeout_ms": { "type": "integer", "minimum": 1, "maximum": 8000 }
+        }
+      },
+      "result_schema": {
+        "type": "object",
+        "additionalProperties": true
+      },
+      "minimum_side_effect_level": 1,
+      "maximum_side_effect_level": 1,
+      "target_types": ["opaque_reference"],
+      "network_policy": {
+        "allowed_methods": ["GET", "POST"],
+        "max_requests": 16,
+        "redirect": "STOP",
+        "loopback_only": true
+      },
+      "requirements": ["loopback"],
+      "supports_reproduction": false,
+      "supports_negative_control": true,
+      "normalizer_reference": "browser.page.v1"
+    }
+  }
+}

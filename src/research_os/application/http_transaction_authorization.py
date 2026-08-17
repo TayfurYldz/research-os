@@ -14,13 +14,18 @@ from research_os.core.scope import ScopeCheck, ScopeEvaluationInput, ScopeRuleMa
 from research_os.core.scope_compiler import CompiledScope, evaluate_scope_candidate
 from research_os.platform.url_normalize import normalize_url
 from research_os.research.types import ExperimentPlan
-from research_os.tools.capabilities import HTTP_AUTHENTICATION_CAPABILITY, HTTP_TRANSACTION_CAPABILITY
+from research_os.tools.browser_page_policy import validate_browser_page_arguments
+from research_os.tools.capabilities import (
+    BROWSER_PAGE_CAPABILITY,
+    HTTP_AUTHENTICATION_CAPABILITY,
+    HTTP_TRANSACTION_CAPABILITY,
+)
 from research_os.tools.http_authentication_policy import validate_http_authentication_arguments
 from research_os.tools.http_transaction_policy import validate_http_transaction_arguments
 from research_os.tools.registry import ArgumentValidationIssue
 
 HTTP_SCOPE_CAPABILITIES = frozenset(
-    {HTTP_TRANSACTION_CAPABILITY, HTTP_AUTHENTICATION_CAPABILITY}
+    {HTTP_TRANSACTION_CAPABILITY, HTTP_AUTHENTICATION_CAPABILITY, BROWSER_PAGE_CAPABILITY}
 )
 
 
@@ -41,6 +46,11 @@ def authorize_http_transaction_plan(
 
     if plan.required_capability == HTTP_AUTHENTICATION_CAPABILITY:
         issue = validate_http_authentication_arguments(plan.action, plan.arguments)
+        if issue is not None:
+            return _from_argument_issue(issue)
+        return _authorize_origin_path(plan, compiled_scope)
+    if plan.required_capability == BROWSER_PAGE_CAPABILITY:
+        issue = validate_browser_page_arguments(plan.action, plan.arguments)
         if issue is not None:
             return _from_argument_issue(issue)
         return _authorize_origin_path(plan, compiled_scope)
