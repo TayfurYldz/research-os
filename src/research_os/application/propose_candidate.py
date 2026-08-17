@@ -20,6 +20,7 @@ from research_os.research.candidate import (
     CandidateProposal,
     CandidateState,
     admit_candidate,
+    propose_authorization_differential_candidate,
     propose_diagnostic_candidate,
 )
 
@@ -73,8 +74,12 @@ class ProposeCandidateFromEvidence:
                     context, proposal_id=new_opaque_id()
                 )
             if proposal is None:
+                proposal = propose_authorization_differential_candidate(
+                    context, proposal_id=new_opaque_id()
+                )
+            if proposal is None:
                 raise ApplicationError(
-                    "no diagnostic CandidateProposal can be built from this Evidence"
+                    "no CandidateProposal can be built from this Evidence"
                 )
             decision = admit_candidate(proposal, context)
             admission_record_id = new_opaque_id()

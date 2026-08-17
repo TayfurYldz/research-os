@@ -8,6 +8,7 @@ from typing import Any, Mapping
 
 from research_os.research.assessment import (
     DIAGNOSTIC_ECHO_EVALUATION_STRATEGY,
+    HTTP_AUTHORIZATION_DIFFERENTIAL_EVALUATION_STRATEGY,
     AssessmentOutcome,
     UNUSABLE_ATTEMPT_STATES,
     UNUSABLE_EXECUTION_OUTCOMES,
@@ -15,10 +16,23 @@ from research_os.research.assessment import (
 )
 from research_os.research.types import ResearchInputError
 
-EVIDENCE_ADMISSION_POLICY_VERSION = "evidence.admission.diagnostic.echo.v1"
+EVIDENCE_ADMISSION_POLICY_VERSION = "evidence.admission.v1"
 DIAGNOSTIC_ECHO_MATCHED_CLAIM = "diagnostic echo observation matched the executed plan"
 DIAGNOSTIC_ECHO_MISMATCHED_CLAIM = (
     "diagnostic echo observation did not match the executed plan"
+)
+HTTP_AUTHORIZATION_DIFFERENTIAL_CLAIM = (
+    "Authenticated actor can read another actor's account object because object "
+    "authorization is missing on the vulnerable endpoint."
+)
+HTTP_AUTHORIZATION_CONTROL_HELD_CLAIM = (
+    "observed HTTP differential does not establish missing object access control"
+)
+SUPPORTED_EVIDENCE_STRATEGIES = frozenset(
+    {
+        DIAGNOSTIC_ECHO_EVALUATION_STRATEGY,
+        HTTP_AUTHORIZATION_DIFFERENTIAL_EVALUATION_STRATEGY,
+    }
 )
 
 FORBIDDEN_EVIDENCE_KEYS = frozenset(
@@ -273,6 +287,44 @@ def propose_diagnostic_echo_evidence(
     )
 
 
+def propose_authorization_differential_evidence(
+    context: EvidenceAdmissionContext,
+    *,
+    proposal_id: str,
+) -> EvidenceProposal | None:
+    """Deterministic lab differential proposal. Not a Finding."""
+
+    if context.evaluation_strategy != HTTP_AUTHORIZATION_DIFFERENTIAL_EVALUATION_STRATEGY:
+        return None
+    if context.execution_unusable:
+        return None
+    if context.assessment_id is None or context.assessment_outcome is None:
+        return None
+    if not context.observations:
+        return None
+    if context.assessment_outcome is not AssessmentOutcome.CONSISTENT_WITH_PREDICTION:
+        return None
+    return EvidenceProposal(
+        proposal_id=proposal_id,
+        research_run_id=context.research_run_id,
+        hypothesis_id=context.hypothesis_id,
+        experiment_id=context.experiment_id,
+        observation_ids=tuple(item.observation_id for item in context.observations),
+        assessment_ids=(context.assessment_id,),
+        polarity=EvidencePolarity.SUPPORTING,
+        claim_scope=HTTP_AUTHORIZATION_DIFFERENTIAL_CLAIM,
+        rationale={
+            "reason_code": "AUTHORIZATION_DIFFERENTIAL_ESTABLISHED",
+            "evaluation_strategy": context.evaluation_strategy,
+        },
+        provenance={
+            "source": "http.authorization.differential.deterministic",
+            "assessment_id": context.assessment_id,
+            "experiment_id": context.experiment_id,
+        },
+    )
+
+
 def admit_evidence(
     proposal: EvidenceProposal,
     context: EvidenceAdmissionContext,
@@ -320,13 +372,15 @@ def admit_evidence(
             proposal=proposal,
             admitted=False,
         )
-    if context.evaluation_strategy != DIAGNOSTIC_ECHO_EVALUATION_STRATEGY:
+    if context.evaluation_strategy not in SUPPORTED_EVIDENCE_STRATEGIES:
         return EvidenceAdmissionDecision(
             outcome=EvidenceAdmissionOutcome.REJECTED_POLICY_CONFLICT,
             reason_codes=("UNSUPPORTED_EVALUATION_STRATEGY", *codes),
             proposal=proposal,
             admitted=False,
         )
+    if context.evaluation_strategy == HTTP_AUTHORIZATION_DIFFERENTIAL_EVALUATION_STRATEGY:
+        return _admit_http_authorization_evidence(proposal, context, codes)
     if context.assessment_outcome not in {
         AssessmentOutcome.CONSISTENT_WITH_PREDICTION,
         AssessmentOutcome.CONTRADICTS_PREDICTION,
@@ -359,6 +413,47 @@ def admit_evidence(
     return EvidenceAdmissionDecision(
         outcome=EvidenceAdmissionOutcome.ADMITTED,
         reason_codes=("DIAGNOSTIC_ECHO_PROVENANCE_INTACT",),
+        proposal=proposal,
+        admitted=True,
+    )
+
+
+def _admit_http_authorization_evidence(
+    proposal: EvidenceProposal,
+    context: EvidenceAdmissionContext,
+    codes: list[str],
+) -> EvidenceAdmissionDecision:
+    if context.assessment_outcome is not AssessmentOutcome.CONSISTENT_WITH_PREDICTION:
+        return EvidenceAdmissionDecision(
+            outcome=EvidenceAdmissionOutcome.REJECTED_INSUFFICIENT_SUPPORT,
+            reason_codes=("DIFFERENTIAL_DOES_NOT_ESTABLISH_MISSING_OBJECT_ACCESS_CONTROL", *codes),
+            proposal=proposal,
+            admitted=False,
+        )
+    if proposal.claim_scope != HTTP_AUTHORIZATION_DIFFERENTIAL_CLAIM:
+        return EvidenceAdmissionDecision(
+            outcome=EvidenceAdmissionOutcome.REJECTED_POLICY_CONFLICT,
+            reason_codes=("CLAIM_EXCEEDS_SOURCES", *codes),
+            proposal=proposal,
+            admitted=False,
+        )
+    if proposal.polarity is not EvidencePolarity.SUPPORTING:
+        return EvidenceAdmissionDecision(
+            outcome=EvidenceAdmissionOutcome.REJECTED_INSUFFICIENT_SUPPORT,
+            reason_codes=("POLARITY_DOES_NOT_SUPPORT_CLAIM", *codes),
+            proposal=proposal,
+            admitted=False,
+        )
+    if codes:
+        return EvidenceAdmissionDecision(
+            outcome=EvidenceAdmissionOutcome.REJECTED_INSUFFICIENT_SUPPORT,
+            reason_codes=tuple(codes),
+            proposal=proposal,
+            admitted=False,
+        )
+    return EvidenceAdmissionDecision(
+        outcome=EvidenceAdmissionOutcome.ADMITTED,
+        reason_codes=("HTTP_AUTHORIZATION_DIFFERENTIAL_PROVENANCE_INTACT",),
         proposal=proposal,
         admitted=True,
     )

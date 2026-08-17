@@ -9,9 +9,17 @@ from dataclasses import dataclass
 
 from research_os.application.errors import ApplicationError
 from research_os.application.ports import UnitOfWorkFactory
-from research_os.research.candidate import CandidateState, start_candidate_verification
+from research_os.research.candidate import (
+    HTTP_AUTHORIZATION_DIFFERENTIAL_CLASSIFICATION,
+    CandidateState,
+    start_candidate_verification,
+)
 from research_os.research.types import ResearchInputError
-from research_os.research.verification import VerificationPlan, plan_diagnostic_verification
+from research_os.research.verification import (
+    VerificationPlan,
+    plan_authorization_differential_verification,
+    plan_diagnostic_verification,
+)
 
 
 @dataclass(frozen=True)
@@ -42,8 +50,14 @@ class StartCandidateVerification:
                 next_state = start_candidate_verification(current)
             except (ResearchInputError, ValueError) as exc:
                 raise ApplicationError(str(exc)) from exc
-            plan = plan_diagnostic_verification(
-                candidate.candidate_id, candidate.evidence_ids
+            plan = (
+                plan_authorization_differential_verification(
+                    candidate.candidate_id, candidate.evidence_ids
+                )
+                if candidate.classification == HTTP_AUTHORIZATION_DIFFERENTIAL_CLASSIFICATION
+                else plan_diagnostic_verification(
+                    candidate.candidate_id, candidate.evidence_ids
+                )
             )
             uow.candidates.set_state(candidate.candidate_id, next_state.value)
             uow.commit()

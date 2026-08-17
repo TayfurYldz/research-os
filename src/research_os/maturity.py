@@ -17,6 +17,7 @@ PRODUCTION_READY = False
 
 GATE_12_STATUS = "PASS"
 GATE_13_STATUS = "PASS"
+GATE_14_STATUS = "PENDING"
 GATE_04B_STATUS = "PENDING"
 SUBSCRIPTION_OAUTH_STATUS = "NOT_IMPLEMENTED"
 
@@ -31,6 +32,7 @@ def maturity_mapping() -> dict[str, object]:
         "GATE_04B": GATE_04B_STATUS,
         "GATE_12": GATE_12_STATUS,
         "GATE_13": GATE_13_STATUS,
+        "GATE_14": GATE_14_STATUS,
         "SUBSCRIPTION_OAUTH": SUBSCRIPTION_OAUTH_STATUS,
         "contains_secrets": False,
     }

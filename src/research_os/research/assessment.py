@@ -25,6 +25,9 @@ class EvaluatorKind(Enum):
 
 
 DIAGNOSTIC_ECHO_EVALUATION_STRATEGY = "diagnostic.echo.v1"
+HTTP_AUTHORIZATION_DIFFERENTIAL_EVALUATION_STRATEGY = (
+    "http.authorization.differential.v1"
+)
 
 UNUSABLE_EXECUTION_OUTCOMES = frozenset(
     {
@@ -134,10 +137,14 @@ class ExperimentEvaluatorRegistry:
 
 
 def default_evaluator_registry() -> ExperimentEvaluatorRegistry:
+    from research_os.research.evaluators.authorization_differential import (
+        HttpAuthorizationDifferentialEvaluator,
+    )
     from research_os.research.evaluators.diagnostic_echo import DiagnosticEchoEvaluator
 
     registry = ExperimentEvaluatorRegistry()
     registry.register(DiagnosticEchoEvaluator())
+    registry.register(HttpAuthorizationDifferentialEvaluator())
     return registry
 
 

@@ -6,12 +6,18 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Any, Mapping
 
-from research_os.research.evidence import DIAGNOSTIC_ECHO_MATCHED_CLAIM, EvidencePolarity
+from research_os.research.evidence import (
+    DIAGNOSTIC_ECHO_MATCHED_CLAIM,
+    HTTP_AUTHORIZATION_DIFFERENTIAL_CLAIM,
+    EvidencePolarity,
+)
 from research_os.research.types import ResearchInputError
 
-CANDIDATE_ADMISSION_POLICY_VERSION = "candidate.admission.diagnostic.echo.v1"
+CANDIDATE_ADMISSION_POLICY_VERSION = "candidate.admission.v1"
 DIAGNOSTIC_CANDIDATE_CLASSIFICATION = "DIAGNOSTIC_PLUMBING"
 DIAGNOSTIC_CANDIDATE_CLAIM = DIAGNOSTIC_ECHO_MATCHED_CLAIM
+HTTP_AUTHORIZATION_DIFFERENTIAL_CLASSIFICATION = "HTTP_AUTHORIZATION_DIFFERENTIAL"
+HTTP_AUTHORIZATION_DIFFERENTIAL_CANDIDATE_CLAIM = HTTP_AUTHORIZATION_DIFFERENTIAL_CLAIM
 
 FORBIDDEN_CANDIDATE_KEYS = frozenset(
     {
@@ -26,7 +32,12 @@ FORBIDDEN_CANDIDATE_KEYS = frozenset(
     }
 )
 
-ALLOWED_CANDIDATE_CLASSIFICATIONS = frozenset({DIAGNOSTIC_CANDIDATE_CLASSIFICATION})
+ALLOWED_CANDIDATE_CLASSIFICATIONS = frozenset(
+    {
+        DIAGNOSTIC_CANDIDATE_CLASSIFICATION,
+        HTTP_AUTHORIZATION_DIFFERENTIAL_CLASSIFICATION,
+    }
+)
 
 
 class CandidateState(Enum):
@@ -259,6 +270,40 @@ def propose_diagnostic_candidate(
     )
 
 
+def propose_authorization_differential_candidate(
+    context: CandidateAdmissionContext,
+    *,
+    proposal_id: str,
+) -> CandidateProposal | None:
+    """Bounded object-access Candidate. Not a Finding and not a CVSS score."""
+
+    if len(context.evidence) != 1:
+        return None
+    evidence = context.evidence[0]
+    if evidence.polarity != EvidencePolarity.SUPPORTING.value:
+        return None
+    if evidence.claim_scope != HTTP_AUTHORIZATION_DIFFERENTIAL_CLAIM:
+        return None
+    if evidence.research_run_id != context.research_run_id:
+        return None
+    return CandidateProposal(
+        proposal_id=proposal_id,
+        research_run_id=context.research_run_id,
+        hypothesis_id=context.hypothesis_id,
+        evidence_ids=(evidence.evidence_id,),
+        claim=HTTP_AUTHORIZATION_DIFFERENTIAL_CANDIDATE_CLAIM,
+        classification=HTTP_AUTHORIZATION_DIFFERENTIAL_CLASSIFICATION,
+        rationale={
+            "reason_code": "HTTP_AUTHORIZATION_DIFFERENTIAL_EVIDENCE_SEEDED",
+            "not_a_finding": True,
+        },
+        provenance={
+            "source": "http.authorization.differential.candidate",
+            "evidence_id": evidence.evidence_id,
+        },
+    )
+
+
 def admit_candidate(
     proposal: CandidateProposal,
     context: CandidateAdmissionContext,
@@ -314,10 +359,20 @@ def admit_candidate(
             admitted=False,
             initial_state=None,
         )
-    if proposal.claim != DIAGNOSTIC_CANDIDATE_CLAIM:
+    expected_claim = (
+        HTTP_AUTHORIZATION_DIFFERENTIAL_CANDIDATE_CLAIM
+        if proposal.classification == HTTP_AUTHORIZATION_DIFFERENTIAL_CLASSIFICATION
+        else DIAGNOSTIC_CANDIDATE_CLAIM
+    )
+    expected_evidence_claim = (
+        HTTP_AUTHORIZATION_DIFFERENTIAL_CLAIM
+        if proposal.classification == HTTP_AUTHORIZATION_DIFFERENTIAL_CLASSIFICATION
+        else DIAGNOSTIC_ECHO_MATCHED_CLAIM
+    )
+    if proposal.claim != expected_claim:
         return CandidateAdmissionDecision(
             outcome=CandidateAdmissionOutcome.REJECTED_NOT_TESTABLE,
-            reason_codes=("CLAIM_NOT_DIAGNOSTIC_TESTABLE", *codes),
+            reason_codes=("CLAIM_NOT_TESTABLE_FOR_CLASSIFICATION", *codes),
             proposal=proposal,
             admitted=False,
             initial_state=None,
@@ -327,7 +382,7 @@ def admit_candidate(
         for item in context.evidence
         if item.evidence_id in proposal.evidence_ids
         and item.polarity == EvidencePolarity.SUPPORTING.value
-        and item.claim_scope == DIAGNOSTIC_ECHO_MATCHED_CLAIM
+        and item.claim_scope == expected_evidence_claim
     ]
     if not supporting:
         return CandidateAdmissionDecision(
@@ -362,9 +417,14 @@ def admit_candidate(
             admitted=False,
             initial_state=None,
         )
+    reason = (
+        "HTTP_AUTHORIZATION_DIFFERENTIAL_CANDIDATE_SEEDED_FROM_EVIDENCE"
+        if proposal.classification == HTTP_AUTHORIZATION_DIFFERENTIAL_CLASSIFICATION
+        else "DIAGNOSTIC_CANDIDATE_SEEDED_FROM_EVIDENCE"
+    )
     return CandidateAdmissionDecision(
         outcome=CandidateAdmissionOutcome.ADMITTED,
-        reason_codes=("DIAGNOSTIC_CANDIDATE_SEEDED_FROM_EVIDENCE",),
+        reason_codes=(reason,),
         proposal=proposal,
         admitted=True,
         initial_state=CandidateState.OPEN,

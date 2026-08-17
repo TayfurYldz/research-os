@@ -6,17 +6,25 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Any, Mapping
 
+from research_os.research.assessment import AssessmentOutcome
 from research_os.research.candidate import CandidateState, transition_candidate
 from research_os.research.evidence import (
     DIAGNOSTIC_ECHO_MATCHED_CLAIM,
     DIAGNOSTIC_ECHO_MISMATCHED_CLAIM,
+    HTTP_AUTHORIZATION_DIFFERENTIAL_CLAIM,
     EvidencePolarity,
 )
 from research_os.research.types import ResearchInputError
 
 DIAGNOSTIC_VERIFICATION_STRATEGY = "diagnostic.echo.reproduction.v1"
+HTTP_AUTHORIZATION_DIFFERENTIAL_VERIFICATION_STRATEGY = (
+    "http.authorization.differential.reproduction.v1"
+)
 DIAGNOSTIC_VERIFIER_KIND = "DETERMINISTIC"
 DIAGNOSTIC_VERIFIER_IDENTITY = "diagnostic.echo.verifier.v1"
+HTTP_AUTHORIZATION_DIFFERENTIAL_VERIFIER_IDENTITY = (
+    "http.authorization.differential.verifier.v1"
+)
 DIAGNOSTIC_NEGATIVE_CONTROL_TOKEN = "__diagnostic_control_fail__"
 
 FORBIDDEN_VERIFICATION_KEYS = frozenset(
@@ -75,6 +83,7 @@ class VerificationEvidenceRef:
     polarity: str
     claim_scope: str
     observed_echo: str | None = None
+    observed_facts: Mapping[str, Any] | None = None
 
     def __post_init__(self) -> None:
         object.__setattr__(
@@ -103,6 +112,12 @@ class VerificationEvidenceRef:
                 self,
                 "observed_echo",
                 _require_text(self.observed_echo, "observed_echo"),
+            )
+        if self.observed_facts is not None:
+            object.__setattr__(
+                self,
+                "observed_facts",
+                _reject_forbidden(self.observed_facts, "observed_facts"),
             )
 
 
@@ -181,6 +196,10 @@ class VerificationContext:
     authoritative_out_of_scope: bool = False
     duplicate_of_candidate_id: str | None = None
     known_duplicate_exists: bool = False
+    reproduction_assessment_outcome: AssessmentOutcome | None = None
+    reproduction_experiment_id: str | None = None
+    reproduction_request_id: str | None = None
+    reproduction_observation_ids: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         object.__setattr__(
@@ -211,6 +230,22 @@ class VerificationContext:
                     self.duplicate_of_candidate_id, "duplicate_of_candidate_id"
                 ),
             )
+        if self.reproduction_experiment_id is not None:
+            object.__setattr__(
+                self,
+                "reproduction_experiment_id",
+                _require_text(
+                    self.reproduction_experiment_id, "reproduction_experiment_id"
+                ),
+            )
+        if self.reproduction_request_id is not None:
+            object.__setattr__(
+                self,
+                "reproduction_request_id",
+                _require_text(self.reproduction_request_id, "reproduction_request_id"),
+            )
+        if not isinstance(self.reproduction_observation_ids, tuple):
+            raise ResearchInputError("reproduction_observation_ids must be a tuple")
 
 
 @dataclass(frozen=True)
@@ -290,6 +325,34 @@ def plan_diagnostic_verification(
     )
 
 
+def plan_authorization_differential_verification(
+    candidate_id: str,
+    original_evidence_ids: tuple[str, ...],
+) -> VerificationPlan:
+    return VerificationPlan(
+        candidate_id=candidate_id,
+        verification_strategy=HTTP_AUTHORIZATION_DIFFERENTIAL_VERIFICATION_STRATEGY,
+        expected_security_behavior=(
+            "object access control prevents an authenticated actor from reading another "
+            "actor's account object"
+        ),
+        observed_behavior_to_confirm=(
+            "fresh independent experiment reproduces cross-object account read with the "
+            "returned object owner proven"
+        ),
+        negative_control_intent=(
+            "secure-control and unauthenticated requests remain denied"
+        ),
+        alternative_explanations_to_test=(
+            "original observation reused as sole proof",
+            "HTTP 200 without proven object owner",
+            "secure control would also return the other actor's object",
+        ),
+        required_original_evidence_ids=original_evidence_ids,
+        maximum_side_effect_level=0,
+    )
+
+
 def _independent(original: VerificationEvidenceRef, reproduction: VerificationEvidenceRef) -> bool:
     if original.evidence_id == reproduction.evidence_id:
         return False
@@ -310,6 +373,7 @@ def _result(
     reproduction_ids: tuple[str, ...] = (),
     control_ids: tuple[str, ...] = (),
     checks: Mapping[str, Any] | None = None,
+    verifier_identity: str | None = None,
 ) -> VerificationResult:
     return VerificationResult(
         outcome=outcome,
@@ -320,7 +384,7 @@ def _result(
         negative_control_evidence_ids=control_ids,
         alternative_explanation_checks=dict(checks or {}),
         verifier_kind=DIAGNOSTIC_VERIFIER_KIND,
-        verifier_identity=DIAGNOSTIC_VERIFIER_IDENTITY,
+        verifier_identity=verifier_identity or DIAGNOSTIC_VERIFIER_IDENTITY,
         strategy=context.plan.verification_strategy,
     )
 
@@ -453,6 +517,124 @@ def evaluate_diagnostic_verification(context: VerificationContext) -> Verificati
         reproduction_ids=(reproduction.evidence_id,),
         control_ids=control_ids,
         checks=checks,
+    )
+
+
+def evaluate_authorization_differential_verification(
+    context: VerificationContext,
+) -> VerificationResult:
+    """Independent reproduction verifier. Original Evidence cannot self-validate."""
+
+    identity = HTTP_AUTHORIZATION_DIFFERENTIAL_VERIFIER_IDENTITY
+    if context.plan.candidate_id != context.candidate_id:
+        raise ResearchInputError("VerificationPlan candidate_id mismatch")
+    if context.plan.verification_strategy != HTTP_AUTHORIZATION_DIFFERENTIAL_VERIFICATION_STRATEGY:
+        raise ResearchInputError("unsupported verification strategy")
+    if context.original_evidence.research_run_id != context.research_run_id:
+        raise ResearchInputError("original evidence is not in the Candidate research run")
+    if context.authoritative_out_of_scope:
+        return _result(
+            VerificationOutcome.OUT_OF_SCOPE,
+            context,
+            ("AUTHORITATIVE_OUT_OF_SCOPE",),
+            verifier_identity=identity,
+        )
+    if context.reproduction_execution_unusable:
+        return _result(
+            VerificationOutcome.INCONCLUSIVE,
+            context,
+            ("REPRODUCTION_UNUSABLE", "FAILURE_TO_VERIFY_IS_NOT_REJECTION"),
+            verifier_identity=identity,
+        )
+    if not _reproduction_independent_of_original(context):
+        return _result(
+            VerificationOutcome.INCONCLUSIVE,
+            context,
+            ("REPRODUCTION_NOT_INDEPENDENT", "CANNOT_SELF_VALIDATE"),
+            reproduction_ids=_reproduction_ids(context),
+            verifier_identity=identity,
+        )
+    reproduction = context.reproduction_evidence
+    if (
+        reproduction is not None
+        and reproduction.polarity == EvidencePolarity.SUPPORTING.value
+        and reproduction.claim_scope == HTTP_AUTHORIZATION_DIFFERENTIAL_CLAIM
+        and _controls_held(reproduction.observed_facts)
+    ):
+        return _result(
+            VerificationOutcome.VALIDATED,
+            context,
+            (
+                "REPRODUCTION_INDEPENDENT",
+                "NEGATIVE_CONTROL_HELD",
+                "HTTP_AUTHORIZATION_DIFFERENTIAL_REPRODUCED",
+            ),
+            reproduction_ids=(reproduction.evidence_id,),
+            checks={
+                "negative_control_held": True,
+                "not_a_finding": True,
+            },
+            verifier_identity=identity,
+        )
+    if context.reproduction_assessment_outcome is AssessmentOutcome.CONTRADICTS_PREDICTION:
+        return _result(
+            VerificationOutcome.REJECTED,
+            context,
+            ("REPRODUCTION_CONTRADICTS_CLAIM", "OBJECT_ACCESS_CONTROL_HELD"),
+            reproduction_ids=_reproduction_ids(context),
+            verifier_identity=identity,
+        )
+    return _result(
+        VerificationOutcome.INCONCLUSIVE,
+        context,
+        ("REPRODUCTION_DOES_NOT_SUPPORT_CLAIM",),
+        reproduction_ids=_reproduction_ids(context),
+        verifier_identity=identity,
+    )
+
+
+def _reproduction_ids(context: VerificationContext) -> tuple[str, ...]:
+    if context.reproduction_evidence is None:
+        return ()
+    return (context.reproduction_evidence.evidence_id,)
+
+
+def _reproduction_independent_of_original(context: VerificationContext) -> bool:
+    original = context.original_evidence
+    reproduction = context.reproduction_evidence
+    experiment_id = context.reproduction_experiment_id
+    request_id = context.reproduction_request_id
+    observation_ids = context.reproduction_observation_ids
+    if reproduction is not None:
+        experiment_id = reproduction.experiment_id
+        request_id = reproduction.request_id
+        observation_ids = reproduction.observation_ids
+        if original.evidence_id == reproduction.evidence_id:
+            return False
+    if not experiment_id or not request_id:
+        return False
+    if original.experiment_id == experiment_id:
+        return False
+    if original.request_id == request_id:
+        return False
+    if set(original.observation_ids) & set(observation_ids):
+        return False
+    return True
+
+
+def _controls_held(facts: Mapping[str, Any] | None) -> bool:
+    if not isinstance(facts, Mapping):
+        return False
+    secure = facts.get("secure_control_status")
+    unauth = facts.get("unauthenticated_control_status")
+    cross_owner = facts.get("cross_object_request_object_owner")
+    cross_status = facts.get("cross_object_request_status")
+    return (
+        secure == 403
+        and unauth in {401, 403}
+        and cross_status == 200
+        and isinstance(cross_owner, str)
+        and bool(cross_owner.strip())
     )
 
 

@@ -664,7 +664,7 @@ class PostgresSpineTests(unittest.TestCase):
                     )
                 )
             }
-        self.assertEqual(version, "a17_001_qa_remediation")
+        self.assertEqual(version, "a18_001_http_auth_class")
         self.assertIn("execution_attempt", tables)
         self.assertIn("worker_result", tables)
         self.assertIn("audit_event", tables)

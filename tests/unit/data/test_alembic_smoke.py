@@ -25,6 +25,7 @@ A14_MIGRATION = ALEMBIC_VERSIONS / "a14_001_invariant_chain.py"
 A15_MIGRATION = ALEMBIC_VERSIONS / "a15_001_exploration_temporal.py"
 A16_MIGRATION = ALEMBIC_VERSIONS / "a16_001_orchestration_operations.py"
 A17_MIGRATION = ALEMBIC_VERSIONS / "a17_001_qa_remediation.py"
+A18_MIGRATION = ALEMBIC_VERSIONS / "a18_001_http_auth_class.py"
 
 
 def _imported_modules(tree: ast.AST) -> set[str]:
@@ -267,6 +268,15 @@ class AlembicSmokeTests(unittest.TestCase):
         self.assertNotIn("create_all", source)
         a16 = A16_MIGRATION.read_text(encoding="utf-8")
         self.assertNotIn("configuration_fingerprint", a16)
+
+    def test_a18_migration_is_append_only_classification_extension(self) -> None:
+        source = A18_MIGRATION.read_text(encoding="utf-8")
+        self.assertIn("a18_001_http_auth_class", source)
+        self.assertIn("a17_001_qa_remediation", source)
+        self.assertIn("HTTP_AUTHORIZATION_DIFFERENTIAL", source)
+        self.assertNotIn("create_all", source)
+        a17 = A17_MIGRATION.read_text(encoding="utf-8")
+        self.assertNotIn("HTTP_AUTHORIZATION_DIFFERENTIAL", a17)
 
 
 if __name__ == "__main__":

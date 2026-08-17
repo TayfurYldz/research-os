@@ -21,15 +21,21 @@ from research_os.data.records import (
 from research_os.research.assessment import (
     UNUSABLE_ATTEMPT_STATES,
     UNUSABLE_EXPERIMENT_STATES,
+    AssessmentOutcome,
 )
-from research_os.research.candidate import CandidateState
+from research_os.research.candidate import (
+    HTTP_AUTHORIZATION_DIFFERENTIAL_CLASSIFICATION,
+    CandidateState,
+)
 from research_os.research.types import ResearchInputError
 from research_os.research.verification import (
     VerificationContext,
     VerificationEvidenceRef,
     VerificationOutcome,
     apply_verification_to_candidate,
+    evaluate_authorization_differential_verification,
     evaluate_diagnostic_verification,
+    plan_authorization_differential_verification,
     plan_diagnostic_verification,
 )
 
@@ -77,6 +83,10 @@ class CompleteCandidateVerification:
             original_ref = _evidence_ref(uow, original)
             reproduction = None
             reproduction_unusable = False
+            reproduction_assessment_outcome = None
+            reproduction_experiment_id = None
+            reproduction_request_id = None
+            reproduction_observation_ids: tuple[str, ...] = ()
             if command.reproduction_experiment_id is not None:
                 experiment = uow.experiments.get(command.reproduction_experiment_id)
                 if experiment is None:
@@ -84,19 +94,39 @@ class CompleteCandidateVerification:
                 if experiment.research_run_id != candidate.research_run_id:
                     raise ApplicationError("reproduction experiment is not in this research run")
                 items = uow.evidence.list_for_experiment(command.reproduction_experiment_id)
+                attempts = tuple(
+                    uow.execution_attempts.list_for_experiment(
+                        command.reproduction_experiment_id
+                    )
+                )
+                worker_results = tuple(
+                    uow.worker_results.list_for_experiment(
+                        command.reproduction_experiment_id
+                    )
+                )
+                observations = tuple(
+                    uow.observations.list_for_experiment(command.reproduction_experiment_id)
+                )
+                assessments = uow.hypothesis_assessments.list_for_experiment(
+                    command.reproduction_experiment_id
+                )
                 reproduction_unusable = _execution_unusable(
                     experiment=experiment,
-                    attempts=tuple(
-                        uow.execution_attempts.list_for_experiment(
-                            command.reproduction_experiment_id
-                        )
-                    ),
-                    worker_results=tuple(
-                        uow.worker_results.list_for_experiment(
-                            command.reproduction_experiment_id
-                        )
-                    ),
+                    attempts=attempts,
+                    worker_results=worker_results,
                 )
+                reproduction_experiment_id = experiment.experiment_id
+                if attempts:
+                    reproduction_request_id = attempts[0].request_id
+                elif worker_results:
+                    reproduction_request_id = worker_results[0].request_id
+                reproduction_observation_ids = tuple(
+                    item.observation_id for item in observations
+                )
+                if assessments:
+                    reproduction_assessment_outcome = AssessmentOutcome(
+                        assessments[-1].assessment_outcome
+                    )
                 if items:
                     reproduction = _evidence_ref(uow, items[0])
             control = None
@@ -110,8 +140,17 @@ class CompleteCandidateVerification:
             if command.duplicate_of_candidate_id is not None:
                 known = uow.candidates.get(command.duplicate_of_candidate_id)
                 known_duplicate_exists = known is not None
-            plan = plan_diagnostic_verification(
-                candidate.candidate_id, candidate.evidence_ids
+            http_classification = (
+                candidate.classification == HTTP_AUTHORIZATION_DIFFERENTIAL_CLASSIFICATION
+            )
+            plan = (
+                plan_authorization_differential_verification(
+                    candidate.candidate_id, candidate.evidence_ids
+                )
+                if http_classification
+                else plan_diagnostic_verification(
+                    candidate.candidate_id, candidate.evidence_ids
+                )
             )
             context = VerificationContext(
                 candidate_id=candidate.candidate_id,
@@ -127,8 +166,16 @@ class CompleteCandidateVerification:
                 authoritative_out_of_scope=command.authoritative_out_of_scope,
                 duplicate_of_candidate_id=command.duplicate_of_candidate_id,
                 known_duplicate_exists=known_duplicate_exists,
+                reproduction_assessment_outcome=reproduction_assessment_outcome,
+                reproduction_experiment_id=reproduction_experiment_id,
+                reproduction_request_id=reproduction_request_id,
+                reproduction_observation_ids=reproduction_observation_ids,
             )
-            result = evaluate_diagnostic_verification(context)
+            result = (
+                evaluate_authorization_differential_verification(context)
+                if http_classification
+                else evaluate_diagnostic_verification(context)
+            )
             try:
                 next_state = apply_verification_to_candidate(current, result)
             except ResearchInputError as exc:
@@ -183,6 +230,7 @@ def _evidence_ref(uow, evidence: EvidenceRecord) -> VerificationEvidenceRef:
         raise ApplicationError("cannot resolve request_id for Evidence experiment")
     observations = uow.observations.list_for_experiment(evidence.experiment_id)
     echoed = _echoed_value(observations, evidence.observation_ids)
+    facts = _observation_facts(observations, evidence.observation_ids)
     return VerificationEvidenceRef(
         evidence_id=evidence.evidence_id,
         research_run_id=evidence.research_run_id,
@@ -192,7 +240,20 @@ def _evidence_ref(uow, evidence: EvidenceRecord) -> VerificationEvidenceRef:
         polarity=evidence.polarity,
         claim_scope=evidence.claim_scope,
         observed_echo=echoed,
+        observed_facts=facts or None,
     )
+
+
+def _observation_facts(
+    observations: list[ObservationRecord], observation_ids: tuple[str, ...]
+) -> dict:
+    wanted = set(observation_ids)
+    for item in observations:
+        if item.observation_id not in wanted:
+            continue
+        if item.observation_kind == "HTTP_AUTHORIZATION_DIFFERENTIAL":
+            return dict(item.payload)
+    return {}
 
 
 def _echoed_value(

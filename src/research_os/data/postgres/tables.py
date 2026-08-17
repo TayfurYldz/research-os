@@ -502,7 +502,7 @@ candidate = Table(
         name="ck_candidate_state",
     ),
     CheckConstraint(
-        "classification IN ('DIAGNOSTIC_PLUMBING')",
+        "classification IN ('DIAGNOSTIC_PLUMBING', 'HTTP_AUTHORIZATION_DIFFERENTIAL')",
         name="ck_candidate_classification",
     ),
 )
@@ -541,7 +541,7 @@ candidate_admission = Table(
         name="ck_candidate_admission_candidate_presence",
     ),
     CheckConstraint(
-        "classification IS NULL OR classification IN ('DIAGNOSTIC_PLUMBING')",
+        "classification IS NULL OR classification IN ('DIAGNOSTIC_PLUMBING', 'HTTP_AUTHORIZATION_DIFFERENTIAL')",
         name="ck_candidate_admission_classification",
     ),
 )
@@ -602,7 +602,7 @@ finding_proposal = Table(
         name="ck_finding_proposal_state",
     ),
     CheckConstraint(
-        "classification IN ('DIAGNOSTIC_PLUMBING')",
+        "classification IN ('DIAGNOSTIC_PLUMBING', 'HTTP_AUTHORIZATION_DIFFERENTIAL')",
         name="ck_finding_proposal_classification",
     ),
 )
@@ -672,7 +672,7 @@ finding = Table(
     Column("created_at", DateTime(timezone=True), nullable=False),
     UniqueConstraint("finding_proposal_id", name="uq_finding_proposal_id"),
     CheckConstraint(
-        "classification IN ('DIAGNOSTIC_PLUMBING')",
+        "classification IN ('DIAGNOSTIC_PLUMBING', 'HTTP_AUTHORIZATION_DIFFERENTIAL')",
         name="ck_finding_classification",
     ),
 )

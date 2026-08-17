@@ -237,8 +237,8 @@ class FinalizeFinding:
                         payload={
                             "proposal_id": proposal.proposal_id,
                             "candidate_id": candidate.candidate_id,
-                            "not_a_vulnerability": True,
-                            "classification": "DIAGNOSTIC_PLUMBING",
+                            "not_a_finding_until_approval": True,
+                            "classification": proposal.classification,
                         },
                     )
                 )

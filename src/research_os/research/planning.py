@@ -4,16 +4,35 @@ from __future__ import annotations
 
 import json
 
-from research_os.research.assessment import DIAGNOSTIC_ECHO_EVALUATION_STRATEGY
+from research_os.research.assessment import (
+    DIAGNOSTIC_ECHO_EVALUATION_STRATEGY,
+    HTTP_AUTHORIZATION_DIFFERENTIAL_EVALUATION_STRATEGY,
+)
 from research_os.research.proposals import HypothesisChallenge, HypothesisProposal
 from research_os.research.types import ExperimentPlan, HypothesisDraft, ResearchInputError
-from research_os.tools.capabilities import DIAGNOSTIC_ECHO_ACTION, DIAGNOSTIC_ECHO_CAPABILITY
+from research_os.tools.capabilities import (
+    DIAGNOSTIC_ECHO_ACTION,
+    DIAGNOSTIC_ECHO_CAPABILITY,
+    HTTP_AUTHORIZATION_DIFFERENTIAL_ACTION,
+    HTTP_AUTHORIZATION_DIFFERENTIAL_CAPABILITY,
+)
 
 HUMAN_ORIGIN = "human"
 DIAGNOSTIC_LOOP_STATEMENT = "diagnostic runtime returns the provided echo value"
 DIAGNOSTIC_CLAIM = "The diagnostic capability returns the submitted value."
 DIAGNOSTIC_EXPECTED_OBSERVATION = "echoed value matches input"
 DIAGNOSTIC_DISCONFIRMING_OBSERVATION = "no result or mismatched value"
+HTTP_AUTHORIZATION_DIFFERENTIAL_CLAIM = (
+    "Authenticated actor can read another actor's account object because object "
+    "authorization is missing on the vulnerable endpoint."
+)
+HTTP_AUTHORIZATION_EXPECTED_OBSERVATION = (
+    "authenticated actor reads own object, reads another actor's object with that "
+    "object's owner proven, unauthenticated access is denied, and the secure control denies cross-object access"
+)
+HTTP_AUTHORIZATION_DISCONFIRMING_OBSERVATION = (
+    "cross-object access is denied or the returned object is not the other actor's object"
+)
 
 
 def human_seeded_hypothesis(
@@ -46,6 +65,40 @@ def plan_diagnostic_echo(
         expected_observation=DIAGNOSTIC_EXPECTED_OBSERVATION,
         disconfirming_observation=DIAGNOSTIC_DISCONFIRMING_OBSERVATION,
         evaluation_strategy=DIAGNOSTIC_ECHO_EVALUATION_STRATEGY,
+    )
+
+
+def plan_authorization_differential(
+    hypothesis_id: str,
+    *,
+    budget_id: str,
+    target_reference: str,
+    authorized_origin: str,
+    actor: str,
+    own_object: str,
+    cross_object: str,
+    mode: str = "vulnerable",
+) -> ExperimentPlan:
+    """Level-0 local lab plan. Not internet scanning and not autonomous discovery."""
+    if mode not in {"vulnerable", "secure_only", "redirect"}:
+        raise ResearchInputError("mode must be vulnerable, secure_only, or redirect")
+    return ExperimentPlan(
+        hypothesis_id=hypothesis_id,
+        required_capability=HTTP_AUTHORIZATION_DIFFERENTIAL_CAPABILITY,
+        action=HTTP_AUTHORIZATION_DIFFERENTIAL_ACTION,
+        target_reference=target_reference,
+        side_effect_level=0,
+        arguments={
+            "authorized_origin": authorized_origin,
+            "actor": actor,
+            "own_object": own_object,
+            "cross_object": cross_object,
+            "mode": mode,
+        },
+        requested_budget_id=budget_id,
+        expected_observation=HTTP_AUTHORIZATION_EXPECTED_OBSERVATION,
+        disconfirming_observation=HTTP_AUTHORIZATION_DISCONFIRMING_OBSERVATION,
+        evaluation_strategy=HTTP_AUTHORIZATION_DIFFERENTIAL_EVALUATION_STRATEGY,
     )
 
 

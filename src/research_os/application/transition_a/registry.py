@@ -4,6 +4,9 @@ from __future__ import annotations
 
 from typing import Any, Mapping, Protocol
 
+from research_os.application.transition_a.authorization_differential import (
+    HttpAuthorizationDifferentialNormalizer,
+)
 from research_os.application.transition_a.diagnostic_echo import DiagnosticEchoNormalizer
 from research_os.application.transition_a.drafts import ObservationDraft
 from research_os.application.transition_a.errors import UnsupportedNormalizerError
@@ -23,7 +26,11 @@ class ObservationNormalizer(Protocol):
 
 class NormalizerRegistry:
     def __init__(self, normalizers: tuple[ObservationNormalizer, ...] | None = None) -> None:
-        registered = normalizers if normalizers is not None else (DiagnosticEchoNormalizer(),)
+        registered = (
+            normalizers
+            if normalizers is not None
+            else (DiagnosticEchoNormalizer(), HttpAuthorizationDifferentialNormalizer())
+        )
         self._normalizers: dict[tuple[str, str], ObservationNormalizer] = {}
         for normalizer in registered:
             key = (normalizer.capability, normalizer.action)

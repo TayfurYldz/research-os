@@ -116,6 +116,16 @@ python scripts/clean_install_smoke.py
 
 GATE 12/13 are PASS only after those suites actually run with 0 required skips. Do not fabricate PASS.
 
+## GATE 14 — local security-research E2E
+
+Requires isolated PostgreSQL (`RESEARCH_OS_TEST_DATABASE_URL`). If unset, the suite must SKIP/PENDING, never PASS.
+
+```
+python -m unittest tests.e2e.test_gate14_security_lab
+```
+
+Lab binds `127.0.0.1` only. No internet target. No Codex/LLM. GATE 14 remains PENDING until this command succeeds on Kali with real PostgreSQL. Do not set `SECURITY_RESEARCH_VALIDATED` or `PRODUCTION_READY`.
+
 ## Maturity
 
 - ARCHITECTURE_VALIDATED: architecture package complete

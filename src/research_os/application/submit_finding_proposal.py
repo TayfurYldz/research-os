@@ -19,6 +19,7 @@ from research_os.research.finding_proposal import (
     FindingProposalDraft,
     FindingProposalState,
     admit_finding_proposal,
+    propose_authorization_differential_finding_proposal,
     propose_diagnostic_finding_proposal,
 )
 
@@ -73,8 +74,12 @@ class SubmitFindingProposal:
                     context, proposal_id=new_opaque_id()
                 )
             if draft is None:
+                draft = propose_authorization_differential_finding_proposal(
+                    context, proposal_id=new_opaque_id()
+                )
+            if draft is None:
                 raise ApplicationError(
-                    "no diagnostic FindingProposal can be built from this Candidate"
+                    "no FindingProposal can be built from this Candidate"
                 )
             decision = admit_finding_proposal(draft, context)
             proposal_id = draft.proposal_id if decision.creates_proposal else None

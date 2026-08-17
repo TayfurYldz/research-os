@@ -612,6 +612,46 @@ Hardening from “correct in integration tests” toward operationally survivabl
 
 **Verify:** unit + contract + `scripts/research_os_status.py status` + `scripts/clean_install_smoke.py` + integration including `tests/integration/test_gate13.py` and `tests/integration/test_endurance.py` (0 skipped). Do not mark PASS merely because code was edited.
 
+## GATE 14 — Authorized Local Security Research E2E
+
+First controlled security-research validation beyond `diagnostic.echo`. Prove the existing authority/evidence/verification/finding pipeline can process a real HTTP security behavior in a deliberately vulnerable **local** lab.
+
+This is **not**:
+
+- a live bug bounty scan
+- an internet target
+- a Codex/LLM benchmark
+- a Strix validation
+- proof of autonomous vulnerability discovery
+- permission to set `SECURITY_RESEARCH_VALIDATED=true`
+- permission to set `PRODUCTION_READY=true`
+
+GATE 04B remains PENDING. GATE 01–13 statuses are unchanged.
+
+Required proof:
+
+- Intentionally vulnerable loopback HTTP lab (`127.0.0.1`, ephemeral port)
+- Out-of-process Worker capability `http.authorization.differential` (GET-only, no redirect follow)
+- Transition A Observation `HTTP_AUTHORIZATION_DIFFERENTIAL` (behavior only; not Evidence/Candidate/Finding)
+- Deterministic Research evaluator (no LLM): admit Evidence only for a full owner/cross-object/control differential
+- Independent verification with a fresh Experiment/`request_id`
+- Finding only after Human Review + Core Approval
+- Secure-control false-positive path admits no security Evidence and no Finding
+- Out-of-scope target never reaches the Worker
+- Real PostgreSQL via `RESEARCH_OS_TEST_DATABASE_URL` (skip/PENDING if unset)
+
+**GATE 14 status: PENDING** until this suite actually runs successfully on Kali with real PostgreSQL. Do not mark PASS merely because tests were written.
+
+**Verify (Kali, after `RESEARCH_OS_TEST_DATABASE_URL` is set):**
+
+```
+python -m unittest tests.unit.research.test_authorization_differential tests.e2e.test_gate14_security_lab
+python -m unittest discover -s tests/unit -p "test_*.py"
+python -m unittest discover -s tests/contract -p "test_*.py"
+python -m unittest tests.unit.test_architecture_boundaries
+python -m unittest discover -s tests/integration -p "test_*.py"
+```
+
 ---
 
 ## Research Brain (Research capability — not Core)

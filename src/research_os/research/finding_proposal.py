@@ -11,13 +11,21 @@ from typing import Any, Mapping
 from research_os.research.candidate import (
     DIAGNOSTIC_CANDIDATE_CLAIM,
     DIAGNOSTIC_CANDIDATE_CLASSIFICATION,
+    HTTP_AUTHORIZATION_DIFFERENTIAL_CANDIDATE_CLAIM,
+    HTTP_AUTHORIZATION_DIFFERENTIAL_CLASSIFICATION,
     CandidateState,
 )
 from research_os.research.types import ResearchInputError
 
-FINDING_PROPOSAL_POLICY_VERSION = "finding.proposal.diagnostic.echo.v1"
+FINDING_PROPOSAL_POLICY_VERSION = "finding.proposal.v1"
 DIAGNOSTIC_FINDING_PROPOSAL_TITLE = "Diagnostic echo verification proposal"
 DIAGNOSTIC_FINDING_CLASSIFICATION = DIAGNOSTIC_CANDIDATE_CLASSIFICATION
+HTTP_AUTHORIZATION_DIFFERENTIAL_FINDING_TITLE = (
+    "Local lab missing object authorization on account read"
+)
+HTTP_AUTHORIZATION_DIFFERENTIAL_FINDING_CLASSIFICATION = (
+    HTTP_AUTHORIZATION_DIFFERENTIAL_CLASSIFICATION
+)
 HUMAN_OPERATOR_ACTOR = "HUMAN_OPERATOR"
 
 FORBIDDEN_FINDING_KEYS = frozenset(
@@ -362,6 +370,33 @@ def propose_diagnostic_finding_proposal(
     )
 
 
+def propose_authorization_differential_finding_proposal(
+    context: FindingProposalAdmissionContext,
+    *,
+    proposal_id: str,
+) -> FindingProposalDraft | None:
+    if context.candidate_state is not CandidateState.VALIDATED:
+        return None
+    if context.classification != HTTP_AUTHORIZATION_DIFFERENTIAL_FINDING_CLASSIFICATION:
+        return None
+    if not context.evidence_ids or not context.verification_ids:
+        return None
+    return FindingProposalDraft(
+        proposal_id=proposal_id,
+        candidate_id=context.candidate_id,
+        research_run_id=context.research_run_id,
+        title=HTTP_AUTHORIZATION_DIFFERENTIAL_FINDING_TITLE,
+        claim=HTTP_AUTHORIZATION_DIFFERENTIAL_CANDIDATE_CLAIM,
+        evidence_ids=context.evidence_ids,
+        verification_ids=context.verification_ids,
+        rationale={
+            "reason_code": "AUTHORIZED_LOCAL_LAB_PROPOSAL",
+            "not_a_finding": True,
+        },
+        provenance={"source": "http.authorization.differential.finding_proposal"},
+    )
+
+
 def admit_finding_proposal(
     draft: FindingProposalDraft,
     context: FindingProposalAdmissionContext,
@@ -401,23 +436,36 @@ def admit_finding_proposal(
             admitted=False,
             initial_state=None,
         )
-    if draft.title != DIAGNOSTIC_FINDING_PROPOSAL_TITLE:
+    expected_title = DIAGNOSTIC_FINDING_PROPOSAL_TITLE
+    expected_claim = DIAGNOSTIC_CANDIDATE_CLAIM
+    expected_classification = DIAGNOSTIC_FINDING_CLASSIFICATION
+    admitted_reason = "DIAGNOSTIC_FINDING_PROPOSAL_FROM_VALIDATED_CANDIDATE"
+    title_code = "TITLE_NOT_DIAGNOSTIC"
+    claim_code = "CLAIM_NOT_DIAGNOSTIC"
+    if context.classification == HTTP_AUTHORIZATION_DIFFERENTIAL_FINDING_CLASSIFICATION:
+        expected_title = HTTP_AUTHORIZATION_DIFFERENTIAL_FINDING_TITLE
+        expected_claim = HTTP_AUTHORIZATION_DIFFERENTIAL_CANDIDATE_CLAIM
+        expected_classification = HTTP_AUTHORIZATION_DIFFERENTIAL_FINDING_CLASSIFICATION
+        admitted_reason = "HTTP_AUTHORIZATION_DIFFERENTIAL_FINDING_PROPOSAL_FROM_VALIDATED_CANDIDATE"
+        title_code = "TITLE_NOT_HTTP_AUTHORIZATION_DIFFERENTIAL"
+        claim_code = "CLAIM_NOT_HTTP_AUTHORIZATION_DIFFERENTIAL"
+    if draft.title != expected_title:
         return FindingProposalAdmissionDecision(
             outcome=FindingProposalAdmissionOutcome.REJECTED_POLICY_CONFLICT,
-            reason_codes=("TITLE_NOT_DIAGNOSTIC", *codes),
+            reason_codes=(title_code, *codes),
             draft=draft,
             admitted=False,
             initial_state=None,
         )
-    if draft.claim != DIAGNOSTIC_CANDIDATE_CLAIM:
+    if draft.claim != expected_claim:
         return FindingProposalAdmissionDecision(
             outcome=FindingProposalAdmissionOutcome.REJECTED_POLICY_CONFLICT,
-            reason_codes=("CLAIM_NOT_DIAGNOSTIC", *codes),
+            reason_codes=(claim_code, *codes),
             draft=draft,
             admitted=False,
             initial_state=None,
         )
-    if context.classification != DIAGNOSTIC_FINDING_CLASSIFICATION:
+    if context.classification != expected_classification:
         return FindingProposalAdmissionDecision(
             outcome=FindingProposalAdmissionOutcome.REJECTED_POLICY_CONFLICT,
             reason_codes=("UNSUPPORTED_CLASSIFICATION", *codes),
@@ -435,7 +483,7 @@ def admit_finding_proposal(
         )
     return FindingProposalAdmissionDecision(
         outcome=FindingProposalAdmissionOutcome.ADMITTED,
-        reason_codes=("DIAGNOSTIC_FINDING_PROPOSAL_FROM_VALIDATED_CANDIDATE",),
+        reason_codes=(admitted_reason,),
         draft=draft,
         admitted=True,
         initial_state=FindingProposalState.PROPOSED,
@@ -551,9 +599,16 @@ def evaluate_finding_creation(context: FindingCreationContext) -> FindingCreatio
             proposal_state=FindingProposalState.REJECTED,
             creates_finding=False,
         )
+    if (
+        context.title == HTTP_AUTHORIZATION_DIFFERENTIAL_FINDING_TITLE
+        and context.claim == HTTP_AUTHORIZATION_DIFFERENTIAL_CANDIDATE_CLAIM
+    ):
+        created_codes = ("AUTHORIZED_LOCAL_LAB_FINDING",)
+    else:
+        created_codes = ("DIAGNOSTIC_PLUMBING_FINDING", "NOT_A_VULNERABILITY")
     return FindingCreationDecision(
         outcome=FindingCreationOutcome.CREATED,
-        reason_codes=("DIAGNOSTIC_PLUMBING_FINDING", "NOT_A_VULNERABILITY"),
+        reason_codes=created_codes,
         proposal_state=FindingProposalState.APPROVED,
         creates_finding=True,
     )

@@ -18,9 +18,14 @@ from research_os.data.records import (
     ObservationRecord,
     WorkerResultRecord,
 )
-from research_os.research.assessment import AssessmentOutcome, DIAGNOSTIC_ECHO_EVALUATION_STRATEGY
+from research_os.research.assessment import (
+    AssessmentOutcome,
+    DIAGNOSTIC_ECHO_EVALUATION_STRATEGY,
+    HTTP_AUTHORIZATION_DIFFERENTIAL_EVALUATION_STRATEGY,
+)
 from research_os.research.evidence import (
     EVIDENCE_ADMISSION_POLICY_VERSION,
+    HTTP_AUTHORIZATION_CONTROL_HELD_CLAIM,
     EvidenceAdmissionContext,
     EvidenceAdmissionDecision,
     EvidenceAdmissionOutcome,
@@ -28,6 +33,7 @@ from research_os.research.evidence import (
     EvidencePolarity,
     EvidenceProposal,
     admit_evidence,
+    propose_authorization_differential_evidence,
     propose_diagnostic_echo_evidence,
 )
 
@@ -66,8 +72,11 @@ class AdmitDiagnosticEvidence:
             plan = uow.experiment_plans.get(command.experiment_id)
             if plan is None:
                 raise ApplicationError("durable experiment plan not found")
-            if plan.evaluation_strategy != DIAGNOSTIC_ECHO_EVALUATION_STRATEGY:
-                raise ApplicationError("AdmitDiagnosticEvidence is diagnostic.echo.v1 only")
+            if plan.evaluation_strategy not in {
+                DIAGNOSTIC_ECHO_EVALUATION_STRATEGY,
+                HTTP_AUTHORIZATION_DIFFERENTIAL_EVALUATION_STRATEGY,
+            }:
+                raise ApplicationError("AdmitDiagnosticEvidence has no evaluator for this strategy")
             assessments = uow.hypothesis_assessments.list_for_experiment(experiment.experiment_id)
             assessment = _select_assessment(assessments, command.assessment_id)
             observations = uow.observations.list_for_experiment(experiment.experiment_id)
@@ -91,9 +100,14 @@ class AdmitDiagnosticEvidence:
             )
             proposal = command.proposal
             if proposal is None:
-                proposal = propose_diagnostic_echo_evidence(
-                    context, proposal_id=new_opaque_id()
-                )
+                if plan.evaluation_strategy == HTTP_AUTHORIZATION_DIFFERENTIAL_EVALUATION_STRATEGY:
+                    proposal = propose_authorization_differential_evidence(
+                        context, proposal_id=new_opaque_id()
+                    )
+                else:
+                    proposal = propose_diagnostic_echo_evidence(
+                        context, proposal_id=new_opaque_id()
+                    )
             if proposal is None and context.execution_unusable:
                 proposal = EvidenceProposal(
                     proposal_id=new_opaque_id(),
@@ -106,6 +120,24 @@ class AdmitDiagnosticEvidence:
                     claim_scope="diagnostic execution was unusable; no Evidence",
                     rationale={"reason_code": "EXECUTION_UNUSABLE", "not_vulnerability_evidence": True},
                     provenance={"source": "diagnostic.echo.unusable"},
+                )
+            if (
+                proposal is None
+                and plan.evaluation_strategy == HTTP_AUTHORIZATION_DIFFERENTIAL_EVALUATION_STRATEGY
+            ):
+                proposal = EvidenceProposal(
+                    proposal_id=new_opaque_id(),
+                    research_run_id=context.research_run_id,
+                    hypothesis_id=context.hypothesis_id,
+                    experiment_id=context.experiment_id,
+                    observation_ids=tuple(item.observation_id for item in context.observations),
+                    assessment_ids=() if context.assessment_id is None else (context.assessment_id,),
+                    polarity=EvidencePolarity.NEUTRAL,
+                    claim_scope=HTTP_AUTHORIZATION_CONTROL_HELD_CLAIM,
+                    rationale={
+                        "reason_code": "DIFFERENTIAL_DOES_NOT_ESTABLISH_MISSING_OBJECT_ACCESS_CONTROL"
+                    },
+                    provenance={"source": "http.authorization.differential.rejected"},
                 )
             if proposal is None:
                 raise ApplicationError(

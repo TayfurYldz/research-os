@@ -4,6 +4,12 @@ from __future__ import annotations
 
 from typing import Any, Mapping
 
+from research_os_worker.http_authorization import (
+    HTTP_AUTHORIZATION_DIFFERENTIAL_ACTION,
+    HTTP_AUTHORIZATION_DIFFERENTIAL_CAPABILITY,
+    execute_http_authorization,
+)
+
 DIAGNOSTIC_ECHO_CAPABILITY = "diagnostic.echo"
 DIAGNOSTIC_ECHO_ACTION = "echo"
 
@@ -28,6 +34,11 @@ def execute(request: Mapping[str, Any]) -> tuple[str, dict[str, Any], dict[str, 
             {"echoed": message, "capability": DIAGNOSTIC_ECHO_CAPABILITY},
             None,
         )
+    if (
+        capability == HTTP_AUTHORIZATION_DIFFERENTIAL_CAPABILITY
+        and action == HTTP_AUTHORIZATION_DIFFERENTIAL_ACTION
+    ):
+        return execute_http_authorization(request)
     return (
         "EXECUTION_FAILED",
         {},
