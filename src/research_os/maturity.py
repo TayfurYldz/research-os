@@ -22,6 +22,15 @@ real PostgreSQL test database with truth-blind benchmark execution. It does
 not prove general autonomous vulnerability discovery, live model quality, or
 production readiness.
 
+GATE 18 PASS means Research OS can transform an admitted research intent into
+a typed, per-action capability-bound and scope-evaluated experiment whose
+risk level and capability definition are independently verified by Core,
+durably bound across restart, and independently rejected by the Worker if
+its executable definition does not match. It does not prove autonomous
+vulnerability discovery, broad security-research capability, real-world bug
+bounty performance, live model quality, production readiness,
+crawler/browser/recon capability, or XBOW/Edra parity.
+
 PRODUCTION_READY must stay false until operational and live-research gates
 that this environment has not passed actually pass.
 """
@@ -40,6 +49,7 @@ GATE_14_STATUS = "PASS"
 GATE_15_STATUS = "PASS"
 GATE_16_STATUS = "PASS"
 GATE_17_STATUS = "PASS"
+GATE_18_STATUS = "PASS"
 GATE_04B_STATUS = "PENDING"
 SUBSCRIPTION_OAUTH_STATUS = "NOT_IMPLEMENTED"
 
@@ -58,6 +68,7 @@ def maturity_mapping() -> dict[str, object]:
         "GATE_15": GATE_15_STATUS,
         "GATE_16": GATE_16_STATUS,
         "GATE_17": GATE_17_STATUS,
+        "GATE_18": GATE_18_STATUS,
         "SUBSCRIPTION_OAUTH": SUBSCRIPTION_OAUTH_STATUS,
         "contains_secrets": False,
     }

@@ -726,6 +726,30 @@ No Alembic migration is expected or added. Selection traces reuse `research_oppo
 
 **Verify:** `python -m unittest tests.e2e.test_gate17_autonomous_research_selection` on Kali with `RESEARCH_OS_TEST_DATABASE_URL` set. Do not set `SECURITY_RESEARCH_VALIDATED` or `PRODUCTION_READY` because this gate passed.
 
+## GATE 18 — Offensive Substrate Foundation
+
+GATE 14–17 proved controlled local security-research pipelines, ground-truth / false-positive discipline, a second authorization class, and adaptive multi-hypothesis selection. GATE 18 does not add offensive breadth. It makes capability, risk, scope, and execution **authoritative, typed, durable, and fail-closed** so later HTTP/identity/browser/recon capabilities cannot copy an authorization model or understate risk.
+
+Canonical Worker capability registry contains only:
+
+- `diagnostic.echo`
+- `http.authorization.differential`
+- `http.state_transition`
+
+Codex remains ModelPort. Strix remains Integration. Neither compiles into a Worker `ExperimentPlan`. Core independently checks capability/action/version/fingerprint/risk. The Worker independently rejects mismatched definitions. Legacy NULL plans are never silently fingerprint-backfilled. Scope remains exact-host / default-deny / fail-closed for path ambiguity. Redirects require reauthorization.
+
+Alembic revision `a20_001_capability_plan_binding` adds nullable `capability_version` and `capability_definition_fingerprint` on `experiment_plan` only. No silent backfill.
+
+**GATE 18 status: PASS** (2026-08-17), authoritative tested commit `241e901fb2c6730ee293cca71942de45d3796282`, on Kali Linux against dedicated real PostgreSQL (`RESEARCH_OS_TEST_DATABASE_URL`), Alembic head `a20_001_capability_plan_binding`. Migration round-trip `a19 → a20`, `a20 → a19`, `a19 → a20` validated. GATE 14 regression **19 OK / 0 skipped**. GATE 15 regression **21 OK / 0 skipped**. GATE 16 regression **34 OK / 0 skipped**. GATE 17 regression **57 OK / 0 skipped**. Repo-wide: unit **627 OK**, contract **2 OK**, architecture **20 OK**, integration **117 OK**. No Codex / LLM. No external-network research. No `psycopg` ResourceWarning.
+
+GATE 18 PASS means Research OS can transform an admitted research intent into a typed, per-action capability-bound and scope-evaluated experiment whose risk level and capability definition are independently verified by Core, durably bound across restart, and independently rejected by the Worker if its executable definition does not match.
+
+GATE 18 does **not** prove autonomous vulnerability discovery, broad security-research capability, real-world bug bounty performance, live model quality, production readiness, crawler/browser/recon capability, or XBOW/Edra parity.
+
+`LIVE_MODEL_VALIDATED=no`, `SECURITY_RESEARCH_VALIDATED=no`, `PRODUCTION_READY=no`. GATE 04B remains PENDING. GATE 14/15/16/17/18 remain PASS.
+
+**Verify:** Kali + dedicated PostgreSQL + `RESEARCH_OS_TEST_DATABASE_URL`. Do not set `SECURITY_RESEARCH_VALIDATED` or `PRODUCTION_READY` because this gate passed.
+
 ---
 
 ## Research Brain (Research capability — not Core)

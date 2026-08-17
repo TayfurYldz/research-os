@@ -1,4 +1,4 @@
-"""Maturity flags. GATE 14/15/16/17 PASS is not SECURITY_RESEARCH_VALIDATED or PRODUCTION_READY."""
+"""Maturity flags. GATE 14/15/16/17/18 PASS is not SECURITY_RESEARCH_VALIDATED or PRODUCTION_READY."""
 
 from __future__ import annotations
 
@@ -15,6 +15,7 @@ from research_os.maturity import (
     GATE_15_STATUS,
     GATE_16_STATUS,
     GATE_17_STATUS,
+    GATE_18_STATUS,
     LIVE_MODEL_VALIDATED,
     PRODUCTION_READY,
     SECURITY_RESEARCH_VALIDATED,
@@ -28,6 +29,7 @@ class Gate14MaturityTests(unittest.TestCase):
         self.assertEqual(GATE_15_STATUS, "PASS")
         self.assertEqual(GATE_16_STATUS, "PASS")
         self.assertEqual(GATE_17_STATUS, "PASS")
+        self.assertEqual(GATE_18_STATUS, "PASS")
         self.assertEqual(GATE_12_STATUS, "PASS")
         self.assertEqual(GATE_13_STATUS, "PASS")
         self.assertEqual(GATE_04B_STATUS, "PENDING")
@@ -39,6 +41,7 @@ class Gate14MaturityTests(unittest.TestCase):
         self.assertEqual(mapping["GATE_15"], "PASS")
         self.assertEqual(mapping["GATE_16"], "PASS")
         self.assertEqual(mapping["GATE_17"], "PASS")
+        self.assertEqual(mapping["GATE_18"], "PASS")
         self.assertEqual(mapping["GATE_04B"], "PENDING")
         self.assertIs(mapping["LIVE_MODEL_VALIDATED"], False)
         self.assertIs(mapping["SECURITY_RESEARCH_VALIDATED"], False)
@@ -62,10 +65,12 @@ class Gate14MaturityTests(unittest.TestCase):
         self.assertIn("GATE 15:", text)
         self.assertIn("GATE 16:", text)
         self.assertIn("GATE 17:", text)
+        self.assertIn("GATE 18:", text)
         self.assertIn(f"  {GATE_14_STATUS}", text)
         self.assertIn(f"  {GATE_15_STATUS}", text)
         self.assertIn(f"  {GATE_16_STATUS}", text)
         self.assertIn(f"  {GATE_17_STATUS}", text)
+        self.assertIn(f"  {GATE_18_STATUS}", text)
         self.assertIn(f"SECURITY_RESEARCH_VALIDATED: {SECURITY_RESEARCH_VALIDATED}", text)
         self.assertIn(f"PRODUCTION_READY: {PRODUCTION_READY}", text)
         self.assertIn(f"LIVE_MODEL_VALIDATED: {LIVE_MODEL_VALIDATED}", text)
@@ -73,6 +78,7 @@ class Gate14MaturityTests(unittest.TestCase):
         self.assertEqual(GATE_15_STATUS, "PASS")
         self.assertEqual(GATE_16_STATUS, "PASS")
         self.assertEqual(GATE_17_STATUS, "PASS")
+        self.assertEqual(GATE_18_STATUS, "PASS")
         self.assertFalse(SECURITY_RESEARCH_VALIDATED)
         self.assertFalse(PRODUCTION_READY)
         self.assertFalse(LIVE_MODEL_VALIDATED)

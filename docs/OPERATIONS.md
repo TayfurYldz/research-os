@@ -258,14 +258,53 @@ python -m unittest tests.e2e.test_gate17_autonomous_research_selection
 
 If `RESEARCH_OS_TEST_DATABASE_URL` is unset, the suite must SKIP, never fabricate PASS.
 
+## GATE 18 — offensive substrate foundation
+
+**GATE 18 status: PASS** (2026-08-17).
+
+Authoritative environment:
+
+- Kali Linux
+- dedicated real PostgreSQL test database
+- `RESEARCH_OS_TEST_DATABASE_URL`
+- authoritative tested commit `241e901fb2c6730ee293cca71942de45d3796282`
+- Alembic head `a20_001_capability_plan_binding`
+- migration round-trip: a19 → a20, a20 → a19, a19 → a20
+- GATE 14 regression: 19 OK, 0 skipped
+- GATE 15 regression: 21 OK, 0 skipped
+- GATE 16 regression: 34 OK, 0 skipped
+- GATE 17 regression: 57 OK, 0 skipped
+- repo-wide: unit 627 OK, contract 2 OK, architecture 20 OK, integration 117 OK
+- no Codex / LLM execution
+- no external-network research
+- no `psycopg` ResourceWarning observed
+
+Canonical Worker capability registry contains only `diagnostic.echo`, `http.authorization.differential`, and `http.state_transition`. Codex remains ModelPort. Strix remains Integration. Neither compiles into a Worker ExperimentPlan. Core independently checks capability/action/version/fingerprint/risk. The Worker independently rejects mismatched definitions. Legacy NULL plans are never silently fingerprint-backfilled. Scope remains exact-host / default-deny / fail-closed for ambiguity. Redirects require reauthorization.
+
+GATE 14 = single controlled BOLA security E2E.
+GATE 15 = BOLA ground-truth / false-positive benchmark.
+GATE 16 = workflow/state-transition security semantics + cross-class discrimination.
+GATE 17 = autonomous multi-hypothesis research selection + adaptive closed-loop experiment choice.
+GATE 18 = typed per-action capability/risk/scope/execution binding that is Core-verified, durable across restart, and Worker-rejected on definition mismatch.
+GATE 04B = live model comparison.
+
+These gates do not imply one another.
+
+GATE 18 PASS means Research OS can transform an admitted research intent into a typed, per-action capability-bound and scope-evaluated experiment whose risk level and capability definition are independently verified by Core, durably bound across restart, and independently rejected by the Worker if its executable definition does not match.
+
+It does **not** prove autonomous vulnerability discovery, broad security-research capability, real-world bug bounty performance, live model quality, production readiness, crawler/browser/recon capability, or XBOW/Edra parity. Do not set `LIVE_MODEL_VALIDATED`, `SECURITY_RESEARCH_VALIDATED`, or `PRODUCTION_READY`. GATE 04B remains PENDING.
+
+If `RESEARCH_OS_TEST_DATABASE_URL` is unset, PostgreSQL-required suites must SKIP, never fabricate PASS.
+
 ## Maturity
 
 - ARCHITECTURE_VALIDATED: architecture package complete
 - DIAGNOSTIC_E2E_VALIDATED: yes after Gate 12/13 PASS on real PostgreSQL, process crash/restart, and clean install. Not live-model validation.
 - LIVE_MODEL_VALIDATED: no while GATE 04B is PENDING
-- SECURITY_RESEARCH_VALIDATED: no; GATE 14/15/16/17 PASS cover controlled local pipeline, ground-truth, cross-class, and adaptive research-selection validation, not broad or real-world security-research validation
+- SECURITY_RESEARCH_VALIDATED: no; GATE 14/15/16/17/18 PASS cover controlled local pipeline, ground-truth, cross-class, adaptive research-selection, and capability/risk/scope substrate validation, not broad or real-world security-research validation
 - PRODUCTION_READY: no until operational and live-research gates that have not passed actually pass
 - GATE 14: PASS (2026-08-17, Kali, dedicated PostgreSQL, 19 E2E OK / 0 skipped)
 - GATE 15: PASS (2026-08-17, Kali, dedicated PostgreSQL, GATE14 regression 19 OK / 0 skipped, GATE15 21 OK / 0 skipped)
 - GATE 16: PASS (2026-08-17, Kali, dedicated PostgreSQL, GATE14 19 OK / 0 skipped, GATE15 21 OK / 0 skipped, GATE16 34 OK / 0 skipped)
 - GATE 17: PASS (2026-08-17, commit 48d807d, Kali, dedicated PostgreSQL, GATE14 19 OK / 0 skipped, GATE15 21 OK / 0 skipped, GATE16 34 OK / 0 skipped, GATE17 57 OK / 0 skipped)
+- GATE 18: PASS (2026-08-17, commit 241e901fb2c6730ee293cca71942de45d3796282, Kali, dedicated PostgreSQL, Alembic head a20_001_capability_plan_binding, unit 627 OK, contract 2 OK, architecture 20 OK, integration 117 OK, GATE14 19 OK / 0 skipped, GATE15 21 OK / 0 skipped, GATE16 34 OK / 0 skipped, GATE17 57 OK / 0 skipped)
