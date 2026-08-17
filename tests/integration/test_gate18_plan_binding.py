@@ -32,7 +32,7 @@ from research_os.data.postgres.engine import TEST_DATABASE_URL_ENV, create_sync_
 from research_os.data.postgres.unit_of_work import PostgresUnitOfWork
 from research_os.research.planning import plan_diagnostic_echo
 from research_os.tools.registry import load_capability_registry
-from harness import alembic_upgrade, configured_test_url, seed_authorized_spine, truncate_spine
+from integration.harness import alembic_upgrade, configured_test_url, seed_authorized_spine, truncate_spine
 
 TEST_URL = configured_test_url()
 
