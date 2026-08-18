@@ -297,6 +297,8 @@ class PlaywrightChromiumEngine:
                 freeze=False,
             )
         if len(self._runtimes) >= limits.max_active_contexts:
+            self._evict_oldest_runtime()
+        if len(self._runtimes) >= limits.max_active_contexts:
             return None, BrowserActionResult(
                 status="EXECUTION_FAILED",
                 raw={},
@@ -806,6 +808,13 @@ class PlaywrightChromiumEngine:
             attempted_network_requests=attempted,
             freeze=freeze,
         )
+
+    def _evict_oldest_runtime(self) -> None:
+        if not self._runtimes:
+            return
+        oldest_ref = next(iter(self._runtimes))
+        runtime = self._runtimes.pop(oldest_ref)
+        self._close_runtime(runtime)
 
     def _close_runtime(self, runtime: _Runtime) -> None:
         try:

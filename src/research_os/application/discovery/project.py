@@ -81,7 +81,7 @@ def project_observation(
         workflow=resolved_workflow,
     )
     _persist_delta(uow, delta, created_at=created_at, observation_id=observation.observation_id)
-    _admit_templates(uow, run_id, identity_id, created_at)
+    _admit_templates(uow, run_id, resolved_identity, created_at)
     uow.discovery_projection_receipts.insert(
         DiscoveryProjectionReceiptRecord(
             receipt_id=new_opaque_id(),
@@ -237,6 +237,11 @@ def _identity_for(uow: UnitOfWork, observation: ObservationRecord, fallback: str
     identity = plan.arguments.get("identity_id")
     if isinstance(identity, str) and identity.strip():
         return identity
+    session_ref = plan.arguments.get("session_context_reference")
+    if isinstance(session_ref, str) and session_ref.strip():
+        session = uow.session_contexts.get(session_ref)
+        if session is not None and session.identity_id.strip():
+            return session.identity_id
     return fallback
 
 
@@ -336,6 +341,15 @@ def _persist_delta(
         else:
             fact_id = existing.fact_id
         source = fact.sources[0]
+        linked = uow.discovery_fact_sources.list_for_fact(fact_id)
+        if any(
+            item.observation_id == source.observation_id
+            and item.control_event_id == source.control_event_id
+            and item.source_fact_id == source.source_fact_id
+            and item.source_inference_id == source.source_inference_id
+            for item in linked
+        ):
+            continue
         uow.discovery_fact_sources.insert(
             DiscoveryFactSourceRecord(
                 source_row_id=new_opaque_id(),

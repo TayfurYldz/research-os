@@ -17,9 +17,9 @@ from research_os.research.types import ResearchInputError
 GOAL_PRIORITY = (
     DiscoveryGoalKind.INSPECT_PATH,
     DiscoveryGoalKind.INSPECT_SPA_PATH,
-    DiscoveryGoalKind.INSPECT_CONTROL,
-    DiscoveryGoalKind.CHARACTERIZE_HTTP_OPERATION,
     DiscoveryGoalKind.OBSERVE_UNDER_IDENTITY,
+    DiscoveryGoalKind.CHARACTERIZE_HTTP_OPERATION,
+    DiscoveryGoalKind.INSPECT_CONTROL,
     DiscoveryGoalKind.RESOLVE_TRANSITION_RESULT,
     DiscoveryGoalKind.RESOLVE_OBJECT_TYPE,
 )

@@ -107,12 +107,19 @@ class SurfaceDiscoveryRunner:
         self._execute = ExecutePlannedExperiment(
             uow_factory, worker, clock=self._clock, secret_port=secret_port
         )
-        self._live_pages: dict[tuple[str, str, str], LivePageSnapshot] = {}
+        self._live_pages: dict[tuple[str, str, str, str], LivePageSnapshot] = {}
 
     def clear_live_pages(self) -> None:
         """Drop ephemeral el-N mappings. Restart must re-observe."""
 
         self._live_pages.clear()
+
+    def _drop_live_pages(self, research_run_id: str, *, origin: str, identity_id: str) -> None:
+        self._live_pages = {
+            key: value
+            for key, value in self._live_pages.items()
+            if not (key[0] == research_run_id and key[1] == origin and key[3] == identity_id)
+        }
 
     def ensure_started(self, start: SurfaceDiscoveryStart) -> None:
         now = self._clock.now()
@@ -180,7 +187,12 @@ class SurfaceDiscoveryRunner:
             uow.commit()
         assert record is not None
         live_page = self._live_pages.get(
-            (research_run_id, record.candidate_origin.rstrip("/"), record.candidate_path or "/")
+            (
+                research_run_id,
+                record.candidate_origin.rstrip("/"),
+                record.candidate_path or "/",
+                record.identity_id,
+            )
         )
         try:
             plan = compile_frontier_plan(
@@ -250,10 +262,24 @@ class SurfaceDiscoveryRunner:
             if loop.status is ResearchLoopStatus.OBSERVATION_PRODUCED:
                 self._append_event(uow, record.frontier_id, "OBSERVED", now)
                 for observation in uow.observations.list_for_experiment(experiment_id):
-                    self._remember_live_page(research_run_id, observation)
-            elif loop.status is ResearchLoopStatus.REAUTHORIZATION_REQUIRED:
-                self._append_event(uow, record.frontier_id, "AWAITING_REAUTHORIZATION", now)
+                    self._remember_live_page(
+                        research_run_id, observation, identity_id=record.identity_id
+                    )
+            else:
+                if record.proposed_capability == BROWSER_PAGE_CAPABILITY:
+                    self._drop_live_pages(
+                        research_run_id,
+                        origin=record.candidate_origin.rstrip("/"),
+                        identity_id=record.identity_id,
+                    )
+                if loop.status is ResearchLoopStatus.REAUTHORIZATION_REQUIRED:
+                    self._append_event(uow, record.frontier_id, "AWAITING_REAUTHORIZATION", now)
+            bound_stop = _bound_stop_reason(uow, start.config)
             uow.commit()
+        if bound_stop is not None:
+            return SurfaceDiscoveryCycleResult(
+                research_run_id, bound_stop, record.frontier_id, experiment_id, worker_invoked
+            )
         return SurfaceDiscoveryCycleResult(
             research_run_id, None, record.frontier_id, experiment_id, worker_invoked
         )
@@ -351,43 +377,52 @@ class SurfaceDiscoveryRunner:
         self._append_event(uow, frontier_id, kind, created_at)
 
     def _reobserve(self, uow, record: FrontierItemRecord, *, created_at) -> None:
-        self._append_event(uow, record.frontier_id, "FAILED_TRANSIENT", created_at)
         config_record = uow.discovery_run_configs.get(record.research_run_id)
         assert config_record is not None
-        inspect = seed_inspect_path_frontier(
-            DiscoveryRunConfig(
-                research_run_id=record.research_run_id,
-                seed_target_reference=record.candidate_origin + record.candidate_path,
-                normalized_origin=record.candidate_origin,
-                normalized_path=record.candidate_path,
-                bounds=config_from_record(config_record).bounds,
-            ),
-            frontier_id=new_opaque_id(),
-        )
-        if any(
-            item.dedupe_identity == inspect.dedupe_identity
-            for item in uow.frontier_items.list_for_research_run(record.research_run_id)
-        ):
-            self._append_event(uow, record.frontier_id, "ELIGIBLE", created_at)
+        bounds = config_from_record(config_record).bounds
+        existing = uow.frontier_items.list_for_research_run(record.research_run_id)
+        same_route = [
+            item
+            for item in existing
+            if item.goal_kind == DiscoveryGoalKind.INSPECT_PATH.value
+            and item.identity_id == record.identity_id
+            and item.candidate_origin == record.candidate_origin
+            and item.candidate_path == record.candidate_path
+        ]
+        if len(same_route) >= bounds.max_per_route_revisit:
+            self._append_event(uow, record.frontier_id, "NO_NEW_INFORMATION", created_at)
             return
+        signature = canonical_key(
+            "INSPECT_PATH",
+            record.candidate_origin,
+            record.candidate_path,
+            record.identity_id,
+            str(len(same_route)),
+        )
+        if any(item.dedupe_identity == signature for item in existing):
+            self._append_event(uow, record.frontier_id, "NO_NEW_INFORMATION", created_at)
+            return
+        self._append_event(uow, record.frontier_id, "FAILED_TRANSIENT", created_at)
         observations = uow.observations.list_for_research_run(record.research_run_id)
         observation_id = observations[-1].observation_id if observations else None
+        inspect_id = new_opaque_id()
         uow.frontier_items.insert(
             FrontierItemRecord(
-                frontier_id=inspect.frontier_id,
-                research_run_id=inspect.research_run_id,
-                strategy_version=inspect.strategy_version,
+                frontier_id=inspect_id,
+                research_run_id=record.research_run_id,
+                strategy_version=record.strategy_version,
                 goal_kind=DiscoveryGoalKind.INSPECT_PATH.value,
-                candidate_origin=inspect.candidate_origin,
-                candidate_path=inspect.candidate_path,
-                identity_id=inspect.identity_id,
-                proposed_capability=inspect.proposed_capability,
-                proposed_action=inspect.proposed_action,
+                candidate_origin=record.candidate_origin,
+                candidate_path=record.candidate_path,
+                identity_id=record.identity_id,
+                proposed_capability=BROWSER_PAGE_CAPABILITY,
+                proposed_action=BROWSER_PAGE_OBSERVE_ACTION,
                 expected_side_effect=0,
                 budget_class=0,
-                structural_signature=inspect.structural_signature,
-                dedupe_identity=inspect.dedupe_identity,
+                structural_signature=signature,
+                dedupe_identity=signature,
                 created_at=created_at,
+                session_context_id=record.session_context_id,
                 current_state="ELIGIBLE",
                 state_version=2,
             )
@@ -396,16 +431,19 @@ class SurfaceDiscoveryRunner:
             FrontierSourceRecord(
                 source_row_id=new_opaque_id(),
                 research_run_id=record.research_run_id,
-                frontier_id=inspect.frontier_id,
+                frontier_id=inspect_id,
                 created_at=created_at,
                 observation_id=observation_id,
                 seed_config_run_id=None if observation_id else record.research_run_id,
             )
         )
-        self._append_event(uow, inspect.frontier_id, "CREATED", created_at, sequence=1)
-        self._append_event(uow, inspect.frontier_id, "ELIGIBLE", created_at, sequence=2)
+        self._append_event(uow, inspect_id, "CREATED", created_at, sequence=1)
+        self._append_event(uow, inspect_id, "ELIGIBLE", created_at, sequence=2)
+        self._append_event(uow, record.frontier_id, "ELIGIBLE", created_at)
 
-    def _remember_live_page(self, research_run_id: str, observation: ObservationRecord) -> None:
+    def _remember_live_page(
+        self, research_run_id: str, observation: ObservationRecord, *, identity_id: str
+    ) -> None:
         payload = dict(observation.payload)
         origin = str(payload.get("authorized_origin") or "")
         path = str(payload.get("path") or "/")
@@ -443,7 +481,12 @@ class SurfaceDiscoveryRunner:
                     input_type=str(item.get("input_type") or ""),
                 )
             )
-        self._live_pages[(research_run_id, origin, path or "/")] = LivePageSnapshot(
+        self._live_pages = {
+            key: value
+            for key, value in self._live_pages.items()
+            if value.browser_context_reference != context_ref
+        }
+        self._live_pages[(research_run_id, origin, path or "/", identity_id)] = LivePageSnapshot(
             snapshot_fingerprint=fingerprint,
             browser_context_reference=context_ref,
             page_reference=page_ref,

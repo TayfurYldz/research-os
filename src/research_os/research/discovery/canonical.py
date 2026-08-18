@@ -128,7 +128,33 @@ def admit_route_templates(
     http_method: str,
     exact_paths: tuple[str, ...],
 ) -> tuple[RouteTemplateAdmission, ...]:
-    admitted = route_template_from_paths(origin, http_method, exact_paths)
-    if admitted is None:
-        return ()
-    return (admitted,)
+    families: dict[str, list[str]] = {}
+    for path in exact_paths:
+        family = _template_family(path)
+        if family is None:
+            continue
+        families.setdefault(family, []).append(path)
+    admitted: list[RouteTemplateAdmission] = []
+    for paths in families.values():
+        item = route_template_from_paths(origin, http_method, tuple(paths))
+        if item is not None:
+            admitted.append(item)
+    return tuple(admitted)
+
+
+def _template_family(path: str) -> str | None:
+    segments = path_segments(path)
+    if not segments:
+        return None
+    parts: list[str] = []
+    saw_token = False
+    for segment in segments:
+        placeholder = _placeholder_for(segment)
+        if placeholder is None:
+            parts.append(segment)
+            continue
+        saw_token = True
+        parts.append(placeholder)
+    if not saw_token:
+        return None
+    return "/" + "/".join(parts)

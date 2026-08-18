@@ -143,12 +143,12 @@ class LabWorkerPort:
 
 def _bounds() -> DiscoveryBounds:
     return DiscoveryBounds(
-        max_discovery_cycles=16,
-        max_frontier_items=64,
+        max_discovery_cycles=64,
+        max_frontier_items=128,
         max_new_facts_per_cycle=32,
-        max_browser_actions=16,
+        max_browser_actions=64,
         max_http_transactions=16,
-        max_per_route_revisit=2,
+        max_per_route_revisit=16,
         max_identity_variants=2,
         max_transition_depth=4,
         max_graph_depth_from_seed=8,
@@ -260,8 +260,8 @@ class Gate22SurfaceDiscoveryE2ETests(unittest.TestCase):
                 IssuedBudgetRecord(
                     budget_id="budget-1",
                     research_run_id="run-1",
-                    max_requests=64,
-                    max_tool_calls=64,
+                    max_requests=512,
+                    max_tool_calls=128,
                     max_runtime_ms=15_000,
                     max_concurrency=1,
                     issued_at=now,
@@ -325,10 +325,10 @@ class Gate22SurfaceDiscoveryE2ETests(unittest.TestCase):
                 ambiguous=False,
             ),
             bounds=OrchestrationBounds(
-                max_cycles=16,
-                max_experiments=16,
+                max_cycles=128,
+                max_experiments=64,
                 max_model_calls=0,
-                max_worker_invocations=32,
+                max_worker_invocations=128,
                 max_elapsed_ms=180_000,
                 max_selected_opportunities=16,
                 max_runtime_fallback=0,

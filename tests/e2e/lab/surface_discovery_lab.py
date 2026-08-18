@@ -101,12 +101,20 @@ def _handler_for(lab: Gate22SurfaceLab):
                 self.end_headers()
                 return
             pages = {
-                "/": _home(),
                 "/hidden": _page("hidden", "<p name='secret-page'>hidden-in-scope</p>"),
                 "/spa": _spa(),
                 "/spa/inside": _page("spa-inside", "<p name='spa-inside'>inside</p>"),
                 "/form": _form(),
             }
+            if parsed.path == "/":
+                cookie = self.headers.get("Cookie") or ""
+                who = "anonymous"
+                if ALICE_COOKIE in cookie:
+                    who = "alice"
+                elif BOB_COOKIE in cookie:
+                    who = "bob"
+                self._send(_home().replace("{{who}}", who))
+                return
             item = pages.get(parsed.path)
             if item is None:
                 self.send_response(404)
@@ -168,6 +176,7 @@ def _page(title: str, body: str) -> str:
 def _home() -> str:
     return _page(
         "home",
+        "<p id='who' name='who'>{{who}}</p>"
         "<a href='/hidden' name='hidden'>hidden</a>"
         "<a href='/spa' name='spa'>spa</a>"
         "<a href='/form' name='form'>form</a>"
@@ -178,6 +187,7 @@ def _home() -> str:
         "<a href='/redirect-cross' name='redirect'>redirect</a>"
         "<button name='fetch-hidden' id='fetch-hidden'>fetch</button>"
         "<script>"
+        "fetch('/hidden');"
         "fetch('/api/browser-only');"
         "fetch('/api/orders/101');"
         "fetch('/api/orders/202');"

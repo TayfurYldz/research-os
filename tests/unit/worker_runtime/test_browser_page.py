@@ -396,6 +396,15 @@ class BrowserPageWorkerTests(unittest.TestCase):
             self.assertNotIn("cookie", str(event).lower())
             self.assertNotIn(COOKIE, str(event))
 
+    def test_sequential_navigate_evicts_oldest_context_at_cap(self) -> None:
+        first = self._execute(_request("navigate", {"authorized_origin": ORIGIN, "path": "/app"}))
+        second = self._execute(_request("navigate", {"authorized_origin": ORIGIN, "path": "/app"}))
+        third = self._execute(_request("navigate", {"authorized_origin": ORIGIN, "path": "/app"}))
+        self.assertEqual(first[0], "SUCCEEDED")
+        self.assertEqual(second[0], "SUCCEEDED")
+        self.assertEqual(third[0], "SUCCEEDED")
+        self.assertEqual(len(self.engine._states), 2)
+
     def test_envelope_parser_rejects_wildcards(self) -> None:
         self.assertIsNone(parse_envelope({**_envelope(), "normalized_host": "*.example"}))
         limits = BrowserRuntimeLimits(max_attempted_network_requests_per_action=1)

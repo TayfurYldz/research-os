@@ -387,6 +387,12 @@ class InMemoryBrowserEngine:
     def close_all(self) -> None:
         self._states.clear()
 
+    def _evict_oldest_state(self) -> None:
+        if not self._states:
+            return
+        oldest_ref = next(iter(self._states))
+        del self._states[oldest_ref]
+
     def navigate(
         self,
         lease_key: str | None,
@@ -555,6 +561,8 @@ class InMemoryBrowserEngine:
                 attempted_network_requests=0,
                 freeze=False,
             )
+        if len(self._states) >= limits.max_active_contexts:
+            self._evict_oldest_state()
         if len(self._states) >= limits.max_active_contexts:
             return None, False, BrowserActionResult(
                 status="EXECUTION_FAILED",

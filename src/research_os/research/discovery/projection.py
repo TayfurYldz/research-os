@@ -187,6 +187,8 @@ def project_observation_view(
         )
 
     def _offer(fact: DiscoveryFact) -> None:
+        if any(item.fact.canonical_key == fact.canonical_key for item in facts):
+            return
         facts.append(
             ProposedFact(fact=fact, is_new_semantic=fact.canonical_key not in existing_canonical_keys)
         )

@@ -5,6 +5,7 @@ import unittest
 import pathsetup  # noqa: F401
 
 from research_os.research.discovery.canonical import (
+    admit_route_templates,
     canonical_key,
     instance_token_from_segment,
     route_template_from_paths,
@@ -127,6 +128,21 @@ class TemplateAdmissionTests(unittest.TestCase):
             ),
         )
         self.assertIsNone(admitted)
+
+    def test_unrelated_exact_paths_do_not_block_family_admission(self) -> None:
+        admitted = admit_route_templates(
+            origin="http://127.0.0.1:1",
+            http_method="GET",
+            exact_paths=(
+                "/",
+                "/api/browser-only",
+                "/api/orders/101",
+                "/api/orders/202",
+                "/api/orders/303",
+            ),
+        )
+        self.assertEqual(len(admitted), 1)
+        self.assertEqual(admitted[0].template_path, "/api/orders/{n}")
 
 
 class InferenceEpistemicTests(unittest.TestCase):
@@ -267,6 +283,66 @@ class FrontierTransitionTests(unittest.TestCase):
         assert chosen is not None
         self.assertEqual(chosen.goal_kind, DiscoveryGoalKind.CHARACTERIZE_HTTP_OPERATION)
 
+    def test_identity_observe_is_selected_before_http_characterize(self) -> None:
+        identity = FrontierItem(
+            frontier_id="front-alice",
+            research_run_id="run-1",
+            goal_kind=DiscoveryGoalKind.OBSERVE_UNDER_IDENTITY,
+            candidate_origin="http://127.0.0.1:1",
+            candidate_path="/",
+            identity_id="id-alice",
+            proposed_capability="browser.page",
+            proposed_action="observe",
+            expected_side_effect=0,
+            budget_class=0,
+            structural_signature="sig-alice",
+            dedupe_identity="dedupe-alice",
+        )
+        characterize = FrontierItem(
+            frontier_id="front-http",
+            research_run_id="run-1",
+            goal_kind=DiscoveryGoalKind.CHARACTERIZE_HTTP_OPERATION,
+            candidate_origin="http://127.0.0.1:1",
+            candidate_path="/api/orders/101",
+            identity_id=ANONYMOUS_IDENTITY_ID,
+            proposed_capability="http.transaction",
+            proposed_action="read",
+            expected_side_effect=0,
+            budget_class=0,
+            structural_signature="sig-http",
+            dedupe_identity="dedupe-http",
+        )
+
+        def _eligible(frontier_id: str) -> tuple[FrontierEvent, ...]:
+            return (
+                FrontierEvent(
+                    event_id=f"{frontier_id}-c",
+                    frontier_id=frontier_id,
+                    research_run_id="run-1",
+                    event_kind=FrontierEventKind.CREATED,
+                    sequence=1,
+                ),
+                FrontierEvent(
+                    event_id=f"{frontier_id}-e",
+                    frontier_id=frontier_id,
+                    research_run_id="run-1",
+                    event_kind=FrontierEventKind.ELIGIBLE,
+                    sequence=2,
+                ),
+            )
+
+        chosen = select_eligible_frontier(
+            (characterize, identity),
+            {
+                "front-http": _eligible("front-http"),
+                "front-alice": _eligible("front-alice"),
+            },
+            max_side_effect=1,
+        )
+        self.assertIsNotNone(chosen)
+        assert chosen is not None
+        self.assertEqual(chosen.goal_kind, DiscoveryGoalKind.OBSERVE_UNDER_IDENTITY)
+
 
 class ProjectionAndGraphTests(unittest.TestCase):
     def test_seed_does_not_create_observed_fact(self) -> None:
@@ -313,6 +389,42 @@ class ProjectionAndGraphTests(unittest.TestCase):
         self.assertIn("CHARACTERIZE_HTTP_OPERATION", goals)
         attrs = [item.attributes for item in delta.frontier_items if item.attributes]
         self.assertTrue(any(item.get("auto_replay") is False for item in attrs))
+
+    def test_same_path_network_event_does_not_duplicate_exact_path(self) -> None:
+        view = ObservationView(
+            observation_id="obs-1",
+            research_run_id="run-1",
+            observation_kind="BROWSER_PAGE_STATE",
+            identity_id=ANONYMOUS_IDENTITY_ID,
+            target_reference="http://127.0.0.1:1/",
+            normalized_origin="http://127.0.0.1:1",
+            normalized_path="/",
+            worker_result_id="wr-1",
+            snapshot_fingerprint="fp-1",
+            network_events=(
+                NetworkEventView(
+                    event_id="ne-1",
+                    method="GET",
+                    path="/",
+                    normalized_target="http://127.0.0.1:1/",
+                    redirect=False,
+                    representability="NOT_REPRESENTABLE",
+                ),
+            ),
+        )
+        delta = project_observation_view(
+            view,
+            existing_canonical_keys=frozenset(),
+            fact_id_for_key={},
+            allocate_id=_ids(),
+        )
+        path_keys = [
+            item.fact.canonical_key
+            for item in delta.facts
+            if item.fact.fact_kind is DiscoveryFactKind.EXACT_PATH
+        ]
+        self.assertEqual(len(path_keys), len(set(path_keys)))
+        self.assertEqual(len(path_keys), 1)
 
     def test_duplicate_source_attaches_without_new_semantic_fact(self) -> None:
         view = ObservationView(

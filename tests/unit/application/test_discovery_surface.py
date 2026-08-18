@@ -392,6 +392,35 @@ class RunnerConfigTests(unittest.TestCase):
         self.assertEqual(result.stop_reason, "MAX_BROWSER_ACTIONS")
         self.assertEqual(len(worker.calls), 0)
 
+    def test_reobserve_does_not_respin_when_inspect_path_exists(self) -> None:
+        store = _Store()
+        seed_authorization_run(store)
+        factory = FakeUnitOfWorkFactory(store)
+        runner = SurfaceDiscoveryRunner(factory, RecordingWorkerPort(store=store))
+        runner.ensure_started(SurfaceDiscoveryStart(config=_config()))
+        control = _frontier(frontier_id="front-click")
+        store.frontier_items["front-click"] = control
+        store.frontier_events["ev-click-s"] = FrontierEventRecord(
+            event_id="ev-click-s",
+            frontier_id="front-click",
+            research_run_id="run-1",
+            event_kind="SELECTED",
+            sequence=3,
+            created_at=CREATED_AT,
+            selection_generation=1,
+        )
+        with factory.open() as uow:
+            runner._reobserve(uow, control, created_at=CREATED_AT)
+            uow.commit()
+        kinds = [
+            item.event_kind
+            for item in store.frontier_events.values()
+            if item.frontier_id == "front-click"
+        ]
+        self.assertIn("NO_NEW_INFORMATION", kinds)
+        self.assertNotIn("ELIGIBLE", kinds)
+        self.assertNotIn("FAILED_TRANSIENT", kinds)
+
 
 def _scope():
     from research_os.core.enums import ScopeRuleEffect
