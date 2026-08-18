@@ -56,6 +56,7 @@ from research_os.application.submit_finding_proposal import (
 )
 from research_os.core.enums import ActorType, ScopeRuleEffect
 from research_os.core.scope import ScopeEvaluationInput, ScopeRuleMatch
+from research_os.core.scope_compiler import CompiledScope, ScopeRuleDefinition, compile_scope_rules
 from research_os.data.records import (
     AuthorizationSourceRecord,
     IssuedBudgetRecord,
@@ -124,6 +125,25 @@ def _allow_scope() -> ScopeEvaluationInput:
     return ScopeEvaluationInput(
         matches=(ScopeRuleMatch("rule-allow", ScopeRuleEffect.ALLOW, True, "scope-src"),),
         ambiguous=False,
+    )
+
+
+def _compiled_scope_for_origin(origin: str) -> CompiledScope:
+    from urllib.parse import urlsplit
+
+    parsed = urlsplit(origin)
+    return compile_scope_rules(
+        (
+            ScopeRuleDefinition(
+                rule_id="rule-allow",
+                effect=ScopeRuleEffect.ALLOW,
+                scheme=parsed.scheme or "http",
+                host=parsed.hostname or "127.0.0.1",
+                port=parsed.port,
+                path_prefix=None,
+                source_reference="scope-src",
+            ),
+        )
     )
 
 
@@ -346,6 +366,7 @@ def _promote_supported(
                     experiment_id=repro_id,
                     plan=plan,
                     scope=_allow_scope(),
+                    compiled_scope=_compiled_scope_for_origin(origin),
                 )
             )
             EvaluateExperimentFeedback(factory, clock=clock).execute(

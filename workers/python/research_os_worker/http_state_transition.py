@@ -8,9 +8,10 @@ import socket
 from typing import Any, Mapping
 from urllib.parse import urljoin, urlsplit
 
+from .browser_envelope import envelope_allows, parse_envelope
+
 HTTP_STATE_TRANSITION_CAPABILITY = "http.state_transition"
 HTTP_STATE_TRANSITION_ACTION = "probe"
-ALLOWED_HOSTS = frozenset({"127.0.0.1"})
 ALLOWED_SCHEMES = frozenset({"http"})
 ALLOWED_TRANSITIONS = frozenset({"submit", "review", "approve", "reject"})
 ALLOWED_AREAS = frozenset({"workflow", "control", "redirect"})
@@ -18,6 +19,8 @@ MAX_RESPONSE_BYTES = 4096
 MAX_POST_BYTES = 512
 MAX_REQUESTS = 4
 TIMEOUT_SECONDS = 2.0
+ABSOLUTE_MAX_RESPONSE_BYTES = 1_048_576
+ABSOLUTE_TIMEOUT_SECONDS = 10.0
 ACTOR_HEADER = "X-Lab-Actor"
 REDIRECT_STATUSES = frozenset({301, 302, 303, 307, 308})
 
@@ -46,6 +49,17 @@ def execute_http_state_transition(
     arguments = request.get("arguments")
     if not isinstance(arguments, Mapping):
         return "EXECUTION_FAILED", {}, {"error": "arguments must be an object"}
+    envelope = parse_envelope(request.get("network_envelope"))
+    if envelope is None:
+        return (
+            "EXECUTION_FAILED",
+            {},
+            {
+                "error": "network_envelope is required",
+                "contacted": False,
+                "self_authorized": False,
+            },
+        )
     origin = arguments.get("authorized_origin")
     actor = arguments.get("actor")
     resource_id = arguments.get("resource_id")
@@ -96,8 +110,19 @@ def execute_http_state_transition(
         "resource_id": resource_id,
     }
     for key, method, url, header_actor, body in planned:
+        allowed, reason = envelope_allows(envelope, url)
+        if not allowed:
+            return (
+                "EXECUTION_FAILED",
+                {},
+                {
+                    "error": f"request is outside authorized network envelope: {reason}",
+                    "contacted": False,
+                    "self_authorized": False,
+                },
+            )
         try:
-            raw[key] = _http(method, url, origin, header_actor, body)
+            raw[key] = _http(method, url, origin, header_actor, body, envelope)
         except _RedirectStopped as exc:
             new_origin = _origin_of(exc.new_url) if exc.new_url else ""
             return (
@@ -130,20 +155,10 @@ def _reject_origin(origin: str) -> str | None:
         return "scheme must be http"
     if parsed.username or parsed.password:
         return "userinfo is not allowed"
-    if parsed.hostname not in ALLOWED_HOSTS:
-        return "host must be 127.0.0.1"
     if parsed.path not in {"", "/"}:
         return "authorized_origin must not include a path"
     if parsed.query or parsed.fragment:
         return "authorized_origin must not include query or fragment"
-    try:
-        infos = socket.getaddrinfo(parsed.hostname, parsed.port or 80, type=socket.SOCK_STREAM)
-    except OSError:
-        return "authorized_origin host is not resolvable"
-    for info in infos:
-        address = info[4][0]
-        if address not in {"127.0.0.1", "::1"}:
-            return "authorized_origin must resolve only to loopback"
     return None
 
 
@@ -169,14 +184,18 @@ def _http(
     authorized_origin: str,
     actor: str | None,
     body: Mapping[str, Any] | None,
+    envelope: object,
 ) -> dict[str, Any]:
     if method not in {"GET", "POST"}:
         raise _OriginRejected("method is not in the allowlist")
     if _origin_of(url) != authorized_origin:
         raise _OriginRejected("request origin does not match authorized_origin")
     parsed = urlsplit(url)
-    if parsed.scheme not in ALLOWED_SCHEMES or parsed.hostname not in ALLOWED_HOSTS:
+    if parsed.scheme not in ALLOWED_SCHEMES:
         raise _OriginRejected("non-loopback HTTP is blocked")
+    allowed, reason = envelope_allows(envelope, url)
+    if not allowed:
+        raise _OriginRejected(f"request is outside authorized network envelope: {reason}")
     headers = {"Accept": "application/json", "Connection": "close"}
     if actor is not None:
         headers[ACTOR_HEADER] = actor
@@ -196,7 +215,7 @@ def _http(
     connection = http.client.HTTPConnection(
         parsed.hostname,
         parsed.port or 80,
-        timeout=TIMEOUT_SECONDS,
+        timeout=ABSOLUTE_TIMEOUT_SECONDS,
     )
     try:
         connection.request(method, path, body=encoded, headers=headers)
@@ -204,12 +223,12 @@ def _http(
         status = int(response.status)
         if status in REDIRECT_STATUSES:
             location = response.getheader("Location") or ""
-            response.read(MAX_RESPONSE_BYTES + 1)
+            response.read(ABSOLUTE_MAX_RESPONSE_BYTES + 1)
             raise _RedirectStopped(status, location or "", url)
-        raw_body = response.read(MAX_RESPONSE_BYTES + 1)
+        raw_body = response.read(ABSOLUTE_MAX_RESPONSE_BYTES + 1)
     finally:
         connection.close()
-    if len(raw_body) > MAX_RESPONSE_BYTES:
+    if len(raw_body) > ABSOLUTE_MAX_RESPONSE_BYTES:
         raise _BoundExceeded()
     payload: dict[str, Any] = {"status": status, "method": method}
     if raw_body:

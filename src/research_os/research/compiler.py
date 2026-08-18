@@ -104,7 +104,7 @@ def compile_experiment_intent(
     if intent.target_type == "http_origin" and "://" not in intent.target_reference:
         raise ExperimentCompileError("WRONG_TARGET_TYPE", "http_origin target is not a URL")
     for requirement in action.requirements:
-        if requirement not in {"loopback"}:
+        if requirement not in {"loopback", "scope_derived"}:
             raise ExperimentCompileError(
                 "UNSUPPORTED_REQUIREMENT", f"unsupported requirement {requirement}"
             )

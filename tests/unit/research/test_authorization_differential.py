@@ -3,6 +3,7 @@ from __future__ import annotations
 import ast
 import unittest
 from pathlib import Path
+from urllib.parse import urlsplit
 
 import pathsetup  # noqa: F401
 
@@ -289,16 +290,27 @@ class HttpAuthorizationDifferentialUnitTests(unittest.TestCase):
     def test_non_loopback_origin_is_blocked_without_contact(self) -> None:
         status, raw, diagnostics = execute_http_authorization(
             {
+                "network_envelope": {
+                    "normalized_scheme": "http",
+                    "normalized_host": "127.0.0.1",
+                    "normalized_port": 80,
+                    "document_path": "/",
+                    "origin_wide": True,
+                    "allowed_path_prefixes": [],
+                    "denied_path_prefixes": [],
+                    "loopback_only": True,
+                    "source_scope_rule_ids": ["test"],
+                },
                 "arguments": {
                     "authorized_origin": "http://8.8.8.8:80",
                     "actor": "alice",
                     "own_object": "alice",
                     "cross_object": "bob",
                     "mode": "vulnerable",
-                }
+                },
             }
         )
-        self.assertEqual(status, "BLOCKED")
+        self.assertEqual(status, "EXECUTION_FAILED")
         self.assertEqual(raw, {})
         assert diagnostics is not None
         self.assertFalse(diagnostics.get("contacted"))
@@ -306,31 +318,55 @@ class HttpAuthorizationDifferentialUnitTests(unittest.TestCase):
     def test_external_hostname_is_blocked_without_contact(self) -> None:
         status, _, diagnostics = execute_http_authorization(
             {
+                "network_envelope": {
+                    "normalized_scheme": "http",
+                    "normalized_host": "127.0.0.1",
+                    "normalized_port": 80,
+                    "document_path": "/",
+                    "origin_wide": True,
+                    "allowed_path_prefixes": [],
+                    "denied_path_prefixes": [],
+                    "loopback_only": True,
+                    "source_scope_rule_ids": ["test"],
+                },
                 "arguments": {
                     "authorized_origin": "http://example.com",
                     "actor": "alice",
                     "own_object": "alice",
                     "cross_object": "bob",
                     "mode": "vulnerable",
-                }
+                },
             }
         )
-        self.assertEqual(status, "BLOCKED")
+        self.assertEqual(status, "EXECUTION_FAILED")
         assert diagnostics is not None
         self.assertFalse(diagnostics.get("contacted"))
 
     def test_lab_idor_and_redirect_stop(self) -> None:
         with Gate14Lab() as lab:
             self.assertTrue(lab.origin.startswith("http://127.0.0.1:"))
+            parsed_origin = urlsplit(lab.origin)
+            envelope = {
+                "normalized_scheme": "http",
+                "normalized_host": "127.0.0.1",
+                "normalized_port": parsed_origin.port or 80,
+                "document_path": "/",
+                "origin_wide": True,
+                "allowed_path_prefixes": [],
+                "denied_path_prefixes": [],
+                "loopback_only": True,
+                "source_scope_rule_ids": ["test"],
+            }
             status, raw, _ = execute_http_authorization(
                 {
+                    "network_envelope": envelope,
                     "arguments": {
                         "authorized_origin": lab.origin,
                         "actor": "alice",
                         "own_object": "alice",
                         "cross_object": "bob",
                         "mode": "vulnerable",
-                    }
+                    },
                 }
             )
             self.assertEqual(status, "SUCCEEDED")
@@ -340,13 +376,14 @@ class HttpAuthorizationDifferentialUnitTests(unittest.TestCase):
             self.assertIn(raw["unauthenticated_control"]["status"], {401, 403})
             redirect_status, redirect_raw, diagnostics = execute_http_authorization(
                 {
+                    "network_envelope": envelope,
                     "arguments": {
                         "authorized_origin": lab.origin,
                         "actor": "alice",
                         "own_object": "alice",
                         "cross_object": "bob",
                         "mode": "redirect",
-                    }
+                    },
                 }
             )
             self.assertEqual(redirect_status, "REAUTHORIZATION_REQUIRED")

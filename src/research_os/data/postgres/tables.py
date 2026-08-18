@@ -25,6 +25,81 @@ program = Table(
     Column("program_id", Text, primary_key=True),
     Column("name", Text, nullable=True),
     Column("created_at", DateTime(timezone=True), nullable=False),
+    Column("handle", Text, nullable=True),
+    Column("platform", Text, nullable=True),
+)
+
+scope_rule_v2 = Table(
+    "scope_rule_v2",
+    metadata,
+    Column("rule_id", Text, primary_key=True),
+    Column("program_id", Text, ForeignKey("program.program_id"), nullable=False),
+    Column("effect", Text, nullable=False),
+    Column("scheme", Text, nullable=False),
+    Column("host", Text, nullable=True),
+    Column("host_pattern", Text, nullable=True),
+    Column("port", Integer, nullable=True),
+    Column("path_prefix", Text, nullable=True),
+    Column("source_reference", Text, nullable=False),
+    Column("expires_at", DateTime(timezone=True), nullable=True),
+    Column("created_at", DateTime(timezone=True), nullable=False),
+    UniqueConstraint("rule_id", "program_id", name="uq_scope_rule_v2_id_program"),
+    CheckConstraint("effect IN ('ALLOW', 'DENY', 'OUT_OF_SCOPE', 'UNKNOWN')", name="ck_scope_rule_v2_effect"),
+    CheckConstraint("scheme IN ('http', 'https')", name="ck_scope_rule_v2_scheme"),
+    CheckConstraint(
+        "(host IS NOT NULL AND host_pattern IS NULL) OR (host IS NULL AND host_pattern IS NOT NULL)",
+        name="ck_scope_rule_v2_host_xor_pattern",
+    ),
+    CheckConstraint(
+        "host_pattern IS NULL OR host_pattern LIKE '*.%'",
+        name="ck_scope_rule_v2_host_pattern_format",
+    ),
+    CheckConstraint("port IS NULL OR port >= 1", name="ck_scope_rule_v2_port_positive"),
+    CheckConstraint(
+        "path_prefix IS NULL OR path_prefix LIKE '/%'",
+        name="ck_scope_rule_v2_path_prefix_absolute",
+    ),
+    CheckConstraint(
+        "expires_at IS NULL OR created_at <= expires_at",
+        name="ck_scope_rule_v2_expires_after_created",
+    ),
+)
+
+program_policy = Table(
+    "program_policy",
+    metadata,
+    Column("program_id", Text, ForeignKey("program.program_id"), primary_key=True),
+    Column("loopback_fixture", Boolean, nullable=False, server_default=text("false")),
+    Column("max_response_bytes", Integer, nullable=False, server_default=text("4096")),
+    Column("timeout_ms", Integer, nullable=False, server_default=text("2000")),
+    Column("action_policy", JSONB, nullable=False, server_default=text("'{}'")),
+    Column("created_at", DateTime(timezone=True), nullable=False),
+    Column("updated_at", DateTime(timezone=True), nullable=False),
+    CheckConstraint("max_response_bytes >= 0", name="ck_program_policy_max_response_bytes"),
+    CheckConstraint("timeout_ms >= 0", name="ck_program_policy_timeout_ms"),
+)
+
+rate_limit_profile = Table(
+    "rate_limit_profile",
+    metadata,
+    Column("profile_id", Text, primary_key=True),
+    Column("program_id", Text, ForeignKey("program.program_id"), nullable=False),
+    Column("max_requests_per_window", Integer, nullable=False),
+    Column("window_seconds", Integer, nullable=False),
+    Column("created_at", DateTime(timezone=True), nullable=False),
+    UniqueConstraint("program_id", name="uq_rate_limit_profile_program"),
+    CheckConstraint("max_requests_per_window >= 0", name="ck_rate_limit_max_requests"),
+    CheckConstraint("window_seconds >= 0", name="ck_rate_limit_window_seconds"),
+)
+
+bounty_table = Table(
+    "bounty_table",
+    metadata,
+    Column("program_id", Text, ForeignKey("program.program_id"), primary_key=True),
+    Column("severity", Text, primary_key=True),
+    Column("reward_range", JSONB, nullable=True),
+    Column("created_at", DateTime(timezone=True), nullable=False),
+    CheckConstraint("severity IN ('P1', 'P2', 'P3', 'P4', 'P5')", name="ck_bounty_table_severity"),
 )
 
 authorization_source = Table(
@@ -1414,6 +1489,10 @@ SPINE_TABLES = (
     frontier_source,
     frontier_event,
     discovery_projection_receipt,
+    scope_rule_v2,
+    program_policy,
+    rate_limit_profile,
+    bounty_table,
 )
 
 APPEND_ONLY_TABLES = (

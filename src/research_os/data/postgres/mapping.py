@@ -8,8 +8,10 @@ from research_os.data.records import (
     ApprovalRecord,
     AuditEventRecord,
     AuthorizationSourceRecord,
+    BountyTableRecord,
     CandidateAdmissionRecord,
     CandidateRecord,
+    ChainHypothesisRecord,
     DifferentialObservationRecord,
     EvidenceAdmissionRecord,
     EvidenceRecord,
@@ -21,25 +23,27 @@ from research_os.data.records import (
     HypothesisAssessmentRecord,
     HypothesisRecord,
     HumanReviewRecord,
+    InvariantHypothesisRecord,
+    InvariantCounterexampleRefRecord,
     IssuedBudgetRecord,
     ObservationRecord,
+    ProgramPolicyRecord,
     ProgramRecord,
+    RateLimitProfileRecord,
     ResearchAdmissionRecord,
+    ResearchCycleRecord,
+    ResearchOrchestrationRecord,
     ResearchReasoningRecord,
     ResearchRunRecord,
+    ScopeRuleV2Record,
     TargetInferenceRecord,
     VerificationRecord,
     WorkerResultRecord,
-    InvariantHypothesisRecord,
-    InvariantCounterexampleRefRecord,
-    ChainHypothesisRecord,
     ResearchOpportunityRecord,
     ResearchSelectionRecord,
     SnapshotRecord,
     SnapshotMemberRecord,
     ChangeEventRecord,
-    ResearchOrchestrationRecord,
-    ResearchCycleRecord,
     BudgetConsumptionRecord,
     SessionContextRecord,
     ControlEventRecord,
@@ -65,6 +69,59 @@ def program_from_row(row: Mapping[str, Any]) -> ProgramRecord:
         program_id=data["program_id"],
         created_at=data["created_at"],
         name=data.get("name"),
+        handle=data.get("handle"),
+        platform=data.get("platform"),
+    )
+
+
+def scope_rule_v2_from_row(row: Mapping[str, Any]) -> ScopeRuleV2Record:
+    data = _mapping(row)
+    return ScopeRuleV2Record(
+        rule_id=data["rule_id"],
+        program_id=data["program_id"],
+        effect=data["effect"],
+        scheme=data["scheme"],
+        source_reference=data["source_reference"],
+        created_at=data["created_at"],
+        host=data.get("host"),
+        host_pattern=data.get("host_pattern"),
+        port=data.get("port"),
+        path_prefix=data.get("path_prefix"),
+        expires_at=data.get("expires_at"),
+    )
+
+
+def program_policy_from_row(row: Mapping[str, Any]) -> ProgramPolicyRecord:
+    data = _mapping(row)
+    return ProgramPolicyRecord(
+        program_id=data["program_id"],
+        loopback_fixture=bool(data["loopback_fixture"]),
+        max_response_bytes=int(data["max_response_bytes"]),
+        timeout_ms=int(data["timeout_ms"]),
+        created_at=data["created_at"],
+        updated_at=data["updated_at"],
+        action_policy=dict(data["action_policy"] or {}),
+    )
+
+
+def rate_limit_profile_from_row(row: Mapping[str, Any]) -> RateLimitProfileRecord:
+    data = _mapping(row)
+    return RateLimitProfileRecord(
+        profile_id=data["profile_id"],
+        program_id=data["program_id"],
+        max_requests_per_window=int(data["max_requests_per_window"]),
+        window_seconds=int(data["window_seconds"]),
+        created_at=data["created_at"],
+    )
+
+
+def bounty_table_from_row(row: Mapping[str, Any]) -> BountyTableRecord:
+    data = _mapping(row)
+    return BountyTableRecord(
+        program_id=data["program_id"],
+        severity=data["severity"],
+        created_at=data["created_at"],
+        reward_range=dict(data["reward_range"]) if data.get("reward_range") is not None else None,
     )
 
 

@@ -14,9 +14,11 @@ import time
 from typing import Any, Mapping
 from urllib.parse import urlencode, urljoin, urlsplit
 
+from .browser_envelope import envelope_allows, parse_envelope
+
 HTTP_TRANSACTION_CAPABILITY = "http.transaction"
-ALLOWED_HOSTS = frozenset({"127.0.0.1"})
 ALLOWED_SCHEMES = frozenset({"http"})
+
 ALLOWED_READ_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
 ALLOWED_MUTATE_METHODS = frozenset({"POST", "PUT", "PATCH", "DELETE"})
 FORBIDDEN_REQUEST_HEADERS = frozenset(
@@ -45,6 +47,8 @@ ALLOWED_REQUEST_HEADERS = frozenset(
 REDIRECT_STATUSES = frozenset({301, 302, 303, 307, 308})
 DEFAULT_MAX_RESPONSE_BYTES = 4096
 DEFAULT_TIMEOUT_SECONDS = 2.0
+ABSOLUTE_MAX_RESPONSE_BYTES = 1_048_576
+ABSOLUTE_TIMEOUT_SECONDS = 10.0
 MAX_HEADER_COUNT = 8
 MAX_HEADER_NAME_LENGTH = 64
 MAX_HEADER_VALUE_LENGTH = 128
@@ -81,6 +85,17 @@ def execute_http_transaction(
     arguments = request.get("arguments")
     if not isinstance(arguments, Mapping):
         return "EXECUTION_FAILED", {}, {"error": "arguments must be an object"}
+    envelope = parse_envelope(request.get("network_envelope"))
+    if envelope is None:
+        return (
+            "EXECUTION_FAILED",
+            {},
+            {
+                "error": "network_envelope is required",
+                "contacted": False,
+                "self_authorized": False,
+            },
+        )
     if arguments.get("session_context_reference") is not None:
         session_ref = arguments.get("session_context_reference")
         if not isinstance(session_ref, str) or not session_ref.strip():
@@ -143,13 +158,25 @@ def execute_http_transaction(
     timeout_ms = arguments.get("timeout_ms")
     if not isinstance(max_response_bytes, int) or max_response_bytes < 1:
         return "EXECUTION_FAILED", {}, {"error": "max_response_bytes is invalid"}
+    max_response_bytes = min(max_response_bytes, ABSOLUTE_MAX_RESPONSE_BYTES)
     timeout = DEFAULT_TIMEOUT_SECONDS
     if timeout_ms is not None:
         if not isinstance(timeout_ms, int) or timeout_ms < 1:
             return "EXECUTION_FAILED", {}, {"error": "timeout_ms is invalid"}
-        timeout = min(timeout_ms / 1000.0, DEFAULT_TIMEOUT_SECONDS)
+        timeout = min(timeout_ms / 1000.0, ABSOLUTE_TIMEOUT_SECONDS)
     request_path = path if not query else f"{path}?{query}"
     url = f"{origin}{request_path}"
+    allowed, reason = envelope_allows(envelope, url)
+    if not allowed:
+        return (
+            "EXECUTION_FAILED",
+            {},
+            {
+                "error": f"request is outside authorized network envelope: {reason}",
+                "contacted": False,
+                "self_authorized": False,
+            },
+        )
     started = time.perf_counter()
     try:
         captured = _exchange(
@@ -219,20 +246,10 @@ def _reject_origin(origin: str) -> str | None:
         return "scheme must be http"
     if parsed.username or parsed.password:
         return "userinfo is not allowed"
-    if parsed.hostname not in ALLOWED_HOSTS:
-        return "host must be 127.0.0.1"
     if parsed.path not in {"", "/"}:
         return "authorized_origin must not include a path"
     if parsed.query or parsed.fragment:
         return "authorized_origin must not include query or fragment"
-    try:
-        infos = socket.getaddrinfo(parsed.hostname, parsed.port or 80, type=socket.SOCK_STREAM)
-    except OSError:
-        return "authorized_origin host is not resolvable"
-    for info in infos:
-        address = info[4][0]
-        if address not in {"127.0.0.1", "::1"}:
-            return "authorized_origin must resolve only to loopback"
     return None
 
 
@@ -344,7 +361,7 @@ def _exchange(
     timeout: float,
 ) -> dict[str, Any]:
     parsed = urlsplit(origin)
-    if parsed.scheme not in ALLOWED_SCHEMES or parsed.hostname not in ALLOWED_HOSTS:
+    if parsed.scheme not in ALLOWED_SCHEMES:
         raise _OriginRejected("non-loopback HTTP is blocked")
     connection = http.client.HTTPConnection(
         parsed.hostname,

@@ -1,6 +1,13 @@
 """Project maturity flags. These are not research conclusions and are not auto-advanced.
 
 ARCHITECTURE_VALIDATED means Decisions 001–050 and GATE 01–13 architecture exist.
+
+GATE 01 is the Attack Period gate. It gates the transition from defensive scaffolding
+to authorized offensive-scope compilation and dispatch. PASS means ProgramResearchContext,
+scope compiler v2, program policy-derived loopback fixture, and envelope Worker enforcement
+are validated on real PostgreSQL. It does not mean arbitrary external targeting,
+unrestricted tooling, or autonomous vulnerability discovery.
+
 GATE 14 PASS means the controlled authorized local HTTP authorization-differential
 pipeline E2E ran on Kali against dedicated PostgreSQL. It does not mean live models,
 autonomous discovery quality, bug-bounty performance, or production readiness.
@@ -48,6 +55,18 @@ mechanisms, durable session-secret recovery after restart, autonomous
 vulnerability discovery, real-world bug bounty performance, or production
 readiness.
 
+GATE 21 PENDING means the browser/application-state capability implementation
+exists locally but formal PASS requires later Kali + real PostgreSQL + real
+Chromium validation. It does not prove autonomous discovery, crawler behavior,
+bug-bounty performance, browser-based vulnerability discovery, general internet
+browsing, or production readiness.
+
+GATE 22 PASS means Research OS can autonomously build and maintain a bounded,
+provenance-rich, identity/state-aware attack-surface model of an authorized local
+target using real Browser/HTTP observations. It does not prove autonomous
+vulnerability discovery, bug-bounty capability, production readiness, generalized
+internet reconnaissance, or GATE 23.
+
 PRODUCTION_READY must stay false until operational and live-research gates
 that this environment has not passed actually pass.
 """
@@ -60,6 +79,7 @@ LIVE_MODEL_VALIDATED = False
 SECURITY_RESEARCH_VALIDATED = False
 PRODUCTION_READY = False
 
+GATE_01_STATUS = "PENDING"
 GATE_12_STATUS = "PASS"
 GATE_13_STATUS = "PASS"
 GATE_14_STATUS = "PASS"
@@ -69,6 +89,8 @@ GATE_17_STATUS = "PASS"
 GATE_18_STATUS = "PASS"
 GATE_19_STATUS = "PASS"
 GATE_20_STATUS = "PASS"
+GATE_21_STATUS = "PENDING"
+GATE_22_STATUS = "PASS"
 GATE_04B_STATUS = "PENDING"
 SUBSCRIPTION_OAUTH_STATUS = "NOT_IMPLEMENTED"
 
@@ -80,6 +102,7 @@ def maturity_mapping() -> dict[str, object]:
         "LIVE_MODEL_VALIDATED": LIVE_MODEL_VALIDATED,
         "SECURITY_RESEARCH_VALIDATED": SECURITY_RESEARCH_VALIDATED,
         "PRODUCTION_READY": PRODUCTION_READY,
+        "GATE_01": GATE_01_STATUS,
         "GATE_04B": GATE_04B_STATUS,
         "GATE_12": GATE_12_STATUS,
         "GATE_13": GATE_13_STATUS,
@@ -90,6 +113,8 @@ def maturity_mapping() -> dict[str, object]:
         "GATE_18": GATE_18_STATUS,
         "GATE_19": GATE_19_STATUS,
         "GATE_20": GATE_20_STATUS,
+        "GATE_21": GATE_21_STATUS,
+        "GATE_22": GATE_22_STATUS,
         "SUBSCRIPTION_OAUTH": SUBSCRIPTION_OAUTH_STATUS,
         "contains_secrets": False,
     }

@@ -562,6 +562,65 @@ Do not set `LIVE_MODEL_VALIDATED`, `SECURITY_RESEARCH_VALIDATED`, or `PRODUCTION
 
 If `RESEARCH_OS_TEST_DATABASE_URL` is unset, PostgreSQL-required suites must SKIP, never fabricate PASS.
 
+## GATE 01 — Attack Period (Scope Compiler v2 + ProgramResearchContext)
+
+**GATE 01 status: PENDING.** Formal PASS requires Kali + real PostgreSQL validation of authorized non-loopback dispatch through compiled program scope and policy.
+
+Implementation scope:
+
+- `core/scope_compiler.py`: wildcard `*.example.com` with multi-level subdomain match; apex `example.com` does not match; suffix attacks (`evil-example.com`, `example.com.evil.com`) and dotless suffixes are rejected; `UNKNOWN` classification denies active probing while allowing passive observation; expired rules fall back to `REQUIRE_HUMAN_REVIEW`.
+- `core/enums.py`: `ScopeClassification` (`IN_SCOPE`, `UNKNOWN`, `OUT_OF_SCOPE`) and `ReasonCode.SCOPE_UNKNOWN_CLASSIFICATION`, `ReasonCode.SCOPE_EXPIRED`, `ReasonCode.PROGRAM_POLICY_DENIED`.
+- Alembic `a23_001_program_scope`: `program`, `scope_rule_v2`, `program_policy`, `rate_limit_profile`, `bounty_table`.
+- `application/program_research_context.py`: `ProgramResearchContext`, `ProgramPolicyView`, `load_program_research_context`, `derive_loopback_only`.
+- `application/http_transaction_authorization.py`: `loopback_only` is no longer hardcoded to `True`; it is derived from `CompiledScope` + `ProgramPolicyView` (`loopback_fixture=True` or empty scope → `True`; real IN_SCOPE target → `False`).
+- `application/execute_planned_experiment.py`: `ExecutePlannedExperimentCommand` carries an optional `program_policy`; passed to `authorize_http_transaction_plan`.
+- `application/operator_status.py` + `interface/cli.py`: `GATE 01`, `GATE 21`, `GATE 22` are now surfaced in `research-os status`.
+- Worker runtime (`src/research_os/worker_runtime/python/` and `workers/python/research_os_worker/`): `ALLOWED_HOSTS` removed; dispatch is enforced against the envelope (scheme + host + port + path prefix). Missing or mismatched envelope → `EXECUTION_FAILED`.
+- `tools/registry.py` + `research/compiler.py`: `SUPPORTED_REQUIREMENTS` extended with `"scope_derived"`; existing six contracts remain backward-compatible.
+- Capability ceiling configurability: per-program `max_response_bytes` and `timeout_ms` with absolute caps (1 MB / 10 s). Budget authority remains in `core/budget.py`.
+
+Current local validation (before authoritative Kali run):
+
+- Alembic head `a23_001_program_scope`
+- unit + contract: 947 OK / 4 skipped (Windows Job Object kernel tests skip on Linux/Kali)
+- integration: 123 OK / 0 skipped
+- e2e: 155 OK / 5 skipped
+- `research-os status` reports POSTGRESQL HEALTHY, TEST_POSTGRESQL HEALTHY, Worker HEALTHY
+
+GATE 01 proves only: Research OS can compile authorized program scope and policy into a fail-closed dispatch envelope that differentiates loopback fixtures from real IN_SCOPE targets, while keeping UNKNOWN targets observable-but-not-probed.
+
+GATE 01 does **not** prove:
+
+- autonomous vulnerability discovery
+- arbitrary external internet targeting
+- live bug-bounty performance
+- platform sync to HackerOne/Bugcrowd (port + contract only in this gate; live adapter later)
+- OAST callbacks or program-policy actions beyond `DENY`
+- production readiness
+
+Current limitations:
+
+- loopback fixture remains the default when no program policy is loaded
+- explicit program scope + policy are required for non-loopback dispatch
+- UNKNOWN classification is fail-closed for active probes
+- Worker cannot expand a Core-derived envelope
+
+Do not set `LIVE_MODEL_VALIDATED`, `SECURITY_RESEARCH_VALIDATED`, or `PRODUCTION_READY`. GATE 04B remains PENDING. GATE 22 remains PASS.
+
+Validation commands (to be run on authoritative Kali host with real PostgreSQL):
+
+```
+python -m compileall src tests scripts
+python -m unittest discover -s tests/unit -q
+python -m unittest discover -s tests/contract -q
+python -m unittest tests.unit.test_architecture_boundaries -q
+python -m unittest discover -s tests/integration -q
+python scripts/run_research_benchmark.py --baseline GOOD_BASELINE --single-run-legacy
+python scripts/clean_install_smoke.py
+```
+
+If `RESEARCH_OS_TEST_DATABASE_URL` is unset, PostgreSQL-required suites must SKIP, never fabricate PASS.
+
 ## Maturity
 
 - ARCHITECTURE_VALIDATED: architecture package complete
@@ -576,4 +635,6 @@ If `RESEARCH_OS_TEST_DATABASE_URL` is unset, PostgreSQL-required suites must SKI
 - GATE 18: PASS (2026-08-17, commit 241e901fb2c6730ee293cca71942de45d3796282, Kali, dedicated PostgreSQL, Alembic head a20_001_capability_plan_binding, unit 627 OK, contract 2 OK, architecture 20 OK, integration 117 OK, GATE14 19 OK / 0 skipped, GATE15 21 OK / 0 skipped, GATE16 34 OK / 0 skipped, GATE17 57 OK / 0 skipped)
 - GATE 19: PASS (2026-08-17, implementation 95c88bc, authoritative tested HEAD b442a672a7df86482d0f5a60eb156483b691d44c, Kali, dedicated PostgreSQL, Alembic head a21_001_session_context, unit 676 OK, contract 2 OK, architecture 22 OK, integration 120 OK, GATE14 19 OK / 0 skipped, GATE15 21 OK / 0 skipped, GATE16 34 OK / 0 skipped, GATE17 57 OK / 0 skipped)
 - GATE 20: PASS (2026-08-17, implementation e574306, authoritative tested HEAD b442a672a7df86482d0f5a60eb156483b691d44c, Kali, dedicated PostgreSQL, Alembic head a21_001_session_context, unit 676 OK, contract 2 OK, architecture 22 OK, integration 120 OK, GATE14 19 OK / 0 skipped, GATE15 21 OK / 0 skipped, GATE16 34 OK / 0 skipped, GATE17 57 OK / 0 skipped)
+- GATE 21: PENDING (implementation exists locally; formal PASS requires Kali + real PostgreSQL + real Chromium validation)
 - GATE 22: PASS (2026-08-18, authoritative tested implementation SHA ba24935d84245216011dc062fa12fbcccbefc9b5, Kali, isolated PostgreSQL research_os_test, Alembic head a22_001_discovery_surface, a22→a21→a22 PASS, G22 persistence 3 OK / 0 skipped, TX-B replay PASS with Worker redispatch 0, hidden-lab 2 OK / 0 skipped plus 3 additional successful repeats, unit 912 OK / 4 Windows Job Object skips, contract 2 OK, architecture 26 OK, integration 123 OK / 0 skipped, GATE14 19 OK, GATE15 21 OK, GATE16 34 OK, GATE17 57 OK, GATE21 browser 20 OK)
+- GATE 01: PENDING (Scope Compiler v2 + ProgramResearchContext + program-policy-derived loopback fixture; formal PASS requires Kali + real PostgreSQL validation)

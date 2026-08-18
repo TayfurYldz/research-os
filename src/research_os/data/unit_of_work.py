@@ -57,6 +57,10 @@ class UnitOfWork(Protocol):
     """One explicit transaction. Commit is required; otherwise rollback."""
 
     programs: ProgramRepository
+    scope_rules_v2: ScopeRuleV2Repository
+    program_policies: ProgramPolicyRepository
+    rate_limit_profiles: RateLimitProfileRepository
+    bounty_tables: BountyTableRepository
     authorization_sources: AuthorizationSourceRepository
     research_runs: ResearchRunRepository
     issued_budgets: IssuedBudgetRepository

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import unittest
+from urllib.parse import urlsplit
 
 import pathsetup  # noqa: F401
 
@@ -24,6 +25,21 @@ from e2e.lab.http_ground_truth_lab import (
     TRUE_BOLA,
     GroundTruthLab,
 )
+
+
+def _envelope_for(origin: str) -> dict[str, object]:
+    parsed = urlsplit(origin)
+    return {
+        "normalized_scheme": parsed.scheme or "http",
+        "normalized_host": parsed.hostname or "127.0.0.1",
+        "normalized_port": parsed.port or 80,
+        "document_path": "/",
+        "origin_wide": True,
+        "allowed_path_prefixes": [],
+        "denied_path_prefixes": [],
+        "loopback_only": True,
+        "source_scope_rule_ids": ["test"],
+    }
 
 
 def _plan(**overrides):
@@ -196,6 +212,7 @@ class AuthorizationFalsePositiveTests(unittest.TestCase):
         with GroundTruthLab(PUBLIC_OBJECT) as lab:
             status, raw, _ = execute_http_authorization(
                 {
+                    "network_envelope": _envelope_for(lab.origin),
                     "arguments": {
                         "authorized_origin": lab.origin,
                         "actor": "alice",
@@ -212,6 +229,7 @@ class AuthorizationFalsePositiveTests(unittest.TestCase):
         with GroundTruthLab(DELEGATED_ACCESS) as lab:
             _, raw, _ = execute_http_authorization(
                 {
+                    "network_envelope": _envelope_for(lab.origin),
                     "arguments": {
                         "authorized_origin": lab.origin,
                         "actor": "alice",
@@ -225,6 +243,7 @@ class AuthorizationFalsePositiveTests(unittest.TestCase):
         with GroundTruthLab(SHARED_RESOURCE) as lab:
             _, raw, _ = execute_http_authorization(
                 {
+                    "network_envelope": _envelope_for(lab.origin),
                     "arguments": {
                         "authorized_origin": lab.origin,
                         "actor": "alice",
@@ -238,6 +257,7 @@ class AuthorizationFalsePositiveTests(unittest.TestCase):
         with GroundTruthLab(DECEPTIVE_200) as lab:
             _, raw, _ = execute_http_authorization(
                 {
+                    "network_envelope": _envelope_for(lab.origin),
                     "arguments": {
                         "authorized_origin": lab.origin,
                         "actor": "alice",
@@ -251,6 +271,7 @@ class AuthorizationFalsePositiveTests(unittest.TestCase):
         with GroundTruthLab(TRUE_BOLA) as lab:
             _, raw, _ = execute_http_authorization(
                 {
+                    "network_envelope": _envelope_for(lab.origin),
                     "arguments": {
                         "authorized_origin": lab.origin,
                         "actor": "alice",

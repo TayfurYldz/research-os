@@ -23,6 +23,7 @@ from research_os.data.records import (
     ApprovalRecord,
     AuditEventRecord,
     AuthorizationSourceRecord,
+    BountyTableRecord,
     BudgetConsumptionRecord,
     CandidateAdmissionRecord,
     CandidateRecord,
@@ -42,7 +43,9 @@ from research_os.data.records import (
     InvariantHypothesisRecord,
     IssuedBudgetRecord,
     ObservationRecord,
+    ProgramPolicyRecord,
     ProgramRecord,
+    RateLimitProfileRecord,
     ResearchAdmissionRecord,
     ResearchCycleRecord,
     ResearchOpportunityRecord,
@@ -50,6 +53,7 @@ from research_os.data.records import (
     ResearchReasoningRecord,
     ResearchRunRecord,
     ResearchSelectionRecord,
+    ScopeRuleV2Record,
     SnapshotMemberRecord,
     SnapshotRecord,
     TargetInferenceRecord,
@@ -74,6 +78,10 @@ from research_os.data.budget_ledger import assert_within_allowance
 class _Store:
     def __init__(self) -> None:
         self.programs: dict[str, ProgramRecord] = {}
+        self.scope_rules_v2: dict[str, ScopeRuleV2Record] = {}
+        self.program_policies: dict[str, ProgramPolicyRecord] = {}
+        self.rate_limit_profiles: dict[str, RateLimitProfileRecord] = {}
+        self.bounty_tables: dict[str, BountyTableRecord] = {}
         self.authorization_sources: dict[str, AuthorizationSourceRecord] = {}
         self.research_runs: dict[str, ResearchRunRecord] = {}
         self.issued_budgets: dict[str, IssuedBudgetRecord] = {}
@@ -143,6 +151,57 @@ class _Repo:
         return self._store.get(record_id)
 
 
+class _ScopeRuleV2Repo(_Repo):
+    def __init__(self, store: _Store, fail_on_insert: bool = False) -> None:
+        super().__init__(store.scope_rules_v2, fail_on_insert=fail_on_insert)
+        self._root = store
+
+    def list_for_program(self, program_id: str) -> list[ScopeRuleV2Record]:
+        return sorted(
+            [
+                record
+                for record in self._root.scope_rules_v2.values()
+                if record.program_id == program_id
+            ],
+            key=lambda record: record.rule_id,
+        )
+
+
+class _RateLimitProfileRepo(_Repo):
+    def __init__(self, store: _Store, fail_on_insert: bool = False) -> None:
+        super().__init__(store.rate_limit_profiles, fail_on_insert=fail_on_insert)
+        self._root = store
+
+    def list_for_program(self, program_id: str) -> list[RateLimitProfileRecord]:
+        return sorted(
+            [
+                record
+                for record in self._root.rate_limit_profiles.values()
+                if record.program_id == program_id
+            ],
+            key=lambda record: record.profile_id,
+        )
+
+
+class _BountyTableRepo(_Repo):
+    def __init__(self, store: _Store, fail_on_insert: bool = False) -> None:
+        super().__init__(store.bounty_tables, fail_on_insert=fail_on_insert)
+        self._root = store
+
+    def get(self, program_id: str, severity: str) -> BountyTableRecord | None:
+        return self._root.bounty_tables.get(f"{program_id}:{severity}")
+
+    def list_for_program(self, program_id: str) -> list[BountyTableRecord]:
+        return sorted(
+            [
+                record
+                for record in self._root.bounty_tables.values()
+                if record.program_id == program_id
+            ],
+            key=lambda record: record.severity,
+        )
+
+
 class _IssuedBudgetRepo(_Repo):
     def __init__(self, store: _Store) -> None:
         super().__init__(store.issued_budgets)
@@ -159,6 +218,14 @@ class _IssuedBudgetRepo(_Repo):
 def _id_of(record: Any) -> str:
     if isinstance(record, ProgramRecord):
         return record.program_id
+    if isinstance(record, ScopeRuleV2Record):
+        return record.rule_id
+    if isinstance(record, ProgramPolicyRecord):
+        return record.program_id
+    if isinstance(record, RateLimitProfileRecord):
+        return record.profile_id
+    if isinstance(record, BountyTableRecord):
+        return f"{record.program_id}:{record.severity}"
     if isinstance(record, AuthorizationSourceRecord):
         return record.authorization_source_id
     if isinstance(record, ResearchRunRecord):
@@ -1284,6 +1351,10 @@ class FakeUnitOfWork:
         self._committed = False
         self._snapshot: _Store | None = None
         self.programs = _Repo(self._store.programs)
+        self.scope_rules_v2 = _ScopeRuleV2Repo(self._store)
+        self.program_policies = _Repo(self._store.program_policies)
+        self.rate_limit_profiles = _RateLimitProfileRepo(self._store)
+        self.bounty_tables = _BountyTableRepo(self._store)
         self.authorization_sources = _Repo(self._store.authorization_sources)
         self.research_runs = _Repo(self._store.research_runs)
         self.issued_budgets = _IssuedBudgetRepo(self._store)
@@ -1413,6 +1484,14 @@ class FakeUnitOfWork:
     def _restore(self, snapshot: _Store) -> None:
         self._store.programs.clear()
         self._store.programs.update(snapshot.programs)
+        self._store.scope_rules_v2.clear()
+        self._store.scope_rules_v2.update(snapshot.scope_rules_v2)
+        self._store.program_policies.clear()
+        self._store.program_policies.update(snapshot.program_policies)
+        self._store.rate_limit_profiles.clear()
+        self._store.rate_limit_profiles.update(snapshot.rate_limit_profiles)
+        self._store.bounty_tables.clear()
+        self._store.bounty_tables.update(snapshot.bounty_tables)
         self._store.authorization_sources.clear()
         self._store.authorization_sources.update(snapshot.authorization_sources)
         self._store.research_runs.clear()

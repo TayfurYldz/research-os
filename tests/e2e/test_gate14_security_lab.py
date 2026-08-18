@@ -71,6 +71,7 @@ from research_os.application.submit_finding_proposal import (
 )
 from research_os.core.enums import ActorType, ReasonCode, ScopeRuleEffect
 from research_os.core.scope import ScopeEvaluationInput, ScopeRuleMatch
+from research_os.core.scope_compiler import CompiledScope, ScopeRuleDefinition, compile_scope_rules
 from research_os.data.postgres.engine import (
     TEST_DATABASE_URL_ENV,
     create_sync_engine,
@@ -117,6 +118,57 @@ if TEST_URL:
 
 GATE14_HUMAN = "gate14-human-reviewer"
 HTTP_CLAIM = HTTP_AUTHORIZATION_DIFFERENTIAL_CLAIM
+
+
+def _compiled_scope_for_origin(origin: str) -> CompiledScope:
+    from urllib.parse import urlsplit
+
+    parsed = urlsplit(origin)
+    return compile_scope_rules(
+        (
+            ScopeRuleDefinition(
+                rule_id="rule-allow",
+                effect=ScopeRuleEffect.ALLOW,
+                scheme=parsed.scheme or "http",
+                host=parsed.hostname or "127.0.0.1",
+                port=parsed.port,
+                path_prefix=None,
+                source_reference="scope-src",
+            ),
+        )
+    )
+
+
+def _loopback_compiled_scope() -> CompiledScope:
+    return compile_scope_rules(
+        (
+            ScopeRuleDefinition(
+                rule_id="rule-allow",
+                effect=ScopeRuleEffect.ALLOW,
+                scheme="http",
+                host="127.0.0.1",
+                port=None,
+                path_prefix=None,
+                source_reference="scope-src",
+            ),
+        )
+    )
+
+
+def _deny_compiled_scope() -> CompiledScope:
+    return compile_scope_rules(
+        (
+            ScopeRuleDefinition(
+                rule_id="rule-deny",
+                effect=ScopeRuleEffect.OUT_OF_SCOPE,
+                scheme="http",
+                host="127.0.0.1",
+                port=None,
+                path_prefix=None,
+                source_reference="scope-src",
+            ),
+        )
+    )
 
 
 def _allow_scope() -> ScopeEvaluationInput:
@@ -282,6 +334,7 @@ class Gate14SecurityLabE2ETests(unittest.TestCase):
         *,
         worker=None,
         scope=None,
+        compiled_scope=None,
     ):
         PreparePlannedExperiment(factory, clock=FixedClock()).execute(
             PreparePlannedExperimentCommand(
@@ -291,11 +344,14 @@ class Gate14SecurityLabE2ETests(unittest.TestCase):
             )
         )
         port = worker or _local_worker()
+        if compiled_scope is None:
+            compiled_scope = _compiled_scope_for_origin(plan.arguments["authorized_origin"])
         outcome = ExecutePlannedExperiment(factory, port, clock=FixedClock()).execute(
             ExecutePlannedExperimentCommand(
                 experiment_id=experiment_id,
                 plan=plan,
                 scope=scope or _allow_scope(),
+                compiled_scope=compiled_scope,
             )
         )
         return outcome, port
@@ -384,15 +440,20 @@ class Gate14SecurityLabE2ETests(unittest.TestCase):
         factory = self._factory()
         plan = _plan("http://8.8.8.8:80", actor="alice", own="alice", cross="bob")
         worker = _local_worker()
-        outcome, _ = self._run_probe(factory, "exp-blocked", plan, worker=worker)
-        self.assertEqual(outcome.status, ResearchLoopStatus.NO_OBSERVATION)
-        self.assertEqual(len(worker.calls), 1)
+        outcome, _ = self._run_probe(
+            factory,
+            "exp-blocked",
+            plan,
+            worker=worker,
+            compiled_scope=_loopback_compiled_scope(),
+        )
+        self.assertEqual(outcome.status, ResearchLoopStatus.DISPATCH_DENIED)
+        self.assertEqual(len(worker.calls), 0)
         with factory.open() as uow:
             results = uow.worker_results.list_for_experiment("exp-blocked")
             observations = uow.observations.list_for_experiment("exp-blocked")
-        self.assertEqual(results[0].status, "BLOCKED")
+        self.assertEqual(results, [])
         self.assertEqual(observations, [])
-        self.assertFalse((results[0].diagnostics or {}).get("contacted"))
 
     def test_04_redirects_are_not_silently_followed(self) -> None:
         factory = self._factory()
@@ -654,9 +715,10 @@ class Gate14SecurityLabE2ETests(unittest.TestCase):
             _plan("http://example.com", actor="alice", own="alice", cross="bob"),
             worker=worker,
             scope=_deny_scope(),
+            compiled_scope=_deny_compiled_scope(),
         )
         self.assertEqual(outcome.status, ResearchLoopStatus.DISPATCH_DENIED)
-        self.assertEqual(outcome.core_reason_code, ReasonCode.SCOPE_DENIED)
+        self.assertEqual(outcome.core_reason_code, ReasonCode.SCOPE_NOT_EXPLICITLY_ALLOWED)
         self.assertEqual(len(worker.calls), 0)
         with factory.open() as uow:
             self.assertEqual(uow.execution_attempts.list_for_experiment("exp-oos"), [])
@@ -748,7 +810,7 @@ class Gate14SecurityLabE2ETests(unittest.TestCase):
         assert self.engine is not None
         with self.engine.connect() as connection:
             version = connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one()
-        self.assertEqual(version, "a22_001_discovery_surface")
+        self.assertEqual(version, "a23_001_program_scope")
 
 
 if __name__ == "__main__":

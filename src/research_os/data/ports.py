@@ -10,6 +10,7 @@ from research_os.data.records import (
     ApprovalRecord,
     AuditEventRecord,
     AuthorizationSourceRecord,
+    BountyTableRecord,
     BudgetConsumptionRecord,
     CandidateAdmissionRecord,
     CandidateRecord,
@@ -29,12 +30,15 @@ from research_os.data.records import (
     InvariantHypothesisRecord,
     IssuedBudgetRecord,
     ObservationRecord,
+    ProgramPolicyRecord,
     ProgramRecord,
+    RateLimitProfileRecord,
     ResearchAdmissionRecord,
     ResearchCycleRecord,
     ResearchOrchestrationRecord,
     ResearchReasoningRecord,
     ResearchRunRecord,
+    ScopeRuleV2Record,
     TargetInferenceRecord,
     VerificationRecord,
     WorkerResultRecord,
@@ -60,6 +64,29 @@ from research_os.data.records import (
 class ProgramRepository(Protocol):
     def insert(self, record: ProgramRecord) -> None: ...
     def get(self, program_id: str) -> ProgramRecord | None: ...
+
+
+class ScopeRuleV2Repository(Protocol):
+    def insert(self, record: ScopeRuleV2Record) -> None: ...
+    def get(self, rule_id: str) -> ScopeRuleV2Record | None: ...
+    def list_for_program(self, program_id: str) -> list[ScopeRuleV2Record]: ...
+
+
+class ProgramPolicyRepository(Protocol):
+    def insert(self, record: ProgramPolicyRecord) -> None: ...
+    def get(self, program_id: str) -> ProgramPolicyRecord | None: ...
+
+
+class RateLimitProfileRepository(Protocol):
+    def insert(self, record: RateLimitProfileRecord) -> None: ...
+    def get(self, profile_id: str) -> RateLimitProfileRecord | None: ...
+    def list_for_program(self, program_id: str) -> list[RateLimitProfileRecord]: ...
+
+
+class BountyTableRepository(Protocol):
+    def insert(self, record: BountyTableRecord) -> None: ...
+    def get(self, program_id: str, severity: str) -> BountyTableRecord | None: ...
+    def list_for_program(self, program_id: str) -> list[BountyTableRecord]: ...
 
 
 class AuthorizationSourceRepository(Protocol):

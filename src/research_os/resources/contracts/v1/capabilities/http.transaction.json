@@ -26,8 +26,8 @@
           },
           "content_type": { "type": "string", "maxLength": 128 },
           "session_context_reference": { "type": "string", "minLength": 1, "maxLength": 128 },
-          "max_response_bytes": { "type": "integer", "minimum": 1, "maximum": 4096 },
-          "timeout_ms": { "type": "integer", "minimum": 1, "maximum": 2000 }
+          "max_response_bytes": { "type": "integer", "minimum": 1, "maximum": 1048576 },
+          "timeout_ms": { "type": "integer", "minimum": 1, "maximum": 10000 }
         }
       },
       "result_schema": {
@@ -71,8 +71,8 @@
           "body": { "type": "string", "maxLength": 4096 },
           "content_type": { "type": "string", "maxLength": 128 },
           "session_context_reference": { "type": "string", "minLength": 1, "maxLength": 128 },
-          "max_response_bytes": { "type": "integer", "minimum": 1, "maximum": 4096 },
-          "timeout_ms": { "type": "integer", "minimum": 1, "maximum": 2000 }
+          "max_response_bytes": { "type": "integer", "minimum": 1, "maximum": 1048576 },
+          "timeout_ms": { "type": "integer", "minimum": 1, "maximum": 10000 }
         }
       },
       "result_schema": {

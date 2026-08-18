@@ -8,6 +8,7 @@ from typing import Mapping
 from research_os.maturity import (
     ARCHITECTURE_VALIDATED,
     DIAGNOSTIC_E2E_VALIDATED,
+    GATE_01_STATUS,
     GATE_04B_STATUS,
     GATE_14_STATUS,
     GATE_15_STATUS,
@@ -16,6 +17,8 @@ from research_os.maturity import (
     GATE_18_STATUS,
     GATE_19_STATUS,
     GATE_20_STATUS,
+    GATE_21_STATUS,
+    GATE_22_STATUS,
     LIVE_MODEL_VALIDATED,
     PRODUCTION_READY,
     SECURITY_RESEARCH_VALIDATED,
@@ -33,6 +36,7 @@ class OperatorStatusSnapshot:
     budget_ledger: str
     reconciliation: str
     observability: str
+    gate_01: str = GATE_01_STATUS
     gate_04b: str = GATE_04B_STATUS
     gate_14: str = GATE_14_STATUS
     gate_15: str = GATE_15_STATUS
@@ -41,6 +45,8 @@ class OperatorStatusSnapshot:
     gate_18: str = GATE_18_STATUS
     gate_19: str = GATE_19_STATUS
     gate_20: str = GATE_20_STATUS
+    gate_21: str = GATE_21_STATUS
+    gate_22: str = GATE_22_STATUS
     test_postgresql: str = "not configured"
     application_dsn: str = "unset"
     test_dsn: str = "unset"
@@ -111,6 +117,8 @@ def render_operator_status(snapshot: OperatorStatusSnapshot) -> str:
             f"  {snapshot.reconciliation}",
             "OBSERVABILITY:",
             f"  {snapshot.observability}",
+            "GATE 01:",
+            f"  {snapshot.gate_01}",
             "GATE 04B:",
             f"  {snapshot.gate_04b}",
             "GATE 14:",
@@ -127,6 +135,10 @@ def render_operator_status(snapshot: OperatorStatusSnapshot) -> str:
             f"  {snapshot.gate_19}",
             "GATE 20:",
             f"  {snapshot.gate_20}",
+            "GATE 21:",
+            f"  {snapshot.gate_21}",
+            "GATE 22:",
+            f"  {snapshot.gate_22}",
             "MATURITY:",
             f"  ARCHITECTURE_VALIDATED: {ARCHITECTURE_VALIDATED}",
             f"  DIAGNOSTIC_E2E_VALIDATED: {DIAGNOSTIC_E2E_VALIDATED}",

@@ -32,6 +32,7 @@ from research_os.application.prepare_planned_experiment import (
 )
 from research_os.core.enums import ActorType, ScopeRuleEffect
 from research_os.core.scope import ScopeEvaluationInput, ScopeRuleMatch
+from research_os.core.scope_compiler import ScopeRuleDefinition, compile_scope_rules
 from research_os.data.records import (
     AuditEventRecord,
     HypothesisRecord,
@@ -456,11 +457,28 @@ class RunResearchSelection:
             if option.in_authorized_origin
             else _deny_scope()
         )
+        from urllib.parse import urlsplit
+
+        parsed_origin = urlsplit(command.authorized_origin)
+        compiled_scope = compile_scope_rules(
+            (
+                ScopeRuleDefinition(
+                    rule_id="rule-allow",
+                    effect=ScopeRuleEffect.ALLOW,
+                    scheme=parsed_origin.scheme or "http",
+                    host=parsed_origin.hostname or "127.0.0.1",
+                    port=parsed_origin.port,
+                    path_prefix=None,
+                    source_reference="scope-src",
+                ),
+            )
+        )
         executed = self._execute.execute(
             ExecutePlannedExperimentCommand(
                 experiment_id=experiment_id,
                 plan=plan,
                 scope=scope,
+                compiled_scope=compiled_scope,
             )
         )
         assessment_id = None

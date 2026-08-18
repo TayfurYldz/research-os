@@ -8,12 +8,15 @@ import socket
 from typing import Any, Mapping
 from urllib.parse import urlencode, urljoin, urlsplit
 
+from .browser_envelope import envelope_allows, parse_envelope
+
 HTTP_AUTHENTICATION_CAPABILITY = "http.authentication"
-ALLOWED_HOSTS = frozenset({"127.0.0.1"})
 ALLOWED_SCHEMES = frozenset({"http"})
 REDIRECT_STATUSES = frozenset({301, 302, 303, 307, 308})
 DEFAULT_MAX_RESPONSE_BYTES = 4096
 DEFAULT_TIMEOUT_SECONDS = 2.0
+ABSOLUTE_MAX_RESPONSE_BYTES = 1_048_576
+ABSOLUTE_TIMEOUT_SECONDS = 10.0
 CRLF_MARKERS = ("\r", "\n", "\x00")
 
 
@@ -41,6 +44,17 @@ def execute_http_authentication(
     arguments = request.get("arguments")
     if not isinstance(arguments, Mapping):
         return "EXECUTION_FAILED", {}, {"error": "arguments must be an object"}
+    envelope = parse_envelope(request.get("network_envelope"))
+    if envelope is None:
+        return (
+            "EXECUTION_FAILED",
+            {},
+            {
+                "error": "network_envelope is required",
+                "contacted": False,
+                "self_authorized": False,
+            },
+        )
     origin = arguments.get("authorized_origin")
     path = arguments.get("path")
     username = arguments.get("username")
@@ -82,8 +96,20 @@ def execute_http_authentication(
         "Accept": "application/json",
         "Connection": "close",
     }
+    url = f"{origin}{path}"
+    allowed, reason = envelope_allows(envelope, url)
+    if not allowed:
+        return (
+            "EXECUTION_FAILED",
+            {},
+            {
+                "error": f"request is outside authorized network envelope: {reason}",
+                "contacted": False,
+                "self_authorized": False,
+            },
+        )
     try:
-        captured = _post(origin, path, headers, body.encode("utf-8"))
+        captured = _post(origin, path, headers, body.encode("utf-8"), envelope)
     except _RedirectStopped as exc:
         new_origin = _origin_of(exc.new_url) if exc.new_url else ""
         return (
@@ -141,20 +167,10 @@ def _reject_origin(origin: str) -> str | None:
         return "scheme must be http"
     if parsed.username or parsed.password:
         return "userinfo is not allowed"
-    if parsed.hostname not in ALLOWED_HOSTS:
-        return "host must be 127.0.0.1"
     if parsed.path not in {"", "/"}:
         return "authorized_origin must not include a path"
     if parsed.query or parsed.fragment:
         return "authorized_origin must not include query or fragment"
-    try:
-        infos = socket.getaddrinfo(parsed.hostname, parsed.port or 80, type=socket.SOCK_STREAM)
-    except OSError:
-        return "authorized_origin host is not resolvable"
-    for info in infos:
-        address = info[4][0]
-        if address not in {"127.0.0.1", "::1"}:
-            return "authorized_origin must resolve only to loopback"
     return None
 
 
@@ -174,24 +190,36 @@ def _resolve_location(response_url: str, location: str) -> str:
     return urljoin(response_url, raw.strip())
 
 
-def _post(origin: str, path: str, headers: Mapping[str, str], body: bytes) -> dict[str, Any]:
+def _post(
+    origin: str,
+    path: str,
+    headers: Mapping[str, str],
+    body: bytes,
+    envelope: object,
+) -> dict[str, Any]:
     parsed = urlsplit(origin)
-    if parsed.scheme not in ALLOWED_SCHEMES or parsed.hostname not in ALLOWED_HOSTS:
+    if parsed.scheme not in ALLOWED_SCHEMES:
         raise _OriginRejected("non-loopback HTTP is blocked")
-    connection = http.client.HTTPConnection(parsed.hostname, parsed.port or 80, timeout=DEFAULT_TIMEOUT_SECONDS)
+    url = f"{origin}{path}"
+    allowed, reason = envelope_allows(envelope, url)
+    if not allowed:
+        raise _OriginRejected(f"request is outside authorized network envelope: {reason}")
+    connection = http.client.HTTPConnection(
+        parsed.hostname, parsed.port or 80, timeout=ABSOLUTE_TIMEOUT_SECONDS
+    )
     try:
         connection.request("POST", path, body=body, headers=dict(headers))
         response = connection.getresponse()
         status = int(response.status)
         if status in REDIRECT_STATUSES:
             location = response.getheader("Location") or ""
-            response.read(DEFAULT_MAX_RESPONSE_BYTES + 1)
+            response.read(ABSOLUTE_MAX_RESPONSE_BYTES + 1)
             raise _RedirectStopped(status, location or "", f"{origin}{path}")
-        body_bytes = response.read(DEFAULT_MAX_RESPONSE_BYTES + 1)
+        body_bytes = response.read(ABSOLUTE_MAX_RESPONSE_BYTES + 1)
         cookies = _parse_set_cookie(response.getheader("Set-Cookie"))
     finally:
         connection.close()
-    if len(body_bytes) > DEFAULT_MAX_RESPONSE_BYTES:
+    if len(body_bytes) > ABSOLUTE_MAX_RESPONSE_BYTES:
         raise _BoundExceeded()
     payload: dict[str, Any] = {"status_code": status, "cookies": cookies}
     if body_bytes:

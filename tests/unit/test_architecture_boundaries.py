@@ -461,7 +461,7 @@ class ArchitectureBoundaryTests(unittest.TestCase):
             "http.authentication": "5284151e468907b7fc30b2db6f614e402776d64112fa42f52381b132a600a26b",
             "http.authorization.differential": "3cdb4f4f2a0d99b1ed568c38481dd2fa414b7afb00a6906f3c3ea99945a85968",
             "http.state_transition": "98156c04bf02b910aa501deabb0564c20a57fdb69fe3bc65a764afc648690d87",
-            "http.transaction": "11f19ed59b600741958db89f124eb0250783943c5face746a1cd2ac2b8013eaa",
+            "http.transaction": "dbb8b079a31842c9b935cc08e02676072ac42954e4e3b34819ccea905382a90b",
         }
         canonical = SRC_ROOT / "resources" / "contracts" / "v1" / "capabilities"
         for capability_id, digest in expected.items():

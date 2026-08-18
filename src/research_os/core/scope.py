@@ -2,7 +2,12 @@
 
 from dataclasses import dataclass
 
-from research_os.core.enums import ReasonCode, ScopeDecision, ScopeRuleEffect
+from research_os.core.enums import (
+    ReasonCode,
+    ScopeClassification,
+    ScopeDecision,
+    ScopeRuleEffect,
+)
 from research_os.core.errors import CoreInputError
 from research_os.core.identity import require_opaque_id
 
@@ -40,6 +45,7 @@ class ScopeCheck:
     decision: ScopeDecision
     reason_code: ReasonCode
     matched_rule_ids: tuple[str, ...]
+    classification: ScopeClassification = ScopeClassification.OUT_OF_SCOPE
 
 
 def check_scope(evaluation: ScopeEvaluationInput) -> ScopeCheck:
@@ -52,18 +58,40 @@ def check_scope(evaluation: ScopeEvaluationInput) -> ScopeCheck:
         item.effect in (ScopeRuleEffect.DENY, ScopeRuleEffect.OUT_OF_SCOPE)
         for item in matched
     ):
-        return ScopeCheck(ScopeDecision.DENY, ReasonCode.SCOPE_DENIED, matched_ids)
+        return ScopeCheck(
+            ScopeDecision.DENY,
+            ReasonCode.SCOPE_DENIED,
+            matched_ids,
+            ScopeClassification.OUT_OF_SCOPE,
+        )
 
     if evaluation.ambiguous:
         return ScopeCheck(
             ScopeDecision.REQUIRE_HUMAN_REVIEW,
             ReasonCode.SCOPE_AMBIGUOUS,
             matched_ids,
+            ScopeClassification.OUT_OF_SCOPE,
         )
 
     if any(item.effect is ScopeRuleEffect.ALLOW for item in matched):
-        return ScopeCheck(ScopeDecision.ALLOW, ReasonCode.ALLOWED, matched_ids)
+        return ScopeCheck(
+            ScopeDecision.ALLOW,
+            ReasonCode.ALLOWED,
+            matched_ids,
+            ScopeClassification.IN_SCOPE,
+        )
+
+    if any(item.effect is ScopeRuleEffect.UNKNOWN for item in matched):
+        return ScopeCheck(
+            ScopeDecision.DENY,
+            ReasonCode.SCOPE_UNKNOWN_CLASSIFICATION,
+            matched_ids,
+            ScopeClassification.UNKNOWN,
+        )
 
     return ScopeCheck(
-        ScopeDecision.DENY, ReasonCode.SCOPE_NOT_EXPLICITLY_ALLOWED, matched_ids
+        ScopeDecision.DENY,
+        ReasonCode.SCOPE_NOT_EXPLICITLY_ALLOWED,
+        matched_ids,
+        ScopeClassification.OUT_OF_SCOPE,
     )

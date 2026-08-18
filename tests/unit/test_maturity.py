@@ -8,6 +8,7 @@ import pathsetup  # noqa: F401
 
 from research_os.application.operator_status import OperatorStatusSnapshot, render_operator_status
 from research_os.maturity import (
+    GATE_01_STATUS,
     GATE_04B_STATUS,
     GATE_12_STATUS,
     GATE_13_STATUS,
@@ -18,6 +19,8 @@ from research_os.maturity import (
     GATE_18_STATUS,
     GATE_19_STATUS,
     GATE_20_STATUS,
+    GATE_21_STATUS,
+    GATE_22_STATUS,
     LIVE_MODEL_VALIDATED,
     PRODUCTION_READY,
     SECURITY_RESEARCH_VALIDATED,
@@ -34,6 +37,9 @@ class Gate14MaturityTests(unittest.TestCase):
         self.assertEqual(GATE_18_STATUS, "PASS")
         self.assertEqual(GATE_19_STATUS, "PASS")
         self.assertEqual(GATE_20_STATUS, "PASS")
+        self.assertEqual(GATE_21_STATUS, "PENDING")
+        self.assertEqual(GATE_22_STATUS, "PASS")
+        self.assertEqual(GATE_01_STATUS, "PENDING")
         self.assertEqual(GATE_12_STATUS, "PASS")
         self.assertEqual(GATE_13_STATUS, "PASS")
         self.assertEqual(GATE_04B_STATUS, "PENDING")
@@ -41,6 +47,7 @@ class Gate14MaturityTests(unittest.TestCase):
         self.assertFalse(SECURITY_RESEARCH_VALIDATED)
         self.assertFalse(PRODUCTION_READY)
         mapping = maturity_mapping()
+        self.assertEqual(mapping["GATE_01"], "PENDING")
         self.assertEqual(mapping["GATE_14"], "PASS")
         self.assertEqual(mapping["GATE_15"], "PASS")
         self.assertEqual(mapping["GATE_16"], "PASS")
@@ -48,6 +55,8 @@ class Gate14MaturityTests(unittest.TestCase):
         self.assertEqual(mapping["GATE_18"], "PASS")
         self.assertEqual(mapping["GATE_19"], "PASS")
         self.assertEqual(mapping["GATE_20"], "PASS")
+        self.assertEqual(mapping["GATE_21"], "PENDING")
+        self.assertEqual(mapping["GATE_22"], "PASS")
         self.assertEqual(mapping["GATE_04B"], "PENDING")
         self.assertIs(mapping["LIVE_MODEL_VALIDATED"], False)
         self.assertIs(mapping["SECURITY_RESEARCH_VALIDATED"], False)
@@ -67,6 +76,7 @@ class Gate14MaturityTests(unittest.TestCase):
                 observability="in-memory",
             )
         )
+        self.assertIn("GATE 01:", text)
         self.assertIn("GATE 14:", text)
         self.assertIn("GATE 15:", text)
         self.assertIn("GATE 16:", text)
@@ -74,6 +84,9 @@ class Gate14MaturityTests(unittest.TestCase):
         self.assertIn("GATE 18:", text)
         self.assertIn("GATE 19:", text)
         self.assertIn("GATE 20:", text)
+        self.assertIn("GATE 21:", text)
+        self.assertIn("GATE 22:", text)
+        self.assertIn(f"  {GATE_01_STATUS}", text)
         self.assertIn(f"  {GATE_14_STATUS}", text)
         self.assertIn(f"  {GATE_15_STATUS}", text)
         self.assertIn(f"  {GATE_16_STATUS}", text)
@@ -81,6 +94,8 @@ class Gate14MaturityTests(unittest.TestCase):
         self.assertIn(f"  {GATE_18_STATUS}", text)
         self.assertIn(f"  {GATE_19_STATUS}", text)
         self.assertIn(f"  {GATE_20_STATUS}", text)
+        self.assertIn(f"  {GATE_21_STATUS}", text)
+        self.assertIn(f"  {GATE_22_STATUS}", text)
         self.assertIn(f"SECURITY_RESEARCH_VALIDATED: {SECURITY_RESEARCH_VALIDATED}", text)
         self.assertIn(f"PRODUCTION_READY: {PRODUCTION_READY}", text)
         self.assertIn(f"LIVE_MODEL_VALIDATED: {LIVE_MODEL_VALIDATED}", text)
@@ -91,6 +106,9 @@ class Gate14MaturityTests(unittest.TestCase):
         self.assertEqual(GATE_18_STATUS, "PASS")
         self.assertEqual(GATE_19_STATUS, "PASS")
         self.assertEqual(GATE_20_STATUS, "PASS")
+        self.assertEqual(GATE_21_STATUS, "PENDING")
+        self.assertEqual(GATE_22_STATUS, "PASS")
+        self.assertEqual(GATE_01_STATUS, "PENDING")
         self.assertFalse(SECURITY_RESEARCH_VALIDATED)
         self.assertFalse(PRODUCTION_READY)
         self.assertFalse(LIVE_MODEL_VALIDATED)

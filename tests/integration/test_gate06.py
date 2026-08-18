@@ -602,7 +602,7 @@ class Gate06FindingAcceptanceTests(unittest.TestCase):
                     text("SELECT tablename FROM pg_tables WHERE schemaname = 'public'")
                 )
             }
-        self.assertEqual(version, "a22_001_discovery_surface")
+        self.assertEqual(version, "a23_001_program_scope")
         self.assertIn("finding_proposal", tables)
         self.assertIn("human_review", tables)
         self.assertIn("approval", tables)

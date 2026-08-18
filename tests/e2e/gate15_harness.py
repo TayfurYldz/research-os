@@ -46,6 +46,7 @@ from research_os.application.submit_finding_proposal import (
 )
 from research_os.core.enums import ActorType, ScopeRuleEffect
 from research_os.core.scope import ScopeEvaluationInput, ScopeRuleMatch
+from research_os.core.scope_compiler import CompiledScope, ScopeRuleDefinition, compile_scope_rules
 from research_os.data.records import (
     AuthorizationSourceRecord,
     HypothesisRecord,
@@ -91,6 +92,41 @@ def _deny_scope() -> ScopeEvaluationInput:
             ScopeRuleMatch("rule-deny", ScopeRuleEffect.OUT_OF_SCOPE, True, "scope-src"),
         ),
         ambiguous=False,
+    )
+
+
+def _compiled_scope_for_origin(origin: str) -> CompiledScope:
+    from urllib.parse import urlsplit
+
+    parsed = urlsplit(origin)
+    return compile_scope_rules(
+        (
+            ScopeRuleDefinition(
+                rule_id="rule-allow",
+                effect=ScopeRuleEffect.ALLOW,
+                scheme=parsed.scheme or "http",
+                host=parsed.hostname or "127.0.0.1",
+                port=parsed.port,
+                path_prefix=None,
+                source_reference="scope-src",
+            ),
+        )
+    )
+
+
+def _deny_compiled_scope() -> CompiledScope:
+    return compile_scope_rules(
+        (
+            ScopeRuleDefinition(
+                rule_id="rule-deny",
+                effect=ScopeRuleEffect.OUT_OF_SCOPE,
+                scheme="http",
+                host="127.0.0.1",
+                port=None,
+                path_prefix=None,
+                source_reference="scope-src",
+            ),
+        )
     )
 
 
@@ -172,7 +208,7 @@ def seed_scenario(uow, scenario: SecurityGroundTruthScenario) -> None:
     )
 
 
-def probe(factory, experiment_id: str, run_id: str, plan, worker, scope) -> None:
+def probe(factory, experiment_id: str, run_id: str, plan, worker, scope, compiled_scope) -> None:
     PreparePlannedExperiment(factory, clock=FixedClock()).execute(
         PreparePlannedExperimentCommand(
             experiment_id=experiment_id,
@@ -185,6 +221,7 @@ def probe(factory, experiment_id: str, run_id: str, plan, worker, scope) -> None
             experiment_id=experiment_id,
             plan=plan,
             scope=scope,
+            compiled_scope=compiled_scope,
         )
     )
 
@@ -219,7 +256,12 @@ def run_scenario(factory, scenario: SecurityGroundTruthScenario) -> ObservedScen
     human_approved = False
     try:
         scope = _allow_scope() if harness.in_scope else _deny_scope()
-        probe(factory, f"{prefix}-exp", run_id, _plan(origin, scenario), worker, scope)
+        compiled_scope = (
+            _compiled_scope_for_origin(origin)
+            if harness.in_scope
+            else _deny_compiled_scope()
+        )
+        probe(factory, f"{prefix}-exp", run_id, _plan(origin, scenario), worker, scope, compiled_scope)
         expected = scenario.hidden_evaluation.expected_class
         if expected in {
             ExpectedSecurityClass.SCOPE_DENIED,
@@ -252,6 +294,7 @@ def run_scenario(factory, scenario: SecurityGroundTruthScenario) -> ObservedScen
             _plan(origin, scenario, verification=True),
             worker,
             _allow_scope(),
+            _compiled_scope_for_origin(origin),
         )
         if expected is not ExpectedSecurityClass.OPERATIONAL_INCONCLUSIVE:
             assess_and_admit(factory, f"{prefix}-repro")

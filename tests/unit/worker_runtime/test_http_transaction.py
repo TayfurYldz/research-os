@@ -62,7 +62,7 @@ class HttpTransactionWorkerTests(unittest.TestCase):
 
     def test_non_loopback_denied(self) -> None:
         status, _, diagnostics = execute(_request("http://example.com"))
-        self.assertEqual(status, "BLOCKED")
+        self.assertEqual(status, "EXECUTION_FAILED")
         self.assertFalse(diagnostics["contacted"])
         self.assertFalse(diagnostics["self_authorized"])
 
@@ -143,8 +143,83 @@ class HttpTransactionWorkerTests(unittest.TestCase):
 
     def test_worker_cannot_self_authorize(self) -> None:
         status, raw, diagnostics = execute_http_transaction(_request("http://example.com"))
-        self.assertEqual(status, "BLOCKED")
+        self.assertEqual(status, "EXECUTION_FAILED")
         self.assertNotIn("authorization_decision_reference", raw)
+        self.assertFalse(diagnostics["self_authorized"])
+
+    def test_missing_envelope_fails_closed(self) -> None:
+        request = _request(self.origin)
+        request.pop("network_envelope")
+        status, _, diagnostics = execute_http_transaction(request)
+        self.assertEqual(status, "EXECUTION_FAILED")
+        self.assertIn("network_envelope", diagnostics["error"])
+        self.assertFalse(diagnostics["contacted"])
+        self.assertFalse(diagnostics["self_authorized"])
+
+    def test_forged_envelope_host_mismatch_fails(self) -> None:
+        request = _request(self.origin)
+        request["network_envelope"]["normalized_host"] = "api.example.com"
+        status, _, diagnostics = execute(request)
+        self.assertEqual(status, "EXECUTION_FAILED")
+        self.assertIn("outside authorized network envelope", diagnostics["error"])
+        self.assertFalse(diagnostics["contacted"])
+        self.assertFalse(diagnostics["self_authorized"])
+
+    def test_forged_envelope_port_mismatch_fails(self) -> None:
+        request = _request(self.origin)
+        request["network_envelope"]["normalized_port"] = 9999
+        status, _, diagnostics = execute(request)
+        self.assertEqual(status, "EXECUTION_FAILED")
+        self.assertIn("outside authorized network envelope", diagnostics["error"])
+        self.assertFalse(diagnostics["contacted"])
+
+    def test_forged_envelope_scheme_mismatch_fails(self) -> None:
+        request = _request(self.origin)
+        request["network_envelope"]["normalized_scheme"] = "https"
+        status, _, diagnostics = execute(request)
+        self.assertEqual(status, "EXECUTION_FAILED")
+        self.assertIn("outside authorized network envelope", diagnostics["error"])
+        self.assertFalse(diagnostics["contacted"])
+
+    def test_expanded_envelope_path_outside_prefix_fails(self) -> None:
+        request = _request(self.origin, path="/public/users")
+        envelope = request["network_envelope"]
+        envelope["origin_wide"] = False
+        envelope["document_path"] = "/private/users"
+        envelope["allowed_path_prefixes"] = ["/private/"]
+        status, _, diagnostics = execute(request)
+        self.assertEqual(status, "EXECUTION_FAILED")
+        self.assertIn("outside authorized network envelope", diagnostics["error"])
+        self.assertFalse(diagnostics["contacted"])
+        self.assertFalse(diagnostics["self_authorized"])
+
+    def test_expanded_envelope_denied_prefix_fails(self) -> None:
+        request = _request(self.origin, path="/admin/users")
+        envelope = request["network_envelope"]
+        envelope["origin_wide"] = True
+        envelope["denied_path_prefixes"] = ["/admin"]
+        status, _, diagnostics = execute(request)
+        self.assertEqual(status, "EXECUTION_FAILED")
+        self.assertIn("outside authorized network envelope", diagnostics["error"])
+        self.assertFalse(diagnostics["contacted"])
+        self.assertFalse(diagnostics["self_authorized"])
+
+    def test_unsigned_envelope_invalid_port_fails(self) -> None:
+        request = _request(self.origin)
+        request["network_envelope"]["normalized_port"] = 0
+        status, _, diagnostics = execute(request)
+        self.assertEqual(status, "EXECUTION_FAILED")
+        self.assertIn("network_envelope", diagnostics["error"])
+        self.assertFalse(diagnostics["contacted"])
+        self.assertFalse(diagnostics["self_authorized"])
+
+    def test_unsigned_envelope_wildcard_host_fails(self) -> None:
+        request = _request(self.origin)
+        request["network_envelope"]["normalized_host"] = "*.example.com"
+        status, _, diagnostics = execute(request)
+        self.assertEqual(status, "EXECUTION_FAILED")
+        self.assertIn("network_envelope", diagnostics["error"])
+        self.assertFalse(diagnostics["contacted"])
         self.assertFalse(diagnostics["self_authorized"])
 
     def test_no_secret_material_in_success_payload(self) -> None:

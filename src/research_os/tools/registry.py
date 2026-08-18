@@ -16,7 +16,7 @@ from research_os.tools.fingerprint import fingerprint_capability_document
 CAPABILITY_RESOURCE_PACKAGE = "research_os.resources"
 CAPABILITY_RESOURCE_RELATIVE = ("contracts", "v1", "capabilities")
 SUPPORTED_EXECUTOR_CLASSES = frozenset({"WORKER"})
-SUPPORTED_REQUIREMENTS = frozenset({"loopback"})
+SUPPORTED_REQUIREMENTS = frozenset({"loopback", "scope_derived"})
 WORKER_EXECUTOR_CLASS = "WORKER"
 
 

@@ -99,6 +99,10 @@ class AlembicSmokeTests(unittest.TestCase):
                 "frontier_source",
                 "frontier_event",
                 "discovery_projection_receipt",
+                "scope_rule_v2",
+                "program_policy",
+                "rate_limit_profile",
+                "bounty_table",
             },
         )
         self.assertEqual(set(metadata.tables), names)

@@ -16,12 +16,11 @@ from .browser_engine import (
     lease_binding_matches,
 )
 from .browser_containment import CONTAINMENT_NOT_ESTABLISHED, containment
-from .browser_envelope import LOOPBACK_HOST, parse_envelope
+from .browser_envelope import parse_envelope
 
 BROWSER_PAGE_CAPABILITY = "browser.page"
 SNAPSHOT_SCHEMA_VERSION = "browser.page.snapshot.v1"
 ALLOWED_SCHEMES = frozenset({"http"})
-ALLOWED_HOSTS = frozenset({LOOPBACK_HOST})
 INTERACT_KINDS = frozenset({"click", "fill", "select", "submit"})
 FORBIDDEN_HEADERS = frozenset(
     {"cookie", "cookie2", "set-cookie", "authorization", "proxy-authorization"}
@@ -333,8 +332,6 @@ def _reject_origin(origin: str) -> str | None:
         return "scheme must be http"
     if parsed.username or parsed.password:
         return "userinfo is not allowed"
-    if parsed.hostname not in ALLOWED_HOSTS:
-        return "host must be 127.0.0.1"
     if parsed.path not in {"", "/"}:
         return "authorized_origin must not include a path"
     if parsed.query or parsed.fragment:

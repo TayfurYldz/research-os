@@ -21,6 +21,7 @@ from research_os.application.http_transaction_authorization import (
     scope_evaluation_from_compiled_check,
 )
 from research_os.application.authorized_network_envelope import AuthorizedNetworkEnvelope
+from research_os.application.program_research_context import ProgramPolicyView
 from research_os.application.identity import (
     attempt_id_for,
     execution_decision_audit_id,
@@ -121,6 +122,7 @@ class ExecutePlannedExperimentCommand:
     approval: ApprovalView | None = None
     budget_usage: BudgetUsage | None = None
     compiled_scope: CompiledScope | None = None
+    program_policy: ProgramPolicyView | None = None
     identity_id: str | None = None
     identity: Identity | None = None
     authentication_profile: HttpFormLoginProfile | None = None
@@ -257,7 +259,11 @@ class ExecutePlannedExperiment:
                     core_decision=ExecutionDecisionKind.DENY,
                     core_reason_code=_binding_reason(exc.reason_code),
                 )
-            http_decision = authorize_http_transaction_plan(bound_plan, command.compiled_scope)
+            http_decision = authorize_http_transaction_plan(
+                bound_plan,
+                command.compiled_scope,
+                program_policy=command.program_policy,
+            )
             if http_decision.input_rejected:
                 uow.rollback()
                 return ResearchLoopOutcome(

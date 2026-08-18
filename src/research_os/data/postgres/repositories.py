@@ -28,6 +28,7 @@ from research_os.data.records import (
     ApprovalRecord,
     AuditEventRecord,
     AuthorizationSourceRecord,
+    BountyTableRecord,
     BudgetConsumptionRecord,
     CandidateAdmissionRecord,
     CandidateRecord,
@@ -47,12 +48,15 @@ from research_os.data.records import (
     InvariantHypothesisRecord,
     IssuedBudgetRecord,
     ObservationRecord,
+    ProgramPolicyRecord,
     ProgramRecord,
+    RateLimitProfileRecord,
     ResearchAdmissionRecord,
     ResearchCycleRecord,
     ResearchOrchestrationRecord,
     ResearchReasoningRecord,
     ResearchRunRecord,
+    ScopeRuleV2Record,
     TargetInferenceRecord,
     VerificationRecord,
     WorkerResultRecord,
@@ -117,6 +121,8 @@ class PostgresProgramRepository:
             tables.program.insert().values(
                 program_id=record.program_id,
                 name=record.name,
+                handle=record.handle,
+                platform=record.platform,
                 created_at=record.created_at,
             ),
         )
@@ -130,6 +136,163 @@ class PostgresProgramRepository:
             program_id,
             map_row.program_from_row,
         )
+
+
+class PostgresScopeRuleV2Repository:
+    def __init__(self, connection: Connection) -> None:
+        self._connection = connection
+
+    def insert(self, record: ScopeRuleV2Record) -> None:
+        _execute_write(
+            self._connection,
+            tables.scope_rule_v2.insert().values(
+                rule_id=record.rule_id,
+                program_id=record.program_id,
+                effect=record.effect,
+                scheme=record.scheme,
+                host=record.host,
+                host_pattern=record.host_pattern,
+                port=record.port,
+                path_prefix=record.path_prefix,
+                source_reference=record.source_reference,
+                expires_at=record.expires_at,
+                created_at=record.created_at,
+            ),
+        )
+
+    def get(self, rule_id: str) -> ScopeRuleV2Record | None:
+        require_opaque_id(rule_id, "rule_id")
+        return _fetch_one(
+            self._connection,
+            tables.scope_rule_v2,
+            tables.scope_rule_v2.c.rule_id,
+            rule_id,
+            map_row.scope_rule_v2_from_row,
+        )
+
+    def list_for_program(self, program_id: str) -> list[ScopeRuleV2Record]:
+        require_opaque_id(program_id, "program_id")
+        try:
+            rows = self._connection.execute(
+                select(tables.scope_rule_v2)
+                .where(tables.scope_rule_v2.c.program_id == program_id)
+                .order_by(tables.scope_rule_v2.c.rule_id)
+            ).mappings().all()
+        except SQLAlchemyError as exc:
+            raise PersistenceError("persistence read failed") from exc
+        return [map_row.scope_rule_v2_from_row(row) for row in rows]
+
+
+class PostgresProgramPolicyRepository:
+    def __init__(self, connection: Connection) -> None:
+        self._connection = connection
+
+    def insert(self, record: ProgramPolicyRecord) -> None:
+        _execute_write(
+            self._connection,
+            tables.program_policy.insert().values(
+                program_id=record.program_id,
+                loopback_fixture=record.loopback_fixture,
+                max_response_bytes=record.max_response_bytes,
+                timeout_ms=record.timeout_ms,
+                action_policy=dict(record.action_policy) if record.action_policy is not None else {},
+                created_at=record.created_at,
+                updated_at=record.updated_at,
+            ),
+        )
+
+    def get(self, program_id: str) -> ProgramPolicyRecord | None:
+        require_opaque_id(program_id, "program_id")
+        return _fetch_one(
+            self._connection,
+            tables.program_policy,
+            tables.program_policy.c.program_id,
+            program_id,
+            map_row.program_policy_from_row,
+        )
+
+
+class PostgresRateLimitProfileRepository:
+    def __init__(self, connection: Connection) -> None:
+        self._connection = connection
+
+    def insert(self, record: RateLimitProfileRecord) -> None:
+        _execute_write(
+            self._connection,
+            tables.rate_limit_profile.insert().values(
+                profile_id=record.profile_id,
+                program_id=record.program_id,
+                max_requests_per_window=record.max_requests_per_window,
+                window_seconds=record.window_seconds,
+                created_at=record.created_at,
+            ),
+        )
+
+    def get(self, profile_id: str) -> RateLimitProfileRecord | None:
+        require_opaque_id(profile_id, "profile_id")
+        return _fetch_one(
+            self._connection,
+            tables.rate_limit_profile,
+            tables.rate_limit_profile.c.profile_id,
+            profile_id,
+            map_row.rate_limit_profile_from_row,
+        )
+
+    def list_for_program(self, program_id: str) -> list[RateLimitProfileRecord]:
+        require_opaque_id(program_id, "program_id")
+        try:
+            rows = self._connection.execute(
+                select(tables.rate_limit_profile)
+                .where(tables.rate_limit_profile.c.program_id == program_id)
+                .order_by(tables.rate_limit_profile.c.profile_id)
+            ).mappings().all()
+        except SQLAlchemyError as exc:
+            raise PersistenceError("persistence read failed") from exc
+        return [map_row.rate_limit_profile_from_row(row) for row in rows]
+
+
+class PostgresBountyTableRepository:
+    def __init__(self, connection: Connection) -> None:
+        self._connection = connection
+
+    def insert(self, record: BountyTableRecord) -> None:
+        _execute_write(
+            self._connection,
+            tables.bounty_table.insert().values(
+                program_id=record.program_id,
+                severity=record.severity,
+                reward_range=dict(record.reward_range) if record.reward_range is not None else None,
+                created_at=record.created_at,
+            ),
+        )
+
+    def get(self, program_id: str, severity: str) -> BountyTableRecord | None:
+        require_opaque_id(program_id, "program_id")
+        if not isinstance(severity, str) or not severity.strip():
+            raise PersistenceInputError("severity must be a non-empty string")
+        try:
+            row = self._connection.execute(
+                select(tables.bounty_table)
+                .where(tables.bounty_table.c.program_id == program_id)
+                .where(tables.bounty_table.c.severity == severity)
+            ).mappings().one_or_none()
+        except SQLAlchemyError as exc:
+            raise PersistenceError("persistence read failed") from exc
+        if row is None:
+            return None
+        return map_row.bounty_table_from_row(row)
+
+    def list_for_program(self, program_id: str) -> list[BountyTableRecord]:
+        require_opaque_id(program_id, "program_id")
+        try:
+            rows = self._connection.execute(
+                select(tables.bounty_table)
+                .where(tables.bounty_table.c.program_id == program_id)
+                .order_by(tables.bounty_table.c.severity)
+            ).mappings().all()
+        except SQLAlchemyError as exc:
+            raise PersistenceError("persistence read failed") from exc
+        return [map_row.bounty_table_from_row(row) for row in rows]
 
 
 class PostgresAuthorizationSourceRepository:

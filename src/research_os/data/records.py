@@ -337,12 +337,107 @@ class ProgramRecord:
     program_id: str
     created_at: datetime
     name: str | None = None
+    handle: str | None = None
+    platform: str | None = None
 
     def __post_init__(self) -> None:
         require_opaque_id(self.program_id, "program_id")
         require_aware_datetime(self.created_at, "created_at")
         if self.name is not None and not isinstance(self.name, str):
             raise PersistenceInputError("name must be a string or None")
+        if self.handle is not None and not isinstance(self.handle, str):
+            raise PersistenceInputError("handle must be a string or None")
+        if self.platform is not None and not isinstance(self.platform, str):
+            raise PersistenceInputError("platform must be a string or None")
+
+
+@dataclass(frozen=True)
+class ScopeRuleV2Record:
+    rule_id: str
+    program_id: str
+    effect: str
+    scheme: str
+    source_reference: str
+    created_at: datetime
+    host: str | None = None
+    host_pattern: str | None = None
+    port: int | None = None
+    path_prefix: str | None = None
+    expires_at: datetime | None = None
+
+    def __post_init__(self) -> None:
+        require_opaque_id(self.rule_id, "rule_id")
+        require_opaque_id(self.program_id, "program_id")
+        require_opaque_id(self.source_reference, "source_reference")
+        require_aware_datetime(self.created_at, "created_at")
+        if self.host is not None and not isinstance(self.host, str):
+            raise PersistenceInputError("host must be a string or None")
+        if self.host_pattern is not None and not isinstance(self.host_pattern, str):
+            raise PersistenceInputError("host_pattern must be a string or None")
+        if self.port is not None and (
+            not isinstance(self.port, int) or isinstance(self.port, bool) or self.port < 1
+        ):
+            raise PersistenceInputError("port must be a positive integer or None")
+        if self.path_prefix is not None and not isinstance(self.path_prefix, str):
+            raise PersistenceInputError("path_prefix must be a string or None")
+        if self.expires_at is not None:
+            require_aware_datetime(self.expires_at, "expires_at")
+        if self.host is None and self.host_pattern is None:
+            raise PersistenceInputError("host or host_pattern is required")
+        if self.host is not None and self.host_pattern is not None:
+            raise PersistenceInputError("host and host_pattern are mutually exclusive")
+
+
+@dataclass(frozen=True)
+class ProgramPolicyRecord:
+    program_id: str
+    loopback_fixture: bool
+    max_response_bytes: int
+    timeout_ms: int
+    created_at: datetime
+    updated_at: datetime
+    action_policy: Mapping[str, Any] | None = None
+
+    def __post_init__(self) -> None:
+        require_opaque_id(self.program_id, "program_id")
+        require_aware_datetime(self.created_at, "created_at")
+        require_aware_datetime(self.updated_at, "updated_at")
+        if not isinstance(self.loopback_fixture, bool):
+            raise PersistenceInputError("loopback_fixture must be a bool")
+        require_non_negative_int(self.max_response_bytes, "max_response_bytes")
+        require_non_negative_int(self.timeout_ms, "timeout_ms")
+        _optional_mapping(self.action_policy, "action_policy")
+
+
+@dataclass(frozen=True)
+class RateLimitProfileRecord:
+    profile_id: str
+    program_id: str
+    max_requests_per_window: int
+    window_seconds: int
+    created_at: datetime
+
+    def __post_init__(self) -> None:
+        require_opaque_id(self.profile_id, "profile_id")
+        require_opaque_id(self.program_id, "program_id")
+        require_aware_datetime(self.created_at, "created_at")
+        require_non_negative_int(self.max_requests_per_window, "max_requests_per_window")
+        require_non_negative_int(self.window_seconds, "window_seconds")
+
+
+@dataclass(frozen=True)
+class BountyTableRecord:
+    program_id: str
+    severity: str
+    created_at: datetime
+    reward_range: Mapping[str, Any] | None = None
+
+    def __post_init__(self) -> None:
+        require_opaque_id(self.program_id, "program_id")
+        require_aware_datetime(self.created_at, "created_at")
+        if not isinstance(self.severity, str) or not self.severity.strip():
+            raise PersistenceInputError("severity must be a non-empty string")
+        _optional_mapping(self.reward_range, "reward_range")
 
 
 @dataclass(frozen=True)

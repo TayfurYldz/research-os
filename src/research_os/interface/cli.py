@@ -8,7 +8,7 @@ import sys
 from typing import Mapping
 
 from research_os.application.operator_status import OperatorStatusSnapshot, render_operator_status
-from research_os.maturity import GATE_04B_STATUS, GATE_14_STATUS, GATE_15_STATUS, GATE_16_STATUS, GATE_17_STATUS, GATE_18_STATUS, GATE_19_STATUS, GATE_20_STATUS, SUBSCRIPTION_OAUTH_STATUS
+from research_os.maturity import GATE_01_STATUS, GATE_04B_STATUS, GATE_14_STATUS, GATE_15_STATUS, GATE_16_STATUS, GATE_17_STATUS, GATE_18_STATUS, GATE_19_STATUS, GATE_20_STATUS, GATE_21_STATUS, GATE_22_STATUS, SUBSCRIPTION_OAUTH_STATUS
 from research_os.platform.health import ComponentHealth
 
 
@@ -127,6 +127,7 @@ def build_status_snapshot(*, env: Mapping[str, str] | None = None, argv_runner=N
         budget_ledger=budget,
         reconciliation="classifier available; no side-effect guessing",
         observability="structured events; not AuditEvent; not Evidence",
+        gate_01=GATE_01_STATUS,
         gate_04b=GATE_04B_STATUS,
         gate_14=GATE_14_STATUS,
         gate_15=GATE_15_STATUS,
@@ -135,6 +136,8 @@ def build_status_snapshot(*, env: Mapping[str, str] | None = None, argv_runner=N
         gate_18=GATE_18_STATUS,
         gate_19=GATE_19_STATUS,
         gate_20=GATE_20_STATUS,
+        gate_21=GATE_21_STATUS,
+        gate_22=GATE_22_STATUS,
     )
 
 
