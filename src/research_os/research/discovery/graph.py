@@ -1,0 +1,302 @@
+"""Rebuildable Attack Surface Graph. Not SoR. Grants nothing."""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from typing import Any, Mapping
+
+from research_os.research.discovery.facts import DiscoveryFact
+from research_os.research.discovery.inference import DiscoveryInference
+from research_os.research.discovery.types import (
+    AttackSurfaceEdgeKind,
+    AttackSurfaceNodeKind,
+    DiscoveryFactKind,
+    DiscoveryInferenceKind,
+)
+from research_os.research.target_model import TargetEpistemicStatus
+from research_os.research.types import ResearchInputError
+
+FACT_NODE_KIND = {
+    DiscoveryFactKind.ORIGIN: AttackSurfaceNodeKind.ORIGIN,
+    DiscoveryFactKind.EXACT_PATH: AttackSurfaceNodeKind.EXACT_PATH,
+    DiscoveryFactKind.HTTP_OPERATION: AttackSurfaceNodeKind.HTTP_OPERATION,
+    DiscoveryFactKind.PAGE_STATE: AttackSurfaceNodeKind.PAGE_STATE,
+    DiscoveryFactKind.CONTROL: AttackSurfaceNodeKind.CONTROL,
+    DiscoveryFactKind.FORM: AttackSurfaceNodeKind.FORM,
+    DiscoveryFactKind.RESPONSE_SHAPE: AttackSurfaceNodeKind.RESPONSE_SHAPE,
+    DiscoveryFactKind.RESOURCE_INSTANCE_CANDIDATE: AttackSurfaceNodeKind.RESOURCE_INSTANCE_CANDIDATE,
+    DiscoveryFactKind.WORKFLOW_STATE: AttackSurfaceNodeKind.WORKFLOW_STATE,
+    DiscoveryFactKind.SCOPE_BOUNDARY_CANDIDATE: AttackSurfaceNodeKind.SCOPE_BOUNDARY_CANDIDATE,
+}
+
+INFERENCE_NODE_KIND = {
+    DiscoveryInferenceKind.ROUTE_TEMPLATE: AttackSurfaceNodeKind.ROUTE_TEMPLATE,
+    DiscoveryInferenceKind.OBJECT_TYPE: AttackSurfaceNodeKind.OBJECT_TYPE,
+    DiscoveryInferenceKind.OBJECT_INSTANCE: AttackSurfaceNodeKind.OBJECT_INSTANCE,
+    DiscoveryInferenceKind.SAME_AS: AttackSurfaceNodeKind.OBJECT_INSTANCE,
+}
+
+
+@dataclass(frozen=True)
+class AttackSurfaceNode:
+    node_id: str
+    kind: AttackSurfaceNodeKind
+    canonical_key: str
+    epistemic_status: TargetEpistemicStatus
+    identity_ids: tuple[str, ...]
+    provenance_refs: tuple[str, ...]
+    attributes: Mapping[str, Any] | None = None
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.kind, AttackSurfaceNodeKind):
+            raise ResearchInputError("kind must be AttackSurfaceNodeKind")
+
+
+@dataclass(frozen=True)
+class AttackSurfaceEdge:
+    edge_id: str
+    kind: AttackSurfaceEdgeKind
+    from_node_id: str
+    to_node_id: str
+    identity_id: str | None
+    provenance_refs: tuple[str, ...]
+    epistemic_status: TargetEpistemicStatus
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.kind, AttackSurfaceEdgeKind):
+            raise ResearchInputError("kind must be AttackSurfaceEdgeKind")
+        if self.kind is AttackSurfaceEdgeKind.SAME_AS and self.epistemic_status not in {
+            TargetEpistemicStatus.INFERRED,
+            TargetEpistemicStatus.HYPOTHESIZED,
+        }:
+            raise ResearchInputError("SAME_AS requires admitted inference")
+
+
+@dataclass(frozen=True)
+class AttackSurfaceGraph:
+    """Rebuildable Research projection. Cannot grant scope, session, budget, or capability."""
+
+    research_run_id: str
+    strategy_version: str
+    nodes: tuple[AttackSurfaceNode, ...]
+    edges: tuple[AttackSurfaceEdge, ...]
+
+    def node_by_canonical(self, canonical_key: str) -> AttackSurfaceNode | None:
+        for node in self.nodes:
+            if node.canonical_key == canonical_key:
+                return node
+        return None
+
+
+def rebuild_attack_surface_graph(
+    *,
+    research_run_id: str,
+    strategy_version: str,
+    facts: tuple[DiscoveryFact, ...],
+    inferences: tuple[DiscoveryInference, ...] = (),
+    workflow_edges: tuple[AttackSurfaceEdge, ...] = (),
+) -> AttackSurfaceGraph:
+    nodes: dict[str, AttackSurfaceNode] = {}
+    edges: list[AttackSurfaceEdge] = []
+
+    def _add_node(node: AttackSurfaceNode) -> None:
+        existing = nodes.get(node.canonical_key)
+        if existing is None:
+            nodes[node.canonical_key] = node
+            return
+        merged_ids = tuple(sorted(set(existing.identity_ids) | set(node.identity_ids)))
+        merged_refs = tuple(sorted(set(existing.provenance_refs) | set(node.provenance_refs)))
+        nodes[node.canonical_key] = AttackSurfaceNode(
+            node_id=existing.node_id,
+            kind=existing.kind,
+            canonical_key=existing.canonical_key,
+            epistemic_status=existing.epistemic_status,
+            identity_ids=merged_ids,
+            provenance_refs=merged_refs,
+            attributes=existing.attributes,
+        )
+
+    origin_nodes: dict[str, str] = {}
+    path_nodes: dict[tuple[str, str], str] = {}
+
+    for fact in sorted(facts, key=lambda item: item.canonical_key):
+        kind = FACT_NODE_KIND.get(fact.fact_kind)
+        if kind is None:
+            continue
+        provenance = tuple(sorted(_source_ref(source) for source in fact.sources))
+        _add_node(
+            AttackSurfaceNode(
+                node_id=fact.canonical_key,
+                kind=kind,
+                canonical_key=fact.canonical_key,
+                epistemic_status=fact.epistemic_status,
+                identity_ids=(fact.identity_id,),
+                provenance_refs=provenance,
+                attributes=fact.attributes,
+            )
+        )
+        if fact.identity_id:
+            identity_key = f"identity:{fact.identity_id}"
+            _add_node(
+                AttackSurfaceNode(
+                    node_id=identity_key,
+                    kind=AttackSurfaceNodeKind.IDENTITY_REF,
+                    canonical_key=identity_key,
+                    epistemic_status=TargetEpistemicStatus.OBSERVED,
+                    identity_ids=(fact.identity_id,),
+                    provenance_refs=provenance,
+                )
+            )
+            edges.append(
+                AttackSurfaceEdge(
+                    edge_id=f"{fact.canonical_key}:under:{fact.identity_id}",
+                    kind=AttackSurfaceEdgeKind.OBSERVED_UNDER,
+                    from_node_id=fact.canonical_key,
+                    to_node_id=identity_key,
+                    identity_id=fact.identity_id,
+                    provenance_refs=provenance,
+                    epistemic_status=fact.epistemic_status,
+                )
+            )
+        if fact.session_context_id:
+            session_key = f"session:{fact.session_context_id}"
+            _add_node(
+                AttackSurfaceNode(
+                    node_id=session_key,
+                    kind=AttackSurfaceNodeKind.SESSION_REF,
+                    canonical_key=session_key,
+                    epistemic_status=TargetEpistemicStatus.OBSERVED,
+                    identity_ids=(fact.identity_id,),
+                    provenance_refs=provenance,
+                )
+            )
+        if fact.fact_kind is DiscoveryFactKind.ORIGIN and fact.normalized_origin:
+            origin_nodes[fact.normalized_origin] = fact.canonical_key
+        if fact.fact_kind is DiscoveryFactKind.EXACT_PATH and fact.normalized_origin and fact.normalized_path:
+            path_nodes[(fact.normalized_origin, fact.normalized_path)] = fact.canonical_key
+            origin_id = origin_nodes.get(fact.normalized_origin)
+            if origin_id:
+                edges.append(
+                    AttackSurfaceEdge(
+                        edge_id=f"{origin_id}:contains:{fact.canonical_key}",
+                        kind=AttackSurfaceEdgeKind.CONTAINS,
+                        from_node_id=origin_id,
+                        to_node_id=fact.canonical_key,
+                        identity_id=fact.identity_id,
+                        provenance_refs=provenance,
+                        epistemic_status=fact.epistemic_status,
+                    )
+                )
+        if fact.fact_kind is DiscoveryFactKind.HTTP_OPERATION and fact.normalized_origin and fact.normalized_path:
+            path_id = path_nodes.get((fact.normalized_origin, fact.normalized_path))
+            if path_id:
+                edges.append(
+                    AttackSurfaceEdge(
+                        edge_id=f"{path_id}:req:{fact.canonical_key}",
+                        kind=AttackSurfaceEdgeKind.OBSERVED_REQUEST_TO,
+                        from_node_id=path_id,
+                        to_node_id=fact.canonical_key,
+                        identity_id=fact.identity_id,
+                        provenance_refs=provenance,
+                        epistemic_status=fact.epistemic_status,
+                    )
+                )
+        if fact.fact_kind is DiscoveryFactKind.SCOPE_BOUNDARY_CANDIDATE and fact.normalized_origin:
+            origin_id = origin_nodes.get(fact.normalized_origin)
+            if origin_id:
+                edges.append(
+                    AttackSurfaceEdge(
+                        edge_id=f"{fact.canonical_key}:boundary:{origin_id}",
+                        kind=AttackSurfaceEdgeKind.BOUNDARY_OF,
+                        from_node_id=fact.canonical_key,
+                        to_node_id=origin_id,
+                        identity_id=fact.identity_id,
+                        provenance_refs=provenance,
+                        epistemic_status=TargetEpistemicStatus.DERIVED,
+                    )
+                )
+        if fact.fact_kind is DiscoveryFactKind.RESOURCE_INSTANCE_CANDIDATE:
+            path_id = path_nodes.get((fact.normalized_origin or "", fact.normalized_path or ""))
+            if path_id:
+                edges.append(
+                    AttackSurfaceEdge(
+                        edge_id=f"{path_id}:instance:{fact.canonical_key}",
+                        kind=AttackSurfaceEdgeKind.INSTANCE_OF,
+                        from_node_id=fact.canonical_key,
+                        to_node_id=path_id,
+                        identity_id=fact.identity_id,
+                        provenance_refs=provenance,
+                        epistemic_status=fact.epistemic_status,
+                    )
+                )
+
+    for inference in sorted(inferences, key=lambda item: item.canonical_key):
+        kind = INFERENCE_NODE_KIND.get(inference.inference_kind)
+        if kind is None:
+            continue
+        provenance = tuple(sorted(inference.source_fact_ids + inference.source_observation_ids))
+        _add_node(
+            AttackSurfaceNode(
+                node_id=inference.canonical_key,
+                kind=kind,
+                canonical_key=inference.canonical_key,
+                epistemic_status=inference.epistemic_status,
+                identity_ids=(inference.identity_id,),
+                provenance_refs=provenance,
+                attributes=inference.attributes,
+            )
+        )
+        if inference.inference_kind is DiscoveryInferenceKind.ROUTE_TEMPLATE:
+            exact_paths = []
+            if inference.attributes and isinstance(inference.attributes.get("exact_paths"), list):
+                exact_paths = list(inference.attributes["exact_paths"])
+            for path in exact_paths:
+                for (origin, exact), path_id in path_nodes.items():
+                    if exact == path:
+                        edges.append(
+                            AttackSurfaceEdge(
+                                edge_id=f"{path_id}:variant:{inference.canonical_key}",
+                                kind=AttackSurfaceEdgeKind.VARIANT_OF,
+                                from_node_id=path_id,
+                                to_node_id=inference.canonical_key,
+                                identity_id=inference.identity_id,
+                                provenance_refs=provenance,
+                                epistemic_status=inference.epistemic_status,
+                            )
+                        )
+        if inference.inference_kind is DiscoveryInferenceKind.SAME_AS:
+            edges.append(
+                AttackSurfaceEdge(
+                    edge_id=f"same:{inference.canonical_key}",
+                    kind=AttackSurfaceEdgeKind.SAME_AS,
+                    from_node_id=inference.canonical_key,
+                    to_node_id=inference.canonical_key,
+                    identity_id=inference.identity_id,
+                    provenance_refs=provenance,
+                    epistemic_status=inference.epistemic_status,
+                )
+            )
+
+    for edge in workflow_edges:
+        if edge.kind is not AttackSurfaceEdgeKind.TRANSITIONS_TO:
+            raise ResearchInputError("workflow_edges may only supply TRANSITIONS_TO")
+        edges.append(edge)
+
+    ordered_nodes = tuple(sorted(nodes.values(), key=lambda item: (item.kind.value, item.canonical_key)))
+    ordered_edges = tuple(sorted(edges, key=lambda item: item.edge_id))
+    return AttackSurfaceGraph(
+        research_run_id=research_run_id,
+        strategy_version=strategy_version,
+        nodes=ordered_nodes,
+        edges=ordered_edges,
+    )
+
+
+def _source_ref(source) -> str:
+    if source.observation_id:
+        return f"observation:{source.observation_id}"
+    if source.control_event_id:
+        return f"control_event:{source.control_event_id}"
+    if source.source_fact_id:
+        return f"fact:{source.source_fact_id}"
+    return f"inference:{source.source_inference_id}"

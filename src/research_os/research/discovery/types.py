@@ -1,0 +1,146 @@
+"""GATE 22 discovery vocabularies. Not authorization and not vulnerability classes."""
+
+from __future__ import annotations
+
+from enum import Enum
+
+SURFACE_DISCOVERY_STRATEGY_VERSION = "surface.discovery.v1"
+ANONYMOUS_IDENTITY_ID = "ANONYMOUS"
+
+FORBIDDEN_DISCOVERY_KEYS = frozenset(
+    {
+        "token",
+        "password",
+        "api_key",
+        "apiKey",
+        "raw_secret",
+        "credential",
+        "secret_value",
+        "secretValue",
+        "session_token",
+        "cookie",
+        "authorization",
+        "severity",
+        "cvss",
+        "cve",
+        "vulnerability",
+        "exploit",
+        "confidence",
+        "finding",
+        "candidate",
+        "hidden_route_map",
+        "ground_truth",
+        "benchmark_truth",
+    }
+)
+
+
+class DiscoveryFactKind(Enum):
+    """Canonical discovery ledger kinds. Not Findings."""
+
+    ORIGIN = "ORIGIN"
+    EXACT_PATH = "EXACT_PATH"
+    HTTP_OPERATION = "HTTP_OPERATION"
+    PAGE_STATE = "PAGE_STATE"
+    CONTROL = "CONTROL"
+    FORM = "FORM"
+    RESPONSE_SHAPE = "RESPONSE_SHAPE"
+    RESOURCE_INSTANCE_CANDIDATE = "RESOURCE_INSTANCE_CANDIDATE"
+    WORKFLOW_STATE = "WORKFLOW_STATE"
+    WORKFLOW_TRANSITION = "WORKFLOW_TRANSITION"
+    SCOPE_BOUNDARY_CANDIDATE = "SCOPE_BOUNDARY_CANDIDATE"
+
+
+class DiscoveryInferenceKind(Enum):
+    ROUTE_TEMPLATE = "ROUTE_TEMPLATE"
+    OBJECT_TYPE = "OBJECT_TYPE"
+    OBJECT_INSTANCE = "OBJECT_INSTANCE"
+    SAME_AS = "SAME_AS"
+
+
+class DiscoveryGoalKind(Enum):
+    INSPECT_PATH = "INSPECT_PATH"
+    INSPECT_CONTROL = "INSPECT_CONTROL"
+    CHARACTERIZE_HTTP_OPERATION = "CHARACTERIZE_HTTP_OPERATION"
+    OBSERVE_UNDER_IDENTITY = "OBSERVE_UNDER_IDENTITY"
+    RESOLVE_TRANSITION_RESULT = "RESOLVE_TRANSITION_RESULT"
+    RESOLVE_OBJECT_TYPE = "RESOLVE_OBJECT_TYPE"
+    INSPECT_SPA_PATH = "INSPECT_SPA_PATH"
+
+
+class FrontierState(Enum):
+    """Reconstructible lifecycle cache labels. FrontierEvent is authoritative."""
+
+    CREATED = "CREATED"
+    ELIGIBLE = "ELIGIBLE"
+    SELECTED = "SELECTED"
+    BLOCKED_SCOPE = "BLOCKED_SCOPE"
+    BLOCKED_AUTH = "BLOCKED_AUTH"
+    BLOCKED_BUDGET = "BLOCKED_BUDGET"
+    AWAITING_REAUTHORIZATION = "AWAITING_REAUTHORIZATION"
+    NO_NEW_INFORMATION = "NO_NEW_INFORMATION"
+    OBSERVED = "OBSERVED"
+    FAILED_TRANSIENT = "FAILED_TRANSIENT"
+    FAILED_TERMINAL = "FAILED_TERMINAL"
+    SUPERSEDED = "SUPERSEDED"
+
+
+class FrontierEventKind(Enum):
+    CREATED = "CREATED"
+    ELIGIBLE = "ELIGIBLE"
+    SELECTED = "SELECTED"
+    BLOCKED_SCOPE = "BLOCKED_SCOPE"
+    BLOCKED_AUTH = "BLOCKED_AUTH"
+    BLOCKED_BUDGET = "BLOCKED_BUDGET"
+    AWAITING_REAUTHORIZATION = "AWAITING_REAUTHORIZATION"
+    NO_NEW_INFORMATION = "NO_NEW_INFORMATION"
+    OBSERVED = "OBSERVED"
+    FAILED_TRANSIENT = "FAILED_TRANSIENT"
+    FAILED_TERMINAL = "FAILED_TERMINAL"
+    SUPERSEDED = "SUPERSEDED"
+
+
+class DiscoverySourcePlane(Enum):
+    OBSERVATION = "OBSERVATION"
+    CONTROL_EVENT = "CONTROL_EVENT"
+
+
+class ControlEventKind(Enum):
+    REAUTHORIZATION_REQUIRED = "REAUTHORIZATION_REQUIRED"
+    REDIRECT_BOUNDARY = "REDIRECT_BOUNDARY"
+    POPUP_BOUNDARY = "POPUP_BOUNDARY"
+    NEW_ORIGIN_BOUNDARY = "NEW_ORIGIN_BOUNDARY"
+    IFRAME_BOUNDARY = "IFRAME_BOUNDARY"
+
+
+class AttackSurfaceNodeKind(Enum):
+    ORIGIN = "ORIGIN"
+    EXACT_PATH = "EXACT_PATH"
+    ROUTE_TEMPLATE = "ROUTE_TEMPLATE"
+    HTTP_OPERATION = "HTTP_OPERATION"
+    PAGE_STATE = "PAGE_STATE"
+    CONTROL = "CONTROL"
+    FORM = "FORM"
+    RESOURCE_INSTANCE_CANDIDATE = "RESOURCE_INSTANCE_CANDIDATE"
+    OBJECT_INSTANCE = "OBJECT_INSTANCE"
+    OBJECT_TYPE = "OBJECT_TYPE"
+    IDENTITY_REF = "IDENTITY_REF"
+    SESSION_REF = "SESSION_REF"
+    WORKFLOW_STATE = "WORKFLOW_STATE"
+    RESPONSE_SHAPE = "RESPONSE_SHAPE"
+    SCOPE_BOUNDARY_CANDIDATE = "SCOPE_BOUNDARY_CANDIDATE"
+
+
+class AttackSurfaceEdgeKind(Enum):
+    CONTAINS = "CONTAINS"
+    NAVIGATES_TO = "NAVIGATES_TO"
+    SUBMITS_TO = "SUBMITS_TO"
+    OBSERVED_REQUEST_TO = "OBSERVED_REQUEST_TO"
+    RETURNS = "RETURNS"
+    REFERENCES = "REFERENCES"
+    INSTANCE_OF = "INSTANCE_OF"
+    VARIANT_OF = "VARIANT_OF"
+    OBSERVED_UNDER = "OBSERVED_UNDER"
+    TRANSITIONS_TO = "TRANSITIONS_TO"
+    BOUNDARY_OF = "BOUNDARY_OF"
+    SAME_AS = "SAME_AS"
