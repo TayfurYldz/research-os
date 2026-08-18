@@ -192,6 +192,7 @@ def _home() -> str:
         "fetch('/api/orders/101');"
         "fetch('/api/orders/202');"
         "fetch('/api/orders/303');"
+        "fetch('/api/notes',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});"
         "document.getElementById('fetch-hidden').onclick=function(){"
         "fetch('/api/notes',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});"
         "};"
