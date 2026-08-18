@@ -503,7 +503,43 @@ Kernel memory and process enforcement is implemented on both supported hosts, an
 
 ## GATE 22 — autonomous recon + attack surface graph
 
-**GATE 22 status: PENDING.** Formal PASS requires later Kali + real PostgreSQL + real Chromium validation. Local Windows unit tests are not a formal PASS.
+**GATE 22 status: PASS** (2026-08-18).
+
+Authoritative tested implementation SHA: `ba24935d84245216011dc062fa12fbcccbefc9b5`
+
+A later status-only commit may record this closure; it is not a second implementation SHA.
+
+Authoritative environment:
+
+- Kali Linux
+- isolated PostgreSQL `research_os_test`
+- `RESEARCH_OS_TEST_DATABASE_URL`
+- no SQLite substitution
+- Alembic head `a22_001_discovery_surface`
+- `a22` → `a21` → `a22` round trip PASS
+- G22 persistence: 3 OK / 0 skipped
+- TX-B crash/replay: PASS, Worker redispatch = 0
+- G22 hidden-lab: 2 OK / 0 skipped, real Chromium
+- hidden-lab repeated successfully 3 additional times after the final fixture fix
+- unit: 912 OK / 4 platform skips
+- contract: 2 OK
+- architecture: 26 OK
+- integration: 123 OK / 0 skipped
+- GATE 14: 19 OK
+- GATE 15: 21 OK
+- GATE 16: 34 OK
+- GATE 17: 57 OK
+- GATE 21 browser: 20 OK
+- only skips: 4 Windows Job Object kernel tests on Kali (`the Job Object is a Windows mechanism`)
+- GATE 04B remains PENDING
+- no live model validation
+- GATE 23 is not authorized
+
+Formal claim:
+
+Research OS can autonomously build and maintain a bounded, provenance-rich, identity/state-aware attack-surface model of an authorized local target using real Browser/HTTP observations.
+
+GATE 22 does **not** claim autonomous vulnerability discovery, bug-bounty capability, production readiness, generalized internet reconnaissance, or GATE 23.
 
 Strategy: `surface.discovery.v1`. Existing `exploration.diagnostic.echo.v1` is unchanged. AttackSurfaceGraph is a rebuildable Research projection with no node/edge SoR tables.
 
@@ -522,32 +558,7 @@ Hidden lab truth lives only in tests. ResearchContext must not receive route map
 
 Do not set `LIVE_MODEL_VALIDATED`, `SECURITY_RESEARCH_VALIDATED`, or `PRODUCTION_READY`. GATE 04B remains PENDING. GATE 23 is not authorized.
 
-Authoritative Kali validation (isolated `RESEARCH_OS_TEST_DATABASE_URL` only; SQLite is not a substitute):
-
-```
-git rev-parse HEAD
-git status --short
-python scripts/research_os_db.py ping --test
-python scripts/research_os_db.py version --test
-python -m alembic current
-python -m alembic upgrade a22_001_discovery_surface
-python -m alembic downgrade a21_001_session_context
-python -m alembic upgrade a22_001_discovery_surface
-python -m alembic current
-python -m unittest discover -s tests/unit -q
-python -m unittest discover -s tests/contract -q
-python -m unittest tests.unit.test_architecture_boundaries -q
-python -m unittest discover -s tests/integration -q
-python -m unittest tests.integration.test_gate22_discovery_persistence
-python -m unittest tests.e2e.test_gate22_surface_discovery
-python -m unittest tests.e2e.test_gate14_security_lab
-python -m unittest tests.e2e.test_gate15_security_ground_truth
-python -m unittest tests.e2e.test_gate16_state_transition_security
-python -m unittest tests.e2e.test_gate17_autonomous_research_selection
-python -m unittest tests.e2e.test_gate21_browser_page
-```
-
-No required test may be silently skipped. `tests.e2e.test_gate21_linux_cgroup` remains a closed G21 host concern unless G22 broke it. Do not run Codex, live-model, or GATE 04B probes.
+`tests.e2e.test_gate21_linux_cgroup` remains a closed G21 host concern unless G22 broke it. Do not run Codex, live-model, or GATE 04B probes.
 
 If `RESEARCH_OS_TEST_DATABASE_URL` is unset, PostgreSQL-required suites must SKIP, never fabricate PASS.
 
@@ -556,7 +567,7 @@ If `RESEARCH_OS_TEST_DATABASE_URL` is unset, PostgreSQL-required suites must SKI
 - ARCHITECTURE_VALIDATED: architecture package complete
 - DIAGNOSTIC_E2E_VALIDATED: yes after Gate 12/13 PASS on real PostgreSQL, process crash/restart, and clean install. Not live-model validation.
 - LIVE_MODEL_VALIDATED: no while GATE 04B is PENDING
-- SECURITY_RESEARCH_VALIDATED: no; GATE 14/15/16/17/18/19/20 PASS cover controlled local pipeline, ground-truth, cross-class, adaptive research-selection, capability/risk/scope substrate, bounded authorized HTTP transaction, and identity/session isolation validation, not broad or real-world security-research validation. GATE 22 local implementation is not security-research validation.
+- SECURITY_RESEARCH_VALIDATED: no; GATE 14/15/16/17/18/19/20 PASS cover controlled local pipeline, ground-truth, cross-class, adaptive research-selection, capability/risk/scope substrate, bounded authorized HTTP transaction, and identity/session isolation validation, not broad or real-world security-research validation. GATE 22 PASS is not security-research validation.
 - PRODUCTION_READY: no until operational and live-research gates that have not passed actually pass
 - GATE 14: PASS (2026-08-17, Kali, dedicated PostgreSQL, 19 E2E OK / 0 skipped)
 - GATE 15: PASS (2026-08-17, Kali, dedicated PostgreSQL, GATE14 regression 19 OK / 0 skipped, GATE15 21 OK / 0 skipped)
@@ -565,3 +576,4 @@ If `RESEARCH_OS_TEST_DATABASE_URL` is unset, PostgreSQL-required suites must SKI
 - GATE 18: PASS (2026-08-17, commit 241e901fb2c6730ee293cca71942de45d3796282, Kali, dedicated PostgreSQL, Alembic head a20_001_capability_plan_binding, unit 627 OK, contract 2 OK, architecture 20 OK, integration 117 OK, GATE14 19 OK / 0 skipped, GATE15 21 OK / 0 skipped, GATE16 34 OK / 0 skipped, GATE17 57 OK / 0 skipped)
 - GATE 19: PASS (2026-08-17, implementation 95c88bc, authoritative tested HEAD b442a672a7df86482d0f5a60eb156483b691d44c, Kali, dedicated PostgreSQL, Alembic head a21_001_session_context, unit 676 OK, contract 2 OK, architecture 22 OK, integration 120 OK, GATE14 19 OK / 0 skipped, GATE15 21 OK / 0 skipped, GATE16 34 OK / 0 skipped, GATE17 57 OK / 0 skipped)
 - GATE 20: PASS (2026-08-17, implementation e574306, authoritative tested HEAD b442a672a7df86482d0f5a60eb156483b691d44c, Kali, dedicated PostgreSQL, Alembic head a21_001_session_context, unit 676 OK, contract 2 OK, architecture 22 OK, integration 120 OK, GATE14 19 OK / 0 skipped, GATE15 21 OK / 0 skipped, GATE16 34 OK / 0 skipped, GATE17 57 OK / 0 skipped)
+- GATE 22: PASS (2026-08-18, authoritative tested implementation SHA ba24935d84245216011dc062fa12fbcccbefc9b5, Kali, isolated PostgreSQL research_os_test, Alembic head a22_001_discovery_surface, a22→a21→a22 PASS, G22 persistence 3 OK / 0 skipped, TX-B replay PASS with Worker redispatch 0, hidden-lab 2 OK / 0 skipped plus 3 additional successful repeats, unit 912 OK / 4 Windows Job Object skips, contract 2 OK, architecture 26 OK, integration 123 OK / 0 skipped, GATE14 19 OK, GATE15 21 OK, GATE16 34 OK, GATE17 57 OK, GATE21 browser 20 OK)
