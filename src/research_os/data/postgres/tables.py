@@ -7,11 +7,13 @@ from sqlalchemy import (
     DateTime,
     ForeignKey,
     ForeignKeyConstraint,
+    Index,
     Integer,
     MetaData,
     Table,
     Text,
     UniqueConstraint,
+    text,
 )
 from sqlalchemy.dialects.postgresql import JSONB
 
@@ -167,6 +169,7 @@ execution_attempt = Table(
         name="fk_execution_attempt_authorization_decision",
     ),
     UniqueConstraint("request_id", name="uq_execution_attempt_request_id"),
+    UniqueConstraint("attempt_id", "research_run_id", name="uq_execution_attempt_id_run"),
     CheckConstraint(
         "state IN ("
         "'AUTHORIZED', 'DISPATCHING', 'COMPLETED', 'FAILED', "
@@ -214,6 +217,7 @@ worker_result = Table(
         name="fk_worker_result_budget_same_run",
     ),
     UniqueConstraint("request_id", name="uq_worker_result_request_id"),
+    UniqueConstraint("worker_result_id", "research_run_id", name="uq_worker_result_id_run"),
     CheckConstraint(
         "status IN ("
         "'SUCCEEDED', 'EXECUTION_FAILED', 'BLOCKED', 'CANCELLED', "
@@ -1053,6 +1057,312 @@ session_context = Table(
     ),
 )
 
+discovery_run_config = Table(
+    "discovery_run_config",
+    metadata,
+    Column("research_run_id", Text, ForeignKey("research_run.research_run_id"), primary_key=True),
+    Column("strategy_version", Text, nullable=False),
+    Column("seed_target_reference", Text, nullable=False),
+    Column("normalized_origin", Text, nullable=False),
+    Column("normalized_path", Text, nullable=False),
+    Column("max_discovery_cycles", Integer, nullable=False),
+    Column("max_frontier_items", Integer, nullable=False),
+    Column("max_new_facts_per_cycle", Integer, nullable=False),
+    Column("max_browser_actions", Integer, nullable=False),
+    Column("max_http_transactions", Integer, nullable=False),
+    Column("max_per_route_revisit", Integer, nullable=False),
+    Column("max_identity_variants", Integer, nullable=False),
+    Column("max_transition_depth", Integer, nullable=False),
+    Column("max_graph_depth_from_seed", Integer, nullable=False),
+    Column("max_template_inference_fanout", Integer, nullable=False),
+    Column("max_duplicate_observations", Integer, nullable=False),
+    Column("configuration_fingerprint", Text, nullable=False),
+    Column("created_at", DateTime(timezone=True), nullable=False),
+    CheckConstraint(
+        "strategy_version = 'surface.discovery.v1'",
+        name="ck_discovery_run_config_strategy",
+    ),
+)
+
+control_event = Table(
+    "control_event",
+    metadata,
+    Column("control_event_id", Text, primary_key=True),
+    Column("research_run_id", Text, ForeignKey("research_run.research_run_id"), nullable=False),
+    Column("event_kind", Text, nullable=False),
+    Column("worker_result_id", Text, nullable=False),
+    Column("identity_id", Text, nullable=False),
+    Column("target_reference", Text, nullable=False),
+    Column("created_at", DateTime(timezone=True), nullable=False),
+    Column("session_context_id", Text, nullable=True),
+    Column("channel", Text, nullable=True),
+    Column("location_origin", Text, nullable=True),
+    Column("location_path", Text, nullable=True),
+    Column("request_id", Text, nullable=True),
+    ForeignKeyConstraint(
+        ["worker_result_id", "research_run_id"],
+        ["worker_result.worker_result_id", "worker_result.research_run_id"],
+        name="fk_control_event_worker_result_same_run",
+    ),
+    UniqueConstraint("control_event_id", "research_run_id", name="uq_control_event_id_run"),
+    UniqueConstraint("worker_result_id", name="uq_control_event_worker_result"),
+)
+
+discovery_fact = Table(
+    "discovery_fact",
+    metadata,
+    Column("fact_id", Text, primary_key=True),
+    Column("research_run_id", Text, ForeignKey("research_run.research_run_id"), nullable=False),
+    Column("fact_kind", Text, nullable=False),
+    Column("canonical_key", Text, nullable=False),
+    Column("epistemic_status", Text, nullable=False),
+    Column("identity_id", Text, nullable=False),
+    Column("target_reference", Text, nullable=False),
+    Column("created_at", DateTime(timezone=True), nullable=False),
+    Column("session_context_id", Text, nullable=True),
+    Column("normalized_origin", Text, nullable=True),
+    Column("normalized_path", Text, nullable=True),
+    Column("http_method", Text, nullable=True),
+    Column("attributes", JSONB, nullable=True),
+    UniqueConstraint("fact_id", "research_run_id", name="uq_discovery_fact_id_run"),
+    UniqueConstraint("research_run_id", "canonical_key", name="uq_discovery_fact_canonical"),
+    CheckConstraint("epistemic_status IN ('OBSERVED', 'DERIVED')", name="ck_discovery_fact_epistemic"),
+)
+
+discovery_inference = Table(
+    "discovery_inference",
+    metadata,
+    Column("inference_id", Text, primary_key=True),
+    Column("research_run_id", Text, ForeignKey("research_run.research_run_id"), nullable=False),
+    Column("inference_kind", Text, nullable=False),
+    Column("canonical_key", Text, nullable=False),
+    Column("epistemic_status", Text, nullable=False),
+    Column("identity_id", Text, nullable=False),
+    Column("created_at", DateTime(timezone=True), nullable=False),
+    Column("attributes", JSONB, nullable=True),
+    UniqueConstraint("inference_id", "research_run_id", name="uq_discovery_inference_id_run"),
+    UniqueConstraint("research_run_id", "canonical_key", name="uq_discovery_inference_canonical"),
+    CheckConstraint(
+        "epistemic_status IN ('INFERRED', 'HYPOTHESIZED')",
+        name="ck_discovery_inference_epistemic",
+    ),
+)
+
+discovery_inference_source = Table(
+    "discovery_inference_source",
+    metadata,
+    Column("source_row_id", Text, primary_key=True),
+    Column("research_run_id", Text, nullable=False),
+    Column("inference_id", Text, nullable=False),
+    Column("created_at", DateTime(timezone=True), nullable=False),
+    Column("observation_id", Text, ForeignKey("observation.observation_id"), nullable=True),
+    Column("control_event_id", Text, nullable=True),
+    Column("source_fact_id", Text, nullable=True),
+    Column("source_inference_id", Text, nullable=True),
+    ForeignKeyConstraint(
+        ["inference_id", "research_run_id"],
+        ["discovery_inference.inference_id", "discovery_inference.research_run_id"],
+        name="fk_discovery_inference_source_parent",
+    ),
+    ForeignKeyConstraint(
+        ["control_event_id", "research_run_id"],
+        ["control_event.control_event_id", "control_event.research_run_id"],
+        name="fk_discovery_inference_source_control",
+    ),
+    ForeignKeyConstraint(
+        ["source_fact_id", "research_run_id"],
+        ["discovery_fact.fact_id", "discovery_fact.research_run_id"],
+        name="fk_discovery_inference_source_fact",
+    ),
+    ForeignKeyConstraint(
+        ["source_inference_id", "research_run_id"],
+        ["discovery_inference.inference_id", "discovery_inference.research_run_id"],
+        name="fk_discovery_inference_source_inference",
+    ),
+)
+
+discovery_fact_source = Table(
+    "discovery_fact_source",
+    metadata,
+    Column("source_row_id", Text, primary_key=True),
+    Column("research_run_id", Text, nullable=False),
+    Column("fact_id", Text, nullable=False),
+    Column("created_at", DateTime(timezone=True), nullable=False),
+    Column("observation_id", Text, ForeignKey("observation.observation_id"), nullable=True),
+    Column("control_event_id", Text, nullable=True),
+    Column("source_fact_id", Text, nullable=True),
+    Column("source_inference_id", Text, nullable=True),
+    Column("worker_result_id", Text, nullable=True),
+    Column("execution_attempt_id", Text, nullable=True),
+    ForeignKeyConstraint(
+        ["fact_id", "research_run_id"],
+        ["discovery_fact.fact_id", "discovery_fact.research_run_id"],
+        name="fk_discovery_fact_source_parent",
+    ),
+    ForeignKeyConstraint(
+        ["control_event_id", "research_run_id"],
+        ["control_event.control_event_id", "control_event.research_run_id"],
+        name="fk_discovery_fact_source_control",
+    ),
+    ForeignKeyConstraint(
+        ["source_fact_id", "research_run_id"],
+        ["discovery_fact.fact_id", "discovery_fact.research_run_id"],
+        name="fk_discovery_fact_source_fact",
+    ),
+    ForeignKeyConstraint(
+        ["source_inference_id", "research_run_id"],
+        ["discovery_inference.inference_id", "discovery_inference.research_run_id"],
+        name="fk_discovery_fact_source_inference",
+    ),
+    Index(
+        "uq_discovery_fact_source_obs",
+        "fact_id",
+        "observation_id",
+        unique=True,
+        postgresql_where=text("observation_id IS NOT NULL"),
+    ),
+    Index(
+        "uq_discovery_fact_source_control",
+        "fact_id",
+        "control_event_id",
+        unique=True,
+        postgresql_where=text("control_event_id IS NOT NULL"),
+    ),
+)
+
+frontier_item = Table(
+    "frontier_item",
+    metadata,
+    Column("frontier_id", Text, primary_key=True),
+    Column("research_run_id", Text, ForeignKey("research_run.research_run_id"), nullable=False),
+    Column("strategy_version", Text, nullable=False),
+    Column("goal_kind", Text, nullable=False),
+    Column("candidate_origin", Text, nullable=False),
+    Column("candidate_path", Text, nullable=False),
+    Column("identity_id", Text, nullable=False),
+    Column("proposed_capability", Text, nullable=False),
+    Column("proposed_action", Text, nullable=False),
+    Column("expected_side_effect", Integer, nullable=False),
+    Column("budget_class", Integer, nullable=False),
+    Column("structural_signature", Text, nullable=False),
+    Column("dedupe_identity", Text, nullable=False),
+    Column("created_at", DateTime(timezone=True), nullable=False),
+    Column("session_context_id", Text, nullable=True),
+    Column("scope_hint", Text, nullable=True),
+    Column("attributes", JSONB, nullable=True),
+    Column("current_state", Text, nullable=True),
+    Column("state_version", Integer, nullable=True),
+    UniqueConstraint("frontier_id", "research_run_id", name="uq_frontier_item_id_run"),
+    UniqueConstraint("research_run_id", "dedupe_identity", name="uq_frontier_item_dedupe"),
+    CheckConstraint("structural_signature NOT LIKE 'el-%'", name="ck_frontier_item_no_ephemeral_ref"),
+)
+
+frontier_source = Table(
+    "frontier_source",
+    metadata,
+    Column("source_row_id", Text, primary_key=True),
+    Column("research_run_id", Text, nullable=False),
+    Column("frontier_id", Text, nullable=False),
+    Column("created_at", DateTime(timezone=True), nullable=False),
+    Column("seed_config_run_id", Text, nullable=True),
+    Column("source_fact_id", Text, nullable=True),
+    Column("source_inference_id", Text, nullable=True),
+    Column("control_event_id", Text, nullable=True),
+    Column("observation_id", Text, ForeignKey("observation.observation_id"), nullable=True),
+    ForeignKeyConstraint(
+        ["frontier_id", "research_run_id"],
+        ["frontier_item.frontier_id", "frontier_item.research_run_id"],
+        name="fk_frontier_source_item",
+    ),
+    ForeignKeyConstraint(
+        ["seed_config_run_id"],
+        ["discovery_run_config.research_run_id"],
+        name="fk_frontier_source_seed",
+    ),
+    ForeignKeyConstraint(
+        ["source_fact_id", "research_run_id"],
+        ["discovery_fact.fact_id", "discovery_fact.research_run_id"],
+        name="fk_frontier_source_fact",
+    ),
+    ForeignKeyConstraint(
+        ["source_inference_id", "research_run_id"],
+        ["discovery_inference.inference_id", "discovery_inference.research_run_id"],
+        name="fk_frontier_source_inference",
+    ),
+    ForeignKeyConstraint(
+        ["control_event_id", "research_run_id"],
+        ["control_event.control_event_id", "control_event.research_run_id"],
+        name="fk_frontier_source_control",
+    ),
+)
+
+frontier_event = Table(
+    "frontier_event",
+    metadata,
+    Column("event_id", Text, primary_key=True),
+    Column("frontier_id", Text, nullable=False),
+    Column("research_run_id", Text, nullable=False),
+    Column("event_kind", Text, nullable=False),
+    Column("sequence", Integer, nullable=False),
+    Column("created_at", DateTime(timezone=True), nullable=False),
+    Column("selection_generation", Integer, nullable=True),
+    Column("execution_attempt_id", Text, nullable=True),
+    Column("reason_code", Text, nullable=True),
+    ForeignKeyConstraint(
+        ["frontier_id", "research_run_id"],
+        ["frontier_item.frontier_id", "frontier_item.research_run_id"],
+        name="fk_frontier_event_item",
+    ),
+    ForeignKeyConstraint(
+        ["execution_attempt_id", "research_run_id"],
+        ["execution_attempt.attempt_id", "execution_attempt.research_run_id"],
+        name="fk_frontier_event_attempt_same_run",
+    ),
+    UniqueConstraint("frontier_id", "sequence", name="uq_frontier_event_sequence"),
+    Index(
+        "uq_frontier_event_selected_generation",
+        "frontier_id",
+        "selection_generation",
+        unique=True,
+        postgresql_where=text("event_kind = 'SELECTED'"),
+    ),
+)
+
+discovery_projection_receipt = Table(
+    "discovery_projection_receipt",
+    metadata,
+    Column("receipt_id", Text, primary_key=True),
+    Column("research_run_id", Text, ForeignKey("research_run.research_run_id"), nullable=False),
+    Column("strategy_version", Text, nullable=False),
+    Column("source_plane", Text, nullable=False),
+    Column("created_at", DateTime(timezone=True), nullable=False),
+    Column("observation_id", Text, ForeignKey("observation.observation_id"), nullable=True),
+    Column("control_event_id", Text, nullable=True),
+    ForeignKeyConstraint(
+        ["control_event_id", "research_run_id"],
+        ["control_event.control_event_id", "control_event.research_run_id"],
+        name="fk_discovery_receipt_control",
+    ),
+    Index(
+        "uq_discovery_receipt_observation",
+        "research_run_id",
+        "strategy_version",
+        "source_plane",
+        "observation_id",
+        unique=True,
+        postgresql_where=text("observation_id IS NOT NULL"),
+    ),
+    Index(
+        "uq_discovery_receipt_control",
+        "research_run_id",
+        "strategy_version",
+        "source_plane",
+        "control_event_id",
+        unique=True,
+        postgresql_where=text("control_event_id IS NOT NULL"),
+    ),
+)
+
 SPINE_TABLES = (
     program,
     authorization_source,
@@ -1094,6 +1404,16 @@ SPINE_TABLES = (
     research_cycle,
     budget_consumption,
     session_context,
+    discovery_run_config,
+    control_event,
+    discovery_fact,
+    discovery_inference,
+    discovery_inference_source,
+    discovery_fact_source,
+    frontier_item,
+    frontier_source,
+    frontier_event,
+    discovery_projection_receipt,
 )
 
 APPEND_ONLY_TABLES = (
@@ -1124,4 +1444,13 @@ APPEND_ONLY_TABLES = (
     "change_event",
     "research_cycle",
     "budget_consumption",
+    "discovery_run_config",
+    "control_event",
+    "discovery_fact",
+    "discovery_inference",
+    "discovery_inference_source",
+    "discovery_fact_source",
+    "frontier_source",
+    "frontier_event",
+    "discovery_projection_receipt",
 )

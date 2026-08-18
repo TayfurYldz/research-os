@@ -40,6 +40,16 @@ from research_os.data.ports import (
     SnapshotRepository,
     ChangeEventRepository,
     SessionContextRepository,
+    DiscoveryRunConfigRepository,
+    ControlEventRepository,
+    DiscoveryFactRepository,
+    DiscoveryFactSourceRepository,
+    DiscoveryInferenceRepository,
+    DiscoveryInferenceSourceRepository,
+    FrontierItemRepository,
+    FrontierSourceRepository,
+    FrontierEventRepository,
+    DiscoveryProjectionReceiptRepository,
 )
 
 
@@ -81,6 +91,16 @@ class UnitOfWork(Protocol):
     budget_consumptions: BudgetConsumptionRepository
     audit_events: AuditEventRepository
     session_contexts: SessionContextRepository
+    discovery_run_configs: DiscoveryRunConfigRepository
+    control_events: ControlEventRepository
+    discovery_facts: DiscoveryFactRepository
+    discovery_fact_sources: DiscoveryFactSourceRepository
+    discovery_inferences: DiscoveryInferenceRepository
+    discovery_inference_sources: DiscoveryInferenceSourceRepository
+    frontier_items: FrontierItemRepository
+    frontier_sources: FrontierSourceRepository
+    frontier_events: FrontierEventRepository
+    discovery_projection_receipts: DiscoveryProjectionReceiptRepository
 
     def commit(self) -> None: ...
     def rollback(self) -> None: ...

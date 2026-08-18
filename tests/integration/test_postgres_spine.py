@@ -693,7 +693,7 @@ class PostgresSpineTests(unittest.TestCase):
                     )
                 )
             }
-        self.assertEqual(version, "a21_001_session_context")
+        self.assertEqual(version, "a22_001_discovery_surface")
         self.assertIn("execution_attempt", tables)
         self.assertIn("worker_result", tables)
         self.assertIn("audit_event", tables)
@@ -724,6 +724,14 @@ class PostgresSpineTests(unittest.TestCase):
         self.assertIn("research_cycle", tables)
         self.assertIn("budget_consumption", tables)
         self.assertIn("session_context", tables)
+        self.assertIn("discovery_run_config", tables)
+        self.assertIn("control_event", tables)
+        self.assertIn("discovery_fact", tables)
+        self.assertIn("discovery_fact_source", tables)
+        self.assertIn("frontier_item", tables)
+        self.assertIn("frontier_event", tables)
+        self.assertIn("discovery_projection_receipt", tables)
+        self.assertNotIn("attack_surface_node", tables)
 
 
 if __name__ == "__main__":

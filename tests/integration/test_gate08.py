@@ -376,7 +376,7 @@ class Gate08InvariantChainTests(unittest.TestCase):
                     text("SELECT tablename FROM pg_tables WHERE schemaname = 'public'")
                 )
             }
-        self.assertEqual(version, "a21_001_session_context")
+        self.assertEqual(version, "a22_001_discovery_surface")
         self.assertIn("invariant_hypothesis", tables)
         self.assertIn("invariant_source_ref", tables)
         self.assertIn("invariant_counterexample_ref", tables)

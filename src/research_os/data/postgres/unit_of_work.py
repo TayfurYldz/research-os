@@ -42,6 +42,18 @@ from research_os.data.postgres.repositories import (
     PostgresBudgetConsumptionRepository,
     PostgresSessionContextRepository,
 )
+from research_os.data.postgres.discovery_repositories import (
+    PostgresControlEventRepository,
+    PostgresDiscoveryFactRepository,
+    PostgresDiscoveryFactSourceRepository,
+    PostgresDiscoveryInferenceRepository,
+    PostgresDiscoveryInferenceSourceRepository,
+    PostgresDiscoveryProjectionReceiptRepository,
+    PostgresDiscoveryRunConfigRepository,
+    PostgresFrontierEventRepository,
+    PostgresFrontierItemRepository,
+    PostgresFrontierSourceRepository,
+)
 
 
 class PostgresUnitOfWork:
@@ -85,6 +97,16 @@ class PostgresUnitOfWork:
         self.budget_consumptions: PostgresBudgetConsumptionRepository
         self.audit_events: PostgresAuditEventRepository
         self.session_contexts: PostgresSessionContextRepository
+        self.discovery_run_configs: PostgresDiscoveryRunConfigRepository
+        self.control_events: PostgresControlEventRepository
+        self.discovery_facts: PostgresDiscoveryFactRepository
+        self.discovery_fact_sources: PostgresDiscoveryFactSourceRepository
+        self.discovery_inferences: PostgresDiscoveryInferenceRepository
+        self.discovery_inference_sources: PostgresDiscoveryInferenceSourceRepository
+        self.frontier_items: PostgresFrontierItemRepository
+        self.frontier_sources: PostgresFrontierSourceRepository
+        self.frontier_events: PostgresFrontierEventRepository
+        self.discovery_projection_receipts: PostgresDiscoveryProjectionReceiptRepository
 
     def __enter__(self) -> PostgresUnitOfWork:
         self._connection = self._engine.connect()
@@ -133,6 +155,20 @@ class PostgresUnitOfWork:
         self.budget_consumptions = PostgresBudgetConsumptionRepository(self._connection)
         self.audit_events = PostgresAuditEventRepository(self._connection)
         self.session_contexts = PostgresSessionContextRepository(self._connection)
+        self.discovery_run_configs = PostgresDiscoveryRunConfigRepository(self._connection)
+        self.control_events = PostgresControlEventRepository(self._connection)
+        self.discovery_facts = PostgresDiscoveryFactRepository(self._connection)
+        self.discovery_fact_sources = PostgresDiscoveryFactSourceRepository(self._connection)
+        self.discovery_inferences = PostgresDiscoveryInferenceRepository(self._connection)
+        self.discovery_inference_sources = PostgresDiscoveryInferenceSourceRepository(
+            self._connection
+        )
+        self.frontier_items = PostgresFrontierItemRepository(self._connection)
+        self.frontier_sources = PostgresFrontierSourceRepository(self._connection)
+        self.frontier_events = PostgresFrontierEventRepository(self._connection)
+        self.discovery_projection_receipts = PostgresDiscoveryProjectionReceiptRepository(
+            self._connection
+        )
         return self
 
     def commit(self) -> None:

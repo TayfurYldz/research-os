@@ -42,6 +42,16 @@ from research_os.data.records import (
     ResearchCycleRecord,
     BudgetConsumptionRecord,
     SessionContextRecord,
+    ControlEventRecord,
+    DiscoveryFactRecord,
+    DiscoveryFactSourceRecord,
+    DiscoveryInferenceRecord,
+    DiscoveryInferenceSourceRecord,
+    DiscoveryProjectionReceiptRecord,
+    DiscoveryRunConfigRecord,
+    FrontierEventRecord,
+    FrontierItemRecord,
+    FrontierSourceRecord,
 )
 
 
@@ -687,4 +697,179 @@ def session_context_from_row(row: Mapping[str, Any]) -> SessionContextRecord:
         established_at=data.get("established_at"),
         expires_at=data.get("expires_at"),
         session_cookie_name=data.get("session_cookie_name"),
+    )
+
+
+def discovery_run_config_from_row(row: Mapping[str, Any]) -> DiscoveryRunConfigRecord:
+    data = _mapping(row)
+    return DiscoveryRunConfigRecord(
+        research_run_id=data["research_run_id"],
+        strategy_version=data["strategy_version"],
+        seed_target_reference=data["seed_target_reference"],
+        normalized_origin=data["normalized_origin"],
+        normalized_path=data["normalized_path"],
+        max_discovery_cycles=data["max_discovery_cycles"],
+        max_frontier_items=data["max_frontier_items"],
+        max_new_facts_per_cycle=data["max_new_facts_per_cycle"],
+        max_browser_actions=data["max_browser_actions"],
+        max_http_transactions=data["max_http_transactions"],
+        max_per_route_revisit=data["max_per_route_revisit"],
+        max_identity_variants=data["max_identity_variants"],
+        max_transition_depth=data["max_transition_depth"],
+        max_graph_depth_from_seed=data["max_graph_depth_from_seed"],
+        max_template_inference_fanout=data["max_template_inference_fanout"],
+        max_duplicate_observations=data["max_duplicate_observations"],
+        configuration_fingerprint=data["configuration_fingerprint"],
+        created_at=data["created_at"],
+    )
+
+
+def control_event_from_row(row: Mapping[str, Any]) -> ControlEventRecord:
+    data = _mapping(row)
+    return ControlEventRecord(
+        control_event_id=data["control_event_id"],
+        research_run_id=data["research_run_id"],
+        event_kind=data["event_kind"],
+        worker_result_id=data["worker_result_id"],
+        identity_id=data["identity_id"],
+        target_reference=data["target_reference"],
+        created_at=data["created_at"],
+        session_context_id=data.get("session_context_id"),
+        channel=data.get("channel"),
+        location_origin=data.get("location_origin"),
+        location_path=data.get("location_path"),
+        request_id=data.get("request_id"),
+    )
+
+
+def discovery_fact_from_row(row: Mapping[str, Any]) -> DiscoveryFactRecord:
+    data = _mapping(row)
+    return DiscoveryFactRecord(
+        fact_id=data["fact_id"],
+        research_run_id=data["research_run_id"],
+        fact_kind=data["fact_kind"],
+        canonical_key=data["canonical_key"],
+        epistemic_status=data["epistemic_status"],
+        identity_id=data["identity_id"],
+        target_reference=data["target_reference"],
+        created_at=data["created_at"],
+        session_context_id=data.get("session_context_id"),
+        normalized_origin=data.get("normalized_origin"),
+        normalized_path=data.get("normalized_path"),
+        http_method=data.get("http_method"),
+        attributes=data.get("attributes"),
+    )
+
+
+def discovery_fact_source_from_row(row: Mapping[str, Any]) -> DiscoveryFactSourceRecord:
+    data = _mapping(row)
+    return DiscoveryFactSourceRecord(
+        source_row_id=data["source_row_id"],
+        research_run_id=data["research_run_id"],
+        fact_id=data["fact_id"],
+        created_at=data["created_at"],
+        observation_id=data.get("observation_id"),
+        control_event_id=data.get("control_event_id"),
+        source_fact_id=data.get("source_fact_id"),
+        source_inference_id=data.get("source_inference_id"),
+        worker_result_id=data.get("worker_result_id"),
+        execution_attempt_id=data.get("execution_attempt_id"),
+    )
+
+
+def discovery_inference_from_row(row: Mapping[str, Any]) -> DiscoveryInferenceRecord:
+    data = _mapping(row)
+    return DiscoveryInferenceRecord(
+        inference_id=data["inference_id"],
+        research_run_id=data["research_run_id"],
+        inference_kind=data["inference_kind"],
+        canonical_key=data["canonical_key"],
+        epistemic_status=data["epistemic_status"],
+        identity_id=data["identity_id"],
+        created_at=data["created_at"],
+        attributes=data.get("attributes"),
+    )
+
+
+def discovery_inference_source_from_row(row: Mapping[str, Any]) -> DiscoveryInferenceSourceRecord:
+    data = _mapping(row)
+    return DiscoveryInferenceSourceRecord(
+        source_row_id=data["source_row_id"],
+        research_run_id=data["research_run_id"],
+        inference_id=data["inference_id"],
+        created_at=data["created_at"],
+        observation_id=data.get("observation_id"),
+        control_event_id=data.get("control_event_id"),
+        source_fact_id=data.get("source_fact_id"),
+        source_inference_id=data.get("source_inference_id"),
+    )
+
+
+def frontier_item_from_row(row: Mapping[str, Any]) -> FrontierItemRecord:
+    data = _mapping(row)
+    return FrontierItemRecord(
+        frontier_id=data["frontier_id"],
+        research_run_id=data["research_run_id"],
+        strategy_version=data["strategy_version"],
+        goal_kind=data["goal_kind"],
+        candidate_origin=data["candidate_origin"],
+        candidate_path=data["candidate_path"],
+        identity_id=data["identity_id"],
+        proposed_capability=data["proposed_capability"],
+        proposed_action=data["proposed_action"],
+        expected_side_effect=data["expected_side_effect"],
+        budget_class=data["budget_class"],
+        structural_signature=data["structural_signature"],
+        dedupe_identity=data["dedupe_identity"],
+        created_at=data["created_at"],
+        session_context_id=data.get("session_context_id"),
+        scope_hint=data.get("scope_hint"),
+        attributes=data.get("attributes"),
+        current_state=data.get("current_state"),
+        state_version=data.get("state_version"),
+    )
+
+
+def frontier_source_from_row(row: Mapping[str, Any]) -> FrontierSourceRecord:
+    data = _mapping(row)
+    return FrontierSourceRecord(
+        source_row_id=data["source_row_id"],
+        research_run_id=data["research_run_id"],
+        frontier_id=data["frontier_id"],
+        created_at=data["created_at"],
+        seed_config_run_id=data.get("seed_config_run_id"),
+        source_fact_id=data.get("source_fact_id"),
+        source_inference_id=data.get("source_inference_id"),
+        control_event_id=data.get("control_event_id"),
+        observation_id=data.get("observation_id"),
+    )
+
+
+def frontier_event_from_row(row: Mapping[str, Any]) -> FrontierEventRecord:
+    data = _mapping(row)
+    return FrontierEventRecord(
+        event_id=data["event_id"],
+        frontier_id=data["frontier_id"],
+        research_run_id=data["research_run_id"],
+        event_kind=data["event_kind"],
+        sequence=data["sequence"],
+        created_at=data["created_at"],
+        selection_generation=data.get("selection_generation"),
+        execution_attempt_id=data.get("execution_attempt_id"),
+        reason_code=data.get("reason_code"),
+    )
+
+
+def discovery_projection_receipt_from_row(
+    row: Mapping[str, Any],
+) -> DiscoveryProjectionReceiptRecord:
+    data = _mapping(row)
+    return DiscoveryProjectionReceiptRecord(
+        receipt_id=data["receipt_id"],
+        research_run_id=data["research_run_id"],
+        strategy_version=data["strategy_version"],
+        source_plane=data["source_plane"],
+        created_at=data["created_at"],
+        observation_id=data.get("observation_id"),
+        control_event_id=data.get("control_event_id"),
     )

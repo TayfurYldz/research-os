@@ -29,6 +29,7 @@ A18_MIGRATION = ALEMBIC_VERSIONS / "a18_001_http_auth_class.py"
 A19_MIGRATION = ALEMBIC_VERSIONS / "a19_001_http_state_class.py"
 A20_MIGRATION = ALEMBIC_VERSIONS / "a20_001_capability_plan_binding.py"
 A21_MIGRATION = ALEMBIC_VERSIONS / "a21_001_session_context.py"
+A22_MIGRATION = ALEMBIC_VERSIONS / "a22_001_discovery_surface.py"
 
 
 def _imported_modules(tree: ast.AST) -> set[str]:
@@ -88,6 +89,16 @@ class AlembicSmokeTests(unittest.TestCase):
                 "research_cycle",
                 "budget_consumption",
                 "session_context",
+                "discovery_run_config",
+                "control_event",
+                "discovery_fact",
+                "discovery_inference",
+                "discovery_inference_source",
+                "discovery_fact_source",
+                "frontier_item",
+                "frontier_source",
+                "frontier_event",
+                "discovery_projection_receipt",
             },
         )
         self.assertEqual(set(metadata.tables), names)
@@ -97,6 +108,8 @@ class AlembicSmokeTests(unittest.TestCase):
             "scope_rule",
             "vector",
             "embedding",
+            "attack_surface_node",
+            "attack_surface_edge",
         }
         self.assertTrue(forbidden.isdisjoint(metadata.tables))
 
@@ -315,6 +328,21 @@ class AlembicSmokeTests(unittest.TestCase):
         self.assertNotIn("token_value", upgrade)
         a20 = A20_MIGRATION.read_text(encoding="utf-8")
         self.assertNotIn("session_context", a20)
+
+    def test_a22_migration_is_append_only_discovery_surface(self) -> None:
+        source = A22_MIGRATION.read_text(encoding="utf-8")
+        self.assertIn("a22_001_discovery_surface", source)
+        self.assertIn("a21_001_session_context", source)
+        self.assertIn("discovery_run_config", source)
+        self.assertIn("control_event", source)
+        self.assertIn("discovery_fact_source", source)
+        self.assertIn("discovery_projection_receipt", source)
+        self.assertIn("uq_frontier_event_selected_generation", source)
+        self.assertNotIn("attack_surface_node", source)
+        self.assertNotIn("create_all", source)
+        a21 = A21_MIGRATION.read_text(encoding="utf-8")
+        self.assertNotIn("discovery_run_config", a21)
+        self.assertNotIn("control_event", a21)
 
 
 if __name__ == "__main__":

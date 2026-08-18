@@ -57,6 +57,16 @@ from research_os.data.records import (
     VerificationRecord,
     WorkerResultRecord,
     SessionContextRecord,
+    ControlEventRecord,
+    DiscoveryFactRecord,
+    DiscoveryFactSourceRecord,
+    DiscoveryInferenceRecord,
+    DiscoveryInferenceSourceRecord,
+    DiscoveryProjectionReceiptRecord,
+    DiscoveryRunConfigRecord,
+    FrontierEventRecord,
+    FrontierItemRecord,
+    FrontierSourceRecord,
 )
 from research_os.data.budget_ledger import assert_within_allowance
 
@@ -102,6 +112,16 @@ class _Store:
         self.budget_consumptions: dict[str, BudgetConsumptionRecord] = {}
         self.audit_events: dict[str, AuditEventRecord] = {}
         self.session_contexts: dict[str, SessionContextRecord] = {}
+        self.discovery_run_configs: dict[str, DiscoveryRunConfigRecord] = {}
+        self.control_events: dict[str, ControlEventRecord] = {}
+        self.discovery_facts: dict[str, DiscoveryFactRecord] = {}
+        self.discovery_fact_sources: dict[str, DiscoveryFactSourceRecord] = {}
+        self.discovery_inferences: dict[str, DiscoveryInferenceRecord] = {}
+        self.discovery_inference_sources: dict[str, DiscoveryInferenceSourceRecord] = {}
+        self.frontier_items: dict[str, FrontierItemRecord] = {}
+        self.frontier_sources: dict[str, FrontierSourceRecord] = {}
+        self.frontier_events: dict[str, FrontierEventRecord] = {}
+        self.discovery_projection_receipts: dict[str, DiscoveryProjectionReceiptRecord] = {}
         self.open_transactions = 0
         self.set_state_calls = 0
 
@@ -211,6 +231,26 @@ def _id_of(record: Any) -> str:
         return record.audit_event_id
     if isinstance(record, SessionContextRecord):
         return record.session_context_id
+    if isinstance(record, DiscoveryRunConfigRecord):
+        return record.research_run_id
+    if isinstance(record, ControlEventRecord):
+        return record.control_event_id
+    if isinstance(record, DiscoveryFactRecord):
+        return record.fact_id
+    if isinstance(record, DiscoveryFactSourceRecord):
+        return record.source_row_id
+    if isinstance(record, DiscoveryInferenceRecord):
+        return record.inference_id
+    if isinstance(record, DiscoveryInferenceSourceRecord):
+        return record.source_row_id
+    if isinstance(record, FrontierItemRecord):
+        return record.frontier_id
+    if isinstance(record, FrontierSourceRecord):
+        return record.source_row_id
+    if isinstance(record, FrontierEventRecord):
+        return record.event_id
+    if isinstance(record, DiscoveryProjectionReceiptRecord):
+        return record.receipt_id
     raise PersistenceError("unknown record identity")
 
 
@@ -1110,6 +1150,133 @@ class _SessionContextRepo(_Repo):
         )
 
 
+class _ControlEventRepo(_Repo):
+    def __init__(self, store: _Store, fail_on_insert: bool = False) -> None:
+        super().__init__(store.control_events, fail_on_insert=fail_on_insert)
+        self._root = store
+
+    def get_by_worker_result(self, worker_result_id: str) -> ControlEventRecord | None:
+        for record in self._root.control_events.values():
+            if record.worker_result_id == worker_result_id:
+                return record
+        return None
+
+    def list_for_research_run(self, research_run_id: str) -> list[ControlEventRecord]:
+        return [item for item in self._root.control_events.values() if item.research_run_id == research_run_id]
+
+
+class _DiscoveryFactRepo(_Repo):
+    def __init__(self, store: _Store, fail_on_insert: bool = False) -> None:
+        super().__init__(store.discovery_facts, fail_on_insert=fail_on_insert)
+        self._root = store
+
+    def insert(self, record: DiscoveryFactRecord) -> None:
+        existing = self.get_by_canonical(record.research_run_id, record.canonical_key)
+        if existing is not None and existing.fact_id != record.fact_id:
+            raise PersistenceConflictError("duplicate semantic discovery fact")
+        super().insert(record)
+
+    def get_by_canonical(self, research_run_id: str, canonical_key: str) -> DiscoveryFactRecord | None:
+        for record in self._root.discovery_facts.values():
+            if record.research_run_id == research_run_id and record.canonical_key == canonical_key:
+                return record
+        return None
+
+    def list_for_research_run(self, research_run_id: str) -> list[DiscoveryFactRecord]:
+        return [item for item in self._root.discovery_facts.values() if item.research_run_id == research_run_id]
+
+
+class _DiscoveryFactSourceRepo(_Repo):
+    def __init__(self, store: _Store, fail_on_insert: bool = False) -> None:
+        super().__init__(store.discovery_fact_sources, fail_on_insert=fail_on_insert)
+        self._root = store
+
+    def list_for_fact(self, fact_id: str) -> list[DiscoveryFactSourceRecord]:
+        return [item for item in self._root.discovery_fact_sources.values() if item.fact_id == fact_id]
+
+
+class _DiscoveryInferenceRepo(_Repo):
+    def __init__(self, store: _Store, fail_on_insert: bool = False) -> None:
+        super().__init__(store.discovery_inferences, fail_on_insert=fail_on_insert)
+        self._root = store
+
+    def list_for_research_run(self, research_run_id: str) -> list[DiscoveryInferenceRecord]:
+        return [item for item in self._root.discovery_inferences.values() if item.research_run_id == research_run_id]
+
+
+class _FrontierItemRepo(_Repo):
+    def __init__(self, store: _Store, fail_on_insert: bool = False) -> None:
+        super().__init__(store.frontier_items, fail_on_insert=fail_on_insert)
+        self._root = store
+
+    def lock(self, frontier_id: str) -> FrontierItemRecord | None:
+        return self.get(frontier_id)
+
+    def list_for_research_run(self, research_run_id: str) -> list[FrontierItemRecord]:
+        return [item for item in self._root.frontier_items.values() if item.research_run_id == research_run_id]
+
+    def set_cache_state(self, frontier_id: str, current_state: str, state_version: int) -> None:
+        current = self.get(frontier_id)
+        if current is None:
+            raise PersistenceError("frontier_item not found for cache update")
+        self._store[frontier_id] = replace(
+            current, current_state=current_state, state_version=state_version
+        )
+
+
+class _FrontierEventRepo(_Repo):
+    def __init__(self, store: _Store, fail_on_insert: bool = False) -> None:
+        super().__init__(store.frontier_events, fail_on_insert=fail_on_insert)
+        self._root = store
+
+    def insert(self, record: FrontierEventRecord) -> None:
+        if record.event_kind == "SELECTED":
+            for existing in self._root.frontier_events.values():
+                if (
+                    existing.frontier_id == record.frontier_id
+                    and existing.event_kind == "SELECTED"
+                    and existing.selection_generation == record.selection_generation
+                ):
+                    raise PersistenceConflictError("persistence unique constraint failed")
+        super().insert(record)
+
+    def list_for_frontier(self, frontier_id: str) -> list[FrontierEventRecord]:
+        return sorted(
+            [item for item in self._root.frontier_events.values() if item.frontier_id == frontier_id],
+            key=lambda item: item.sequence,
+        )
+
+    def list_for_research_run(self, research_run_id: str) -> list[FrontierEventRecord]:
+        return [item for item in self._root.frontier_events.values() if item.research_run_id == research_run_id]
+
+
+class _ReceiptRepo(_Repo):
+    def __init__(self, store: _Store, fail_on_insert: bool = False) -> None:
+        super().__init__(store.discovery_projection_receipts, fail_on_insert=fail_on_insert)
+        self._root = store
+
+    def insert(self, record: DiscoveryProjectionReceiptRecord) -> None:
+        if record.observation_id and self.has_observation(record.research_run_id, record.observation_id):
+            raise PersistenceConflictError("persistence unique constraint failed")
+        if record.control_event_id and self.has_control_event(
+            record.research_run_id, record.control_event_id
+        ):
+            raise PersistenceConflictError("persistence unique constraint failed")
+        super().insert(record)
+
+    def has_observation(self, research_run_id: str, observation_id: str) -> bool:
+        return any(
+            item.research_run_id == research_run_id and item.observation_id == observation_id
+            for item in self._root.discovery_projection_receipts.values()
+        )
+
+    def has_control_event(self, research_run_id: str, control_event_id: str) -> bool:
+        return any(
+            item.research_run_id == research_run_id and item.control_event_id == control_event_id
+            for item in self._root.discovery_projection_receipts.values()
+        )
+
+
 class FakeUnitOfWork:
     def __init__(self, store: _Store | None = None, fail_on: str | None = None) -> None:
         self._store = store or _Store()
@@ -1209,6 +1376,16 @@ class FakeUnitOfWork:
         self.session_contexts = _SessionContextRepo(
             self._store, fail_on_insert=fail_on == "session_contexts"
         )
+        self.discovery_run_configs = _Repo(self._store.discovery_run_configs)
+        self.control_events = _ControlEventRepo(self._store)
+        self.discovery_facts = _DiscoveryFactRepo(self._store)
+        self.discovery_fact_sources = _DiscoveryFactSourceRepo(self._store)
+        self.discovery_inferences = _DiscoveryInferenceRepo(self._store)
+        self.discovery_inference_sources = _Repo(self._store.discovery_inference_sources)
+        self.frontier_items = _FrontierItemRepo(self._store)
+        self.frontier_sources = _Repo(self._store.frontier_sources)
+        self.frontier_events = _FrontierEventRepo(self._store)
+        self.discovery_projection_receipts = _ReceiptRepo(self._store)
 
     def __enter__(self) -> FakeUnitOfWork:
         self._store.open_transactions += 1
@@ -1314,6 +1491,26 @@ class FakeUnitOfWork:
         self._store.audit_events.update(snapshot.audit_events)
         self._store.session_contexts.clear()
         self._store.session_contexts.update(snapshot.session_contexts)
+        self._store.discovery_run_configs.clear()
+        self._store.discovery_run_configs.update(snapshot.discovery_run_configs)
+        self._store.control_events.clear()
+        self._store.control_events.update(snapshot.control_events)
+        self._store.discovery_facts.clear()
+        self._store.discovery_facts.update(snapshot.discovery_facts)
+        self._store.discovery_fact_sources.clear()
+        self._store.discovery_fact_sources.update(snapshot.discovery_fact_sources)
+        self._store.discovery_inferences.clear()
+        self._store.discovery_inferences.update(snapshot.discovery_inferences)
+        self._store.discovery_inference_sources.clear()
+        self._store.discovery_inference_sources.update(snapshot.discovery_inference_sources)
+        self._store.frontier_items.clear()
+        self._store.frontier_items.update(snapshot.frontier_items)
+        self._store.frontier_sources.clear()
+        self._store.frontier_sources.update(snapshot.frontier_sources)
+        self._store.frontier_events.clear()
+        self._store.frontier_events.update(snapshot.frontier_events)
+        self._store.discovery_projection_receipts.clear()
+        self._store.discovery_projection_receipts.update(snapshot.discovery_projection_receipts)
 
 
 class FakeUnitOfWorkFactory:

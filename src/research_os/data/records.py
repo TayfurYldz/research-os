@@ -1967,3 +1967,367 @@ class SessionContextRecord:
         ):
             raise PersistenceInputError("session_cookie_name must be a non-empty string when set")
         _reject_secret_keys({"origin": self.origin, "secret_name": self.secret_name}, "session_context")
+
+
+ALLOWED_DISCOVERY_FACT_KINDS = frozenset(
+    {
+        "ORIGIN",
+        "EXACT_PATH",
+        "HTTP_OPERATION",
+        "PAGE_STATE",
+        "CONTROL",
+        "FORM",
+        "RESPONSE_SHAPE",
+        "RESOURCE_INSTANCE_CANDIDATE",
+        "WORKFLOW_STATE",
+        "WORKFLOW_TRANSITION",
+        "SCOPE_BOUNDARY_CANDIDATE",
+    }
+)
+ALLOWED_CONTROL_EVENT_KINDS = frozenset(
+    {
+        "REAUTHORIZATION_REQUIRED",
+        "REDIRECT_BOUNDARY",
+        "POPUP_BOUNDARY",
+        "NEW_ORIGIN_BOUNDARY",
+        "IFRAME_BOUNDARY",
+    }
+)
+ALLOWED_DISCOVERY_INFERENCE_KINDS = frozenset(
+    {"ROUTE_TEMPLATE", "OBJECT_TYPE", "OBJECT_INSTANCE", "SAME_AS"}
+)
+ALLOWED_DISCOVERY_GOAL_KINDS = frozenset(
+    {
+        "INSPECT_PATH",
+        "INSPECT_CONTROL",
+        "CHARACTERIZE_HTTP_OPERATION",
+        "OBSERVE_UNDER_IDENTITY",
+        "RESOLVE_TRANSITION_RESULT",
+        "RESOLVE_OBJECT_TYPE",
+        "INSPECT_SPA_PATH",
+    }
+)
+ALLOWED_FRONTIER_EVENT_KINDS = frozenset(
+    {
+        "CREATED",
+        "ELIGIBLE",
+        "SELECTED",
+        "BLOCKED_SCOPE",
+        "BLOCKED_AUTH",
+        "BLOCKED_BUDGET",
+        "AWAITING_REAUTHORIZATION",
+        "NO_NEW_INFORMATION",
+        "OBSERVED",
+        "FAILED_TRANSIENT",
+        "FAILED_TERMINAL",
+        "SUPERSEDED",
+    }
+)
+DISCOVERY_STRATEGY_VERSION = "surface.discovery.v1"
+
+
+def _one_primary(*values: object) -> None:
+    if sum(item is not None for item in values) != 1:
+        raise PersistenceInputError("exactly one primary source is required")
+
+
+@dataclass(frozen=True)
+class DiscoveryRunConfigRecord:
+    research_run_id: str
+    strategy_version: str
+    seed_target_reference: str
+    normalized_origin: str
+    normalized_path: str
+    max_discovery_cycles: int
+    max_frontier_items: int
+    max_new_facts_per_cycle: int
+    max_browser_actions: int
+    max_http_transactions: int
+    max_per_route_revisit: int
+    max_identity_variants: int
+    max_transition_depth: int
+    max_graph_depth_from_seed: int
+    max_template_inference_fanout: int
+    max_duplicate_observations: int
+    configuration_fingerprint: str
+    created_at: datetime
+
+    def __post_init__(self) -> None:
+        require_opaque_id(self.research_run_id, "research_run_id")
+        if self.strategy_version != DISCOVERY_STRATEGY_VERSION:
+            raise PersistenceInputError("strategy_version must be surface.discovery.v1")
+        require_opaque_id(self.configuration_fingerprint, "configuration_fingerprint")
+        require_aware_datetime(self.created_at, "created_at")
+        for name in (
+            "max_discovery_cycles",
+            "max_frontier_items",
+            "max_new_facts_per_cycle",
+            "max_browser_actions",
+            "max_http_transactions",
+            "max_per_route_revisit",
+            "max_identity_variants",
+            "max_transition_depth",
+            "max_graph_depth_from_seed",
+            "max_template_inference_fanout",
+            "max_duplicate_observations",
+        ):
+            require_non_negative_int(getattr(self, name), name)
+
+
+@dataclass(frozen=True)
+class ControlEventRecord:
+    control_event_id: str
+    research_run_id: str
+    event_kind: str
+    worker_result_id: str
+    identity_id: str
+    target_reference: str
+    created_at: datetime
+    session_context_id: str | None = None
+    channel: str | None = None
+    location_origin: str | None = None
+    location_path: str | None = None
+    request_id: str | None = None
+
+    def __post_init__(self) -> None:
+        require_opaque_id(self.control_event_id, "control_event_id")
+        require_opaque_id(self.research_run_id, "research_run_id")
+        require_opaque_id(self.worker_result_id, "worker_result_id")
+        require_opaque_id(self.identity_id, "identity_id")
+        require_opaque_id(self.target_reference, "target_reference")
+        require_aware_datetime(self.created_at, "created_at")
+        if self.event_kind not in ALLOWED_CONTROL_EVENT_KINDS:
+            raise PersistenceInputError("event_kind is not a ControlEvent kind")
+        require_optional_opaque_id(self.session_context_id, "session_context_id")
+        require_optional_opaque_id(self.request_id, "request_id")
+
+
+@dataclass(frozen=True)
+class DiscoveryFactRecord:
+    fact_id: str
+    research_run_id: str
+    fact_kind: str
+    canonical_key: str
+    epistemic_status: str
+    identity_id: str
+    target_reference: str
+    created_at: datetime
+    session_context_id: str | None = None
+    normalized_origin: str | None = None
+    normalized_path: str | None = None
+    http_method: str | None = None
+    attributes: Mapping[str, Any] | None = None
+
+    def __post_init__(self) -> None:
+        require_opaque_id(self.fact_id, "fact_id")
+        require_opaque_id(self.research_run_id, "research_run_id")
+        require_opaque_id(self.canonical_key, "canonical_key")
+        require_opaque_id(self.identity_id, "identity_id")
+        require_opaque_id(self.target_reference, "target_reference")
+        require_aware_datetime(self.created_at, "created_at")
+        if self.fact_kind not in ALLOWED_DISCOVERY_FACT_KINDS:
+            raise PersistenceInputError("fact_kind is not a DiscoveryFact kind")
+        if self.epistemic_status not in {"OBSERVED", "DERIVED"}:
+            raise PersistenceInputError("epistemic_status must be OBSERVED or DERIVED")
+        if self.fact_kind == "SCOPE_BOUNDARY_CANDIDATE" and self.epistemic_status != "DERIVED":
+            raise PersistenceInputError("SCOPE_BOUNDARY_CANDIDATE must be DERIVED")
+        _reject_secret_keys(self.attributes, "attributes")
+        if self.attributes is not None:
+            object.__setattr__(self, "attributes", dict(self.attributes))
+
+
+@dataclass(frozen=True)
+class DiscoveryFactSourceRecord:
+    source_row_id: str
+    research_run_id: str
+    fact_id: str
+    created_at: datetime
+    observation_id: str | None = None
+    control_event_id: str | None = None
+    source_fact_id: str | None = None
+    source_inference_id: str | None = None
+    worker_result_id: str | None = None
+    execution_attempt_id: str | None = None
+
+    def __post_init__(self) -> None:
+        require_opaque_id(self.source_row_id, "source_row_id")
+        require_opaque_id(self.research_run_id, "research_run_id")
+        require_opaque_id(self.fact_id, "fact_id")
+        require_aware_datetime(self.created_at, "created_at")
+        _one_primary(
+            self.observation_id,
+            self.control_event_id,
+            self.source_fact_id,
+            self.source_inference_id,
+        )
+
+
+@dataclass(frozen=True)
+class DiscoveryInferenceRecord:
+    inference_id: str
+    research_run_id: str
+    inference_kind: str
+    canonical_key: str
+    epistemic_status: str
+    identity_id: str
+    created_at: datetime
+    attributes: Mapping[str, Any] | None = None
+
+    def __post_init__(self) -> None:
+        require_opaque_id(self.inference_id, "inference_id")
+        require_opaque_id(self.research_run_id, "research_run_id")
+        if self.inference_kind not in ALLOWED_DISCOVERY_INFERENCE_KINDS:
+            raise PersistenceInputError("inference_kind is not a DiscoveryInference kind")
+        if self.epistemic_status not in {"INFERRED", "HYPOTHESIZED"}:
+            raise PersistenceInputError("inference cannot be OBSERVED")
+        require_aware_datetime(self.created_at, "created_at")
+        _reject_secret_keys(self.attributes, "attributes")
+        if self.attributes is not None:
+            object.__setattr__(self, "attributes", dict(self.attributes))
+
+
+@dataclass(frozen=True)
+class DiscoveryInferenceSourceRecord:
+    source_row_id: str
+    research_run_id: str
+    inference_id: str
+    created_at: datetime
+    observation_id: str | None = None
+    control_event_id: str | None = None
+    source_fact_id: str | None = None
+    source_inference_id: str | None = None
+
+    def __post_init__(self) -> None:
+        require_opaque_id(self.source_row_id, "source_row_id")
+        require_opaque_id(self.research_run_id, "research_run_id")
+        require_opaque_id(self.inference_id, "inference_id")
+        require_aware_datetime(self.created_at, "created_at")
+        _one_primary(
+            self.observation_id,
+            self.control_event_id,
+            self.source_fact_id,
+            self.source_inference_id,
+        )
+
+
+@dataclass(frozen=True)
+class FrontierItemRecord:
+    frontier_id: str
+    research_run_id: str
+    strategy_version: str
+    goal_kind: str
+    candidate_origin: str
+    candidate_path: str
+    identity_id: str
+    proposed_capability: str
+    proposed_action: str
+    expected_side_effect: int
+    budget_class: int
+    structural_signature: str
+    dedupe_identity: str
+    created_at: datetime
+    session_context_id: str | None = None
+    scope_hint: str | None = None
+    attributes: Mapping[str, Any] | None = None
+    current_state: str | None = None
+    state_version: int | None = None
+
+    def __post_init__(self) -> None:
+        require_opaque_id(self.frontier_id, "frontier_id")
+        require_opaque_id(self.research_run_id, "research_run_id")
+        if self.strategy_version != DISCOVERY_STRATEGY_VERSION:
+            raise PersistenceInputError("strategy_version must be surface.discovery.v1")
+        if self.goal_kind not in ALLOWED_DISCOVERY_GOAL_KINDS:
+            raise PersistenceInputError("goal_kind is not a DiscoveryGoalKind")
+        if self.structural_signature.startswith("el-"):
+            raise PersistenceInputError("FrontierItem must not persist ephemeral element refs")
+        if self.expected_side_effect not in (0, 1, 2, 3) or self.budget_class not in (0, 1, 2, 3):
+            raise PersistenceInputError("side_effect/budget_class must be 0..3")
+        require_aware_datetime(self.created_at, "created_at")
+        _reject_secret_keys(self.attributes, "attributes")
+        if self.attributes is not None:
+            object.__setattr__(self, "attributes", dict(self.attributes))
+
+
+@dataclass(frozen=True)
+class FrontierSourceRecord:
+    source_row_id: str
+    research_run_id: str
+    frontier_id: str
+    created_at: datetime
+    seed_config_run_id: str | None = None
+    source_fact_id: str | None = None
+    source_inference_id: str | None = None
+    control_event_id: str | None = None
+    observation_id: str | None = None
+
+    def __post_init__(self) -> None:
+        require_opaque_id(self.source_row_id, "source_row_id")
+        require_opaque_id(self.research_run_id, "research_run_id")
+        require_opaque_id(self.frontier_id, "frontier_id")
+        require_aware_datetime(self.created_at, "created_at")
+        _one_primary(
+            self.seed_config_run_id,
+            self.source_fact_id,
+            self.source_inference_id,
+            self.control_event_id,
+            self.observation_id,
+        )
+        if self.seed_config_run_id is not None and self.seed_config_run_id != self.research_run_id:
+            raise PersistenceInputError("seed config source must be same-run")
+
+
+@dataclass(frozen=True)
+class FrontierEventRecord:
+    event_id: str
+    frontier_id: str
+    research_run_id: str
+    event_kind: str
+    sequence: int
+    created_at: datetime
+    selection_generation: int | None = None
+    execution_attempt_id: str | None = None
+    reason_code: str | None = None
+
+    def __post_init__(self) -> None:
+        require_opaque_id(self.event_id, "event_id")
+        require_opaque_id(self.frontier_id, "frontier_id")
+        require_opaque_id(self.research_run_id, "research_run_id")
+        if self.event_kind not in ALLOWED_FRONTIER_EVENT_KINDS:
+            raise PersistenceInputError("event_kind is not a FrontierEvent kind")
+        require_non_negative_int(self.sequence, "sequence")
+        if self.sequence < 1:
+            raise PersistenceInputError("sequence must be >= 1")
+        require_aware_datetime(self.created_at, "created_at")
+        if self.event_kind == "SELECTED":
+            if not isinstance(self.selection_generation, int) or self.selection_generation < 1:
+                raise PersistenceInputError("SELECTED requires selection_generation >= 1")
+
+
+@dataclass(frozen=True)
+class DiscoveryProjectionReceiptRecord:
+    receipt_id: str
+    research_run_id: str
+    strategy_version: str
+    source_plane: str
+    created_at: datetime
+    observation_id: str | None = None
+    control_event_id: str | None = None
+
+    def __post_init__(self) -> None:
+        require_opaque_id(self.receipt_id, "receipt_id")
+        require_opaque_id(self.research_run_id, "research_run_id")
+        if self.strategy_version != DISCOVERY_STRATEGY_VERSION:
+            raise PersistenceInputError("strategy_version must be surface.discovery.v1")
+        if self.source_plane == "OBSERVATION":
+            require_opaque_id(self.observation_id or "", "observation_id")
+            if self.control_event_id is not None:
+                raise PersistenceInputError("OBSERVATION receipt must not carry control_event_id")
+        elif self.source_plane == "CONTROL_EVENT":
+            require_opaque_id(self.control_event_id or "", "control_event_id")
+            if self.observation_id is not None:
+                raise PersistenceInputError("CONTROL_EVENT receipt must not carry observation_id")
+        else:
+            raise PersistenceInputError("source_plane must be OBSERVATION or CONTROL_EVENT")
+        require_aware_datetime(self.created_at, "created_at")
+
