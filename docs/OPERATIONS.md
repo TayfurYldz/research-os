@@ -509,11 +509,47 @@ Strategy: `surface.discovery.v1`. Existing `exploration.diagnostic.echo.v1` is u
 
 Durable tables live in `a22_001_discovery_surface`: discovery_run_config, control_event, discovery_fact, discovery_fact_source, discovery_inference, discovery_inference_source, frontier_item, frontier_source, frontier_event, discovery_projection_receipt.
 
+Projection is a deliberate two-transaction seam, not a shared commit with Transition A:
+
+- TX A: WorkerResult persistence → Transition A Observation when applicable, or a typed ControlEvent (not Observation).
+- TX B: project one Observation or ControlEvent → facts, typed sources, frontier, and `discovery_projection_receipt` in the same commit.
+
+Crash after TX A and before TX B is recovered by replaying TX B from a missing receipt. Replay must not redispatch a Worker. Side-effectful `DISPATCHING` / `UNKNOWN_OUTCOME` remains not auto-retried.
+
 G22 does not add shell, scanners, browser.evaluate, CDP, HAR, screenshots, wildcard scope, DNS widening, Neo4j, or NetworkX. G19 additive: none. G21 production capability/fingerprint is unchanged.
 
 Hidden lab truth lives only in tests. ResearchContext must not receive route maps, vulnerability labels, or benchmark canaries.
 
 Do not set `LIVE_MODEL_VALIDATED`, `SECURITY_RESEARCH_VALIDATED`, or `PRODUCTION_READY`. GATE 04B remains PENDING. GATE 23 is not authorized.
+
+Authoritative Kali validation (isolated `RESEARCH_OS_TEST_DATABASE_URL` only; SQLite is not a substitute):
+
+```
+git rev-parse HEAD
+git status --short
+python scripts/research_os_db.py ping --test
+python scripts/research_os_db.py version --test
+python -m alembic current
+python -m alembic upgrade a22_001_discovery_surface
+python -m alembic downgrade a21_001_session_context
+python -m alembic upgrade a22_001_discovery_surface
+python -m alembic current
+python -m unittest discover -s tests/unit -q
+python -m unittest discover -s tests/contract -q
+python -m unittest tests.unit.test_architecture_boundaries -q
+python -m unittest discover -s tests/integration -q
+python -m unittest tests.integration.test_gate22_discovery_persistence
+python -m unittest tests.e2e.test_gate22_surface_discovery
+python -m unittest tests.e2e.test_gate14_security_lab
+python -m unittest tests.e2e.test_gate15_security_ground_truth
+python -m unittest tests.e2e.test_gate16_state_transition_security
+python -m unittest tests.e2e.test_gate17_autonomous_research_selection
+python -m unittest tests.e2e.test_gate21_browser_page
+```
+
+No required test may be silently skipped. `tests.e2e.test_gate21_linux_cgroup` remains a closed G21 host concern unless G22 broke it. Do not run Codex, live-model, or GATE 04B probes.
+
+If `RESEARCH_OS_TEST_DATABASE_URL` is unset, PostgreSQL-required suites must SKIP, never fabricate PASS.
 
 ## Maturity
 
