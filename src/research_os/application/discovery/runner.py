@@ -1,0 +1,511 @@
+"""Compose surface.discovery.v1 with existing G12 execute/prepare primitives.
+
+Does not own Core authority. Does not auto-retry UNKNOWN_OUTCOME.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from typing import Mapping
+
+from research_os.application.discovery.claim import claim_frontier_selected
+from research_os.application.discovery.compile_plan import (
+    LivePageSnapshot,
+    ReobserveRequired,
+    compile_frontier_plan,
+)
+from research_os.application.discovery.config import (
+    assert_runtime_matches_persisted,
+    config_from_record,
+    record_from_config,
+)
+from research_os.application.discovery.control_events import ingest_control_event_from_worker_result
+from research_os.application.discovery.project import (
+    reconcile_missing_projections,
+)
+from research_os.application.execute_planned_experiment import (
+    ExecutePlannedExperiment,
+    ExecutePlannedExperimentCommand,
+    ResearchLoopStatus,
+)
+from research_os.application.http_transaction_authorization import authorize_http_transaction_plan
+from research_os.application.identity import new_opaque_id
+from research_os.application.ports import Clock, SystemClock, UnitOfWorkFactory
+from research_os.application.prepare_planned_experiment import (
+    PreparePlannedExperiment,
+    PreparePlannedExperimentCommand,
+)
+from research_os.core.approval import ApprovalView
+from research_os.core.scope import ScopeEvaluationInput
+from research_os.core.scope_compiler import CompiledScope
+from research_os.data.records import (
+    FrontierEventRecord,
+    FrontierItemRecord,
+    FrontierSourceRecord,
+    HypothesisRecord,
+    ObservationRecord,
+)
+from research_os.platform.secrets import CompositeSecretPort
+from research_os.platform.worker import WorkerPort
+from research_os.research.discovery.canonical import canonical_key
+from research_os.research.discovery.config import DiscoveryRunConfig
+from research_os.research.discovery.control_resolve import LiveControlView
+from research_os.research.discovery.frontier import (
+    FrontierEvent,
+    FrontierItem,
+    select_eligible_frontier,
+)
+from research_os.research.discovery.projection import seed_inspect_path_frontier
+from research_os.research.discovery.types import (
+    ANONYMOUS_IDENTITY_ID,
+    DiscoveryGoalKind,
+    FrontierEventKind,
+)
+from research_os.research.identity_session import Identity
+from research_os.tools.capabilities import BROWSER_PAGE_CAPABILITY, BROWSER_PAGE_OBSERVE_ACTION
+
+
+DISCOVERY_HYPOTHESIS_CLAIM = (
+    "Observe authorized in-scope target surface under configured identities."
+)
+
+
+@dataclass(frozen=True)
+class SurfaceDiscoveryStart:
+    config: DiscoveryRunConfig
+    compiled_scope: CompiledScope | None = None
+    identities: tuple[str, ...] = (ANONYMOUS_IDENTITY_ID,)
+    session_context_by_identity: Mapping[str, str] | None = None
+    identity_by_id: Mapping[str, Identity] | None = None
+
+
+@dataclass(frozen=True)
+class SurfaceDiscoveryCycleResult:
+    research_run_id: str
+    stop_reason: str | None
+    frontier_id: str | None
+    experiment_id: str | None
+    worker_invoked: bool
+
+
+class SurfaceDiscoveryRunner:
+    def __init__(
+        self,
+        uow_factory: UnitOfWorkFactory,
+        worker: WorkerPort,
+        *,
+        clock: Clock | None = None,
+        secret_port: CompositeSecretPort | None = None,
+    ) -> None:
+        self._uow_factory = uow_factory
+        self._clock = clock or SystemClock()
+        self._prepare = PreparePlannedExperiment(uow_factory, clock=self._clock)
+        self._execute = ExecutePlannedExperiment(
+            uow_factory, worker, clock=self._clock, secret_port=secret_port
+        )
+        self._live_pages: dict[tuple[str, str, str], LivePageSnapshot] = {}
+
+    def clear_live_pages(self) -> None:
+        """Drop ephemeral el-N mappings. Restart must re-observe."""
+
+        self._live_pages.clear()
+
+    def ensure_started(self, start: SurfaceDiscoveryStart) -> None:
+        now = self._clock.now()
+        with self._uow_factory.open() as uow:
+            existing = uow.discovery_run_configs.get(start.config.research_run_id)
+            if existing is None:
+                uow.discovery_run_configs.insert(record_from_config(start.config, created_at=now))
+                self._seed(uow, start, created_at=now)
+                self._ensure_hypothesis(uow, start.config.research_run_id, created_at=now)
+                uow.commit()
+                return
+            persisted = config_from_record(existing)
+            assert_runtime_matches_persisted(persisted, start.config)
+            uow.rollback()
+
+    def run_cycle(
+        self,
+        start: SurfaceDiscoveryStart,
+        *,
+        budget_id: str,
+        target_reference: str,
+        scope: ScopeEvaluationInput,
+        approval: ApprovalView | None = None,
+    ) -> SurfaceDiscoveryCycleResult:
+        self.ensure_started(start)
+        now = self._clock.now()
+        research_run_id = start.config.research_run_id
+        with self._uow_factory.open() as uow:
+            if start.config.bounds.max_discovery_cycles == 0:
+                uow.rollback()
+                return SurfaceDiscoveryCycleResult(
+                    research_run_id, "MAX_DISCOVERY_CYCLES", None, None, False
+                )
+            for result in uow.worker_results.list_for_research_run(research_run_id):
+                ingest_control_event_from_worker_result(
+                    uow, result, created_at=now, target_reference=target_reference
+                )
+            reconcile_missing_projections(
+                uow, research_run_id, created_at=now, target_reference=target_reference
+            )
+            cycles = len(uow.experiments.list_for_research_run(research_run_id))
+            if cycles >= start.config.bounds.max_discovery_cycles:
+                uow.commit()
+                return SurfaceDiscoveryCycleResult(
+                    research_run_id, "MAX_DISCOVERY_CYCLES", None, None, False
+                )
+            items = uow.frontier_items.list_for_research_run(research_run_id)
+            if start.config.bounds.max_frontier_items > 0 and len(items) > start.config.bounds.max_frontier_items:
+                uow.commit()
+                return SurfaceDiscoveryCycleResult(
+                    research_run_id, "MAX_FRONTIER_ITEMS", None, None, False
+                )
+            events_by = {
+                item.frontier_id: tuple(
+                    _domain_events(uow.frontier_events.list_for_frontier(item.frontier_id))
+                )
+                for item in items
+            }
+            domain_items = tuple(_domain_item(item) for item in items)
+            chosen = select_eligible_frontier(domain_items, events_by, max_side_effect=1)
+            if chosen is None:
+                uow.commit()
+                return SurfaceDiscoveryCycleResult(
+                    research_run_id, "NO_ELIGIBLE_FRONTIER", None, None, False
+                )
+            if chosen.candidate_origin != start.config.normalized_origin:
+                self._block(uow, chosen.frontier_id, "BLOCKED_SCOPE", now)
+                uow.commit()
+                return SurfaceDiscoveryCycleResult(
+                    research_run_id, "BLOCKED_SCOPE", chosen.frontier_id, None, False
+                )
+            claim_frontier_selected(uow, chosen.frontier_id, created_at=now)
+            hypothesis_id = uow.hypotheses.list_for_research_run(research_run_id)[0].hypothesis_id
+            record = uow.frontier_items.get(chosen.frontier_id)
+            uow.commit()
+        assert record is not None
+        live_page = self._live_pages.get(
+            (research_run_id, record.candidate_origin, record.candidate_path)
+        )
+        try:
+            plan = compile_frontier_plan(
+                record,
+                hypothesis_id=hypothesis_id,
+                budget_id=budget_id,
+                target_reference=target_reference,
+                live_page=live_page,
+            )
+        except ReobserveRequired:
+            with self._uow_factory.open() as uow:
+                self._reobserve(uow, record, created_at=now)
+                uow.commit()
+            return SurfaceDiscoveryCycleResult(
+                research_run_id, None, record.frontier_id, None, False
+            )
+        scope_decision = authorize_http_transaction_plan(plan, start.compiled_scope)
+        if not scope_decision.accepted:
+            with self._uow_factory.open() as uow:
+                self._block(uow, record.frontier_id, "BLOCKED_SCOPE", now)
+                uow.commit()
+            return SurfaceDiscoveryCycleResult(
+                research_run_id, "BLOCKED_SCOPE", record.frontier_id, None, False
+            )
+        experiment_id = new_opaque_id()
+        with self._uow_factory.open() as uow:
+            self._prepare.execute(
+                PreparePlannedExperimentCommand(
+                    experiment_id=experiment_id,
+                    research_run_id=research_run_id,
+                    plan=plan,
+                ),
+                unit_of_work=uow,
+            )
+            uow.commit()
+        identity_id = None if record.identity_id == ANONYMOUS_IDENTITY_ID else record.identity_id
+        identity = None
+        if identity_id and start.identity_by_id:
+            identity = start.identity_by_id.get(identity_id)
+        loop = self._execute.execute(
+            ExecutePlannedExperimentCommand(
+                experiment_id=experiment_id,
+                plan=plan,
+                scope=scope,
+                approval=approval,
+                compiled_scope=start.compiled_scope,
+                identity_id=identity_id,
+                identity=identity,
+            )
+        )
+        worker_invoked = loop.status not in {
+            ResearchLoopStatus.DISPATCH_DENIED,
+            ResearchLoopStatus.HUMAN_REVIEW_REQUIRED,
+        }
+        if loop.status is ResearchLoopStatus.UNKNOWN_OUTCOME:
+            return SurfaceDiscoveryCycleResult(
+                research_run_id, "UNKNOWN_OUTCOME", record.frontier_id, experiment_id, True
+            )
+        with self._uow_factory.open() as uow:
+            for result in uow.worker_results.list_for_research_run(research_run_id):
+                ingest_control_event_from_worker_result(
+                    uow, result, created_at=now, target_reference=target_reference
+                )
+            reconcile_missing_projections(
+                uow, research_run_id, created_at=now, target_reference=target_reference
+            )
+            if loop.status is ResearchLoopStatus.OBSERVATION_PRODUCED:
+                self._append_event(uow, record.frontier_id, "OBSERVED", now)
+                for observation in uow.observations.list_for_experiment(experiment_id):
+                    self._remember_live_page(research_run_id, observation)
+            elif loop.status is ResearchLoopStatus.REAUTHORIZATION_REQUIRED:
+                self._append_event(uow, record.frontier_id, "AWAITING_REAUTHORIZATION", now)
+            uow.commit()
+        return SurfaceDiscoveryCycleResult(
+            research_run_id, None, record.frontier_id, experiment_id, worker_invoked
+        )
+
+    def _seed(self, uow, start: SurfaceDiscoveryStart, *, created_at) -> None:
+        config = start.config
+        item = seed_inspect_path_frontier(config, frontier_id=new_opaque_id())
+        self._insert_frontier(uow, item, created_at=created_at, seed_run_id=config.research_run_id)
+        sessions = dict(start.session_context_by_identity or {})
+        allowed = config.bounds.max_identity_variants
+        seeded = 0
+        for identity in start.identities:
+            if identity == ANONYMOUS_IDENTITY_ID:
+                continue
+            if allowed == 0 or seeded >= allowed:
+                break
+            signature = canonical_key(
+                "OBSERVE_UNDER_IDENTITY",
+                config.normalized_origin,
+                config.normalized_path,
+                identity,
+            )
+            variant = FrontierItem(
+                frontier_id=new_opaque_id(),
+                research_run_id=config.research_run_id,
+                goal_kind=DiscoveryGoalKind.OBSERVE_UNDER_IDENTITY,
+                candidate_origin=config.normalized_origin,
+                candidate_path=config.normalized_path,
+                identity_id=identity,
+                proposed_capability=BROWSER_PAGE_CAPABILITY,
+                proposed_action=BROWSER_PAGE_OBSERVE_ACTION,
+                expected_side_effect=0,
+                budget_class=0,
+                structural_signature=signature,
+                dedupe_identity=signature,
+                session_context_id=sessions.get(identity),
+                scope_hint="configured_identity_variant",
+            )
+            self._insert_frontier(
+                uow, variant, created_at=created_at, seed_run_id=config.research_run_id
+            )
+            seeded += 1
+
+    def _insert_frontier(self, uow, item: FrontierItem, *, created_at, seed_run_id: str) -> None:
+        uow.frontier_items.insert(
+            FrontierItemRecord(
+                frontier_id=item.frontier_id,
+                research_run_id=item.research_run_id,
+                strategy_version=item.strategy_version,
+                goal_kind=item.goal_kind.value,
+                candidate_origin=item.candidate_origin,
+                candidate_path=item.candidate_path,
+                identity_id=item.identity_id,
+                proposed_capability=item.proposed_capability,
+                proposed_action=item.proposed_action,
+                expected_side_effect=item.expected_side_effect,
+                budget_class=item.budget_class,
+                structural_signature=item.structural_signature,
+                dedupe_identity=item.dedupe_identity,
+                created_at=created_at,
+                session_context_id=item.session_context_id,
+                scope_hint=item.scope_hint,
+                attributes=item.attributes,
+                current_state="ELIGIBLE",
+                state_version=2,
+            )
+        )
+        uow.frontier_sources.insert(
+            FrontierSourceRecord(
+                source_row_id=new_opaque_id(),
+                research_run_id=item.research_run_id,
+                frontier_id=item.frontier_id,
+                created_at=created_at,
+                seed_config_run_id=seed_run_id,
+            )
+        )
+        self._append_event(uow, item.frontier_id, "CREATED", created_at, sequence=1)
+        self._append_event(uow, item.frontier_id, "ELIGIBLE", created_at, sequence=2)
+
+    def _ensure_hypothesis(self, uow, research_run_id: str, *, created_at) -> None:
+        existing = uow.hypotheses.list_for_research_run(research_run_id)
+        if existing:
+            return
+        uow.hypotheses.insert(
+            HypothesisRecord(
+                hypothesis_id=new_opaque_id(),
+                research_run_id=research_run_id,
+                claim=DISCOVERY_HYPOTHESIS_CLAIM,
+                created_at=created_at,
+                origin_reference="surface-discovery-v1",
+            )
+        )
+
+    def _block(self, uow, frontier_id: str, kind: str, created_at) -> None:
+        self._append_event(uow, frontier_id, kind, created_at)
+
+    def _reobserve(self, uow, record: FrontierItemRecord, *, created_at) -> None:
+        self._append_event(uow, record.frontier_id, "FAILED_TRANSIENT", created_at)
+        config_record = uow.discovery_run_configs.get(record.research_run_id)
+        assert config_record is not None
+        inspect = seed_inspect_path_frontier(
+            DiscoveryRunConfig(
+                research_run_id=record.research_run_id,
+                seed_target_reference=record.candidate_origin + record.candidate_path,
+                normalized_origin=record.candidate_origin,
+                normalized_path=record.candidate_path,
+                bounds=config_from_record(config_record).bounds,
+            ),
+            frontier_id=new_opaque_id(),
+        )
+        if any(
+            item.dedupe_identity == inspect.dedupe_identity
+            for item in uow.frontier_items.list_for_research_run(record.research_run_id)
+        ):
+            self._append_event(uow, record.frontier_id, "ELIGIBLE", created_at)
+            return
+        observations = uow.observations.list_for_research_run(record.research_run_id)
+        observation_id = observations[-1].observation_id if observations else None
+        uow.frontier_items.insert(
+            FrontierItemRecord(
+                frontier_id=inspect.frontier_id,
+                research_run_id=inspect.research_run_id,
+                strategy_version=inspect.strategy_version,
+                goal_kind=DiscoveryGoalKind.INSPECT_PATH.value,
+                candidate_origin=inspect.candidate_origin,
+                candidate_path=inspect.candidate_path,
+                identity_id=inspect.identity_id,
+                proposed_capability=inspect.proposed_capability,
+                proposed_action=inspect.proposed_action,
+                expected_side_effect=0,
+                budget_class=0,
+                structural_signature=inspect.structural_signature,
+                dedupe_identity=inspect.dedupe_identity,
+                created_at=created_at,
+                current_state="ELIGIBLE",
+                state_version=2,
+            )
+        )
+        uow.frontier_sources.insert(
+            FrontierSourceRecord(
+                source_row_id=new_opaque_id(),
+                research_run_id=record.research_run_id,
+                frontier_id=inspect.frontier_id,
+                created_at=created_at,
+                observation_id=observation_id,
+                seed_config_run_id=None if observation_id else record.research_run_id,
+            )
+        )
+        self._append_event(uow, inspect.frontier_id, "CREATED", created_at, sequence=1)
+        self._append_event(uow, inspect.frontier_id, "ELIGIBLE", created_at, sequence=2)
+
+    def _remember_live_page(self, research_run_id: str, observation: ObservationRecord) -> None:
+        payload = dict(observation.payload)
+        origin = str(payload.get("authorized_origin") or "")
+        path = str(payload.get("path") or "/")
+        normalized = payload.get("normalized_url")
+        if isinstance(normalized, str) and "://" in normalized:
+            from urllib.parse import urlsplit
+
+            parsed = urlsplit(normalized)
+            origin = f"{parsed.scheme}://{parsed.hostname}"
+            if parsed.port:
+                origin = f"{origin}:{parsed.port}"
+            path = parsed.path or "/"
+        fingerprint = payload.get("snapshot_fingerprint")
+        context_ref = payload.get("browser_context_reference")
+        page_ref = payload.get("page_reference")
+        if not isinstance(fingerprint, str) or not isinstance(context_ref, str) or not isinstance(page_ref, str):
+            return
+        controls = []
+        for item in payload.get("controls") or []:
+            if not isinstance(item, dict):
+                continue
+            element_ref = item.get("element_reference")
+            if not isinstance(element_ref, str):
+                continue
+            controls.append(
+                LiveControlView(
+                    element_reference=element_ref,
+                    snapshot_fingerprint=str(item.get("snapshot_fingerprint") or fingerprint),
+                    tag=str(item.get("tag") or ""),
+                    name=str(item.get("name") or ""),
+                    role=str(item.get("role") or ""),
+                    input_type=str(item.get("input_type") or ""),
+                )
+            )
+        self._live_pages[(research_run_id, origin, path)] = LivePageSnapshot(
+            snapshot_fingerprint=fingerprint,
+            browser_context_reference=context_ref,
+            page_reference=page_ref,
+            controls=tuple(controls),
+        )
+
+    def _append_event(
+        self, uow, frontier_id: str, kind: str, created_at, sequence: int | None = None
+    ) -> None:
+        existing = uow.frontier_events.list_for_frontier(frontier_id)
+        research_run_id = (
+            existing[0].research_run_id
+            if existing
+            else uow.frontier_items.get(frontier_id).research_run_id
+        )
+        uow.frontier_events.insert(
+            FrontierEventRecord(
+                event_id=new_opaque_id(),
+                frontier_id=frontier_id,
+                research_run_id=research_run_id,
+                event_kind=kind,
+                sequence=sequence or (existing[-1].sequence + 1 if existing else 1),
+                created_at=created_at,
+            )
+        )
+
+
+def _domain_item(record: FrontierItemRecord) -> FrontierItem:
+    return FrontierItem(
+        frontier_id=record.frontier_id,
+        research_run_id=record.research_run_id,
+        goal_kind=DiscoveryGoalKind(record.goal_kind),
+        candidate_origin=record.candidate_origin,
+        candidate_path=record.candidate_path,
+        identity_id=record.identity_id,
+        proposed_capability=record.proposed_capability,
+        proposed_action=record.proposed_action,
+        expected_side_effect=record.expected_side_effect,
+        budget_class=record.budget_class,
+        structural_signature=record.structural_signature,
+        dedupe_identity=record.dedupe_identity,
+        strategy_version=record.strategy_version,
+        session_context_id=record.session_context_id,
+        scope_hint=record.scope_hint,
+        attributes=record.attributes,
+    )
+
+
+def _domain_events(records: list[FrontierEventRecord]) -> list[FrontierEvent]:
+    return [
+        FrontierEvent(
+            event_id=item.event_id,
+            frontier_id=item.frontier_id,
+            research_run_id=item.research_run_id,
+            event_kind=FrontierEventKind(item.event_kind),
+            sequence=item.sequence,
+            selection_generation=item.selection_generation,
+            execution_attempt_id=item.execution_attempt_id,
+            reason_code=item.reason_code,
+        )
+        for item in records
+    ]

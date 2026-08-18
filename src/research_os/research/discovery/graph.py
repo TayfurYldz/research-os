@@ -87,6 +87,18 @@ class AttackSurfaceGraph:
                 return node
         return None
 
+    def grants_scope(self) -> bool:
+        return False
+
+    def binds_session(self) -> bool:
+        return False
+
+    def mints_budget(self) -> bool:
+        return False
+
+    def mints_capability(self) -> bool:
+        return False
+
 
 def rebuild_attack_surface_graph(
     *,
@@ -229,6 +241,28 @@ def rebuild_attack_surface_graph(
                         epistemic_status=fact.epistemic_status,
                     )
                 )
+
+    fact_id_to_key = {item.fact_id: item.canonical_key for item in facts}
+    for fact in sorted(facts, key=lambda item: item.canonical_key):
+        if fact.fact_kind is not DiscoveryFactKind.WORKFLOW_TRANSITION:
+            continue
+        attrs = fact.attributes or {}
+        pre_id = attrs.get("pre_state_fact_id")
+        pre_key = fact_id_to_key.get(pre_id) if isinstance(pre_id, str) else None
+        path_id = path_nodes.get((fact.normalized_origin or "", fact.normalized_path or ""))
+        if pre_key and path_id:
+            provenance = tuple(sorted(_source_ref(source) for source in fact.sources))
+            edges.append(
+                AttackSurfaceEdge(
+                    edge_id=f"{pre_key}:transitions:{fact.canonical_key}",
+                    kind=AttackSurfaceEdgeKind.TRANSITIONS_TO,
+                    from_node_id=pre_key,
+                    to_node_id=path_id,
+                    identity_id=fact.identity_id,
+                    provenance_refs=provenance,
+                    epistemic_status=fact.epistemic_status,
+                )
+            )
 
     for inference in sorted(inferences, key=lambda item: item.canonical_key):
         kind = INFERENCE_NODE_KIND.get(inference.inference_kind)

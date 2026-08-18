@@ -67,6 +67,7 @@ from research_os.data.records import (
     ResearchOrchestrationRecord,
 )
 from research_os.platform.observability import InMemoryObservability, ObservabilityPort, TelemetryEvent
+from research_os.platform.secrets import CompositeSecretPort
 from research_os.platform.worker import WorkerPort
 from research_os.research.admission import AdmissionOutcome
 from research_os.research.exploration import ResearchPolicyBudget
@@ -88,6 +89,11 @@ from research_os.research.orchestration import (
 )
 from research_os.research.planning import plan_diagnostic_echo
 from research_os.research.routing import ROUTING_POLICY_VERSION, RoutingOutcome, RoutingRequest
+from research_os.application.discovery.runner import (
+    SurfaceDiscoveryCycleResult,
+    SurfaceDiscoveryRunner,
+    SurfaceDiscoveryStart,
+)
 
 
 CONTROL_PLANE_ACTOR_ID = "control-plane"
@@ -107,6 +113,7 @@ class StartAutonomousResearchCommand:
     approval: ApprovalView | None = None
     routing_request: RoutingRequest | None = None
     selection_budget: ResearchPolicyBudget | None = None
+    surface_discovery: SurfaceDiscoveryStart | None = None
 
 
 @dataclass(frozen=True)
@@ -133,6 +140,7 @@ class AutonomousResearchController:
         clock: Clock | None = None,
         observability: ObservabilityPort | None = None,
         actor_id: str = CONTROL_PLANE_ACTOR_ID,
+        secret_port: CompositeSecretPort | None = None,
     ) -> None:
         self._uow_factory = uow_factory
         self._clock = clock or SystemClock()
@@ -140,7 +148,7 @@ class AutonomousResearchController:
         self._actor_id = actor_id
         self._model = model
         self._execute = ExecutePlannedExperiment(
-            uow_factory, worker, clock=self._clock, actor_id=actor_id
+            uow_factory, worker, clock=self._clock, actor_id=actor_id, secret_port=secret_port
         )
         self._propose = ProposeResearchHypothesis(
             uow_factory, model, clock=self._clock
@@ -155,6 +163,9 @@ class AutonomousResearchController:
         )
         self._consume = RecordBudgetConsumption(uow_factory, clock=self._clock)
         self._started_at: dict[str, datetime] = {}
+        self._discovery = SurfaceDiscoveryRunner(
+            uow_factory, worker, clock=self._clock, secret_port=secret_port
+        )
 
     def start(self, command: StartAutonomousResearchCommand) -> OrchestrationTickResult:
         now = self._clock.now()
@@ -306,6 +317,9 @@ class AutonomousResearchController:
             OrchestrationState.PAUSED.value,
         }:
             return _result_from_record(current, CycleOutcome.CONTINUE)
+
+        if command.surface_discovery is not None:
+            return self._step_surface_discovery(command, current)
 
         phase = current.current_phase
         if phase == OrchestrationPhase.DISPATCHING.value or self._unknown_open(
@@ -616,6 +630,65 @@ class AutonomousResearchController:
             if last.state != OrchestrationState.RUNNING.value and last.state != OrchestrationState.READY.value:
                 return last
         return last
+
+    def _step_surface_discovery(
+        self,
+        command: StartAutonomousResearchCommand,
+        current: ResearchOrchestrationRecord,
+    ) -> OrchestrationTickResult:
+        if self._unknown_open(command.research_run_id):
+            return self._stop(current, StopReason.OPERATIONAL_FAILURE, "unknown_outcome")
+        start = command.surface_discovery
+        if start is None:
+            raise ApplicationError("surface discovery start is required")
+        result = self._discovery.run_cycle(
+            start,
+            budget_id=command.budget_id,
+            target_reference=command.target_reference,
+            scope=command.scope,
+            approval=command.approval,
+        )
+        if result.stop_reason == "UNKNOWN_OUTCOME":
+            return self._stop(
+                current,
+                StopReason.OPERATIONAL_FAILURE,
+                "unknown_outcome",
+                experiment_id=result.experiment_id,
+                increment_cycle=True,
+            )
+        if result.stop_reason == "BLOCKED_SCOPE":
+            return self._stop(
+                current,
+                StopReason.CORE_BLOCKED,
+                "blocked_scope",
+                experiment_id=result.experiment_id,
+                increment_cycle=True,
+            )
+        if result.stop_reason in {"MAX_DISCOVERY_CYCLES", "MAX_FRONTIER_ITEMS"}:
+            return self._stop(
+                current,
+                StopReason.MAX_CYCLES_REACHED,
+                "discovery_bounds",
+                experiment_id=result.experiment_id,
+                increment_cycle=True,
+            )
+        if result.stop_reason == "NO_ELIGIBLE_FRONTIER":
+            return self._stop(
+                current,
+                StopReason.COMPLETED_NO_MORE_OPPORTUNITIES,
+                "no_eligible_frontier",
+                experiment_id=result.experiment_id,
+                increment_cycle=True,
+            )
+        return self._complete_cycle(
+            current,
+            CycleOutcome.CONTINUE,
+            "surface_discovery",
+            hypothesis_id=current.last_hypothesis_id,
+            experiment_id=result.experiment_id,
+            increment_cycle=True,
+            current_phase=OrchestrationPhase.CYCLE_COMPLETE,
+        )
 
     def _resume_authorized(
         self,

@@ -3,16 +3,14 @@
 from __future__ import annotations
 
 from dataclasses import asdict
-from datetime import datetime
-
 from sqlalchemy import select, update
 from sqlalchemy.engine import Connection
 from sqlalchemy.exc import SQLAlchemyError
 
-from research_os.data.errors import PersistenceConflictError, PersistenceError, PersistenceInputError
+from research_os.data.errors import PersistenceConflictError, PersistenceError
 from research_os.data.postgres import mapping as map_row
 from research_os.data.postgres import tables
-from research_os.data.postgres.repositories import _execute_write, _fetch_one, _raise_integrity
+from research_os.data.postgres.repositories import _execute_write, _fetch_one
 from research_os.data.records import (
     ControlEventRecord,
     DiscoveryFactRecord,
@@ -26,7 +24,6 @@ from research_os.data.records import (
     FrontierSourceRecord,
     require_opaque_id,
 )
-from sqlalchemy.exc import IntegrityError
 
 
 def _list_by_run(connection: Connection, table, run_id: str, builder, order_column):
