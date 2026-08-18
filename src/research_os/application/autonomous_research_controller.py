@@ -664,7 +664,12 @@ class AutonomousResearchController:
                 experiment_id=result.experiment_id,
                 increment_cycle=True,
             )
-        if result.stop_reason in {"MAX_DISCOVERY_CYCLES", "MAX_FRONTIER_ITEMS"}:
+        if result.stop_reason in {
+            "MAX_DISCOVERY_CYCLES",
+            "MAX_FRONTIER_ITEMS",
+            "MAX_BROWSER_ACTIONS",
+            "MAX_HTTP_TRANSACTIONS",
+        }:
             return self._stop(
                 current,
                 StopReason.MAX_CYCLES_REACHED,

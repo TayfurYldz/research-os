@@ -85,7 +85,9 @@ def _handler_for(lab: Gate22SurfaceLab):
                 self._html(
                     "ticket",
                     f"<p id='state' name='state'>{lab.ticket_state}</p>"
-                    "<button name='advance' id='advance'>advance</button>",
+                    "<button name='advance' id='advance'>advance</button>"
+                    "<script>document.getElementById('advance').onclick=function(){"
+                    "fetch('/ticket/advance',{method:'POST'});};</script>",
                 )
                 return
             if parsed.path in {"/api/orders/101", "/api/orders/202", "/api/orders/303"}:

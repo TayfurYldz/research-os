@@ -21,8 +21,10 @@ from research_os.research.discovery.facts import DiscoveryFact, DiscoveryFactSou
 from research_os.research.discovery.frontier import (
     FrontierEvent,
     FrontierEventKind,
+    FrontierItem,
     legal_frontier_transition,
     next_selection_generation,
+    select_eligible_frontier,
 )
 from research_os.research.discovery.graph import rebuild_attack_surface_graph
 from research_os.research.discovery.inference import (
@@ -46,6 +48,7 @@ from research_os.research.discovery.types import (
     SURFACE_DISCOVERY_STRATEGY_VERSION,
     ControlEventKind,
     DiscoveryFactKind,
+    DiscoveryGoalKind,
     DiscoveryInferenceKind,
     DiscoverySourcePlane,
 )
@@ -206,6 +209,63 @@ class FrontierTransitionTests(unittest.TestCase):
             ),
         )
         self.assertEqual(next_selection_generation(events), 2)
+
+    def test_se0_is_selected_before_se1_interact(self) -> None:
+        se0 = FrontierItem(
+            frontier_id="front-http",
+            research_run_id="run-1",
+            goal_kind=DiscoveryGoalKind.CHARACTERIZE_HTTP_OPERATION,
+            candidate_origin="http://127.0.0.1:1",
+            candidate_path="/api/orders/101",
+            identity_id=ANONYMOUS_IDENTITY_ID,
+            proposed_capability="http.transaction",
+            proposed_action="read",
+            expected_side_effect=0,
+            budget_class=0,
+            structural_signature="sig-http",
+            dedupe_identity="dedupe-http",
+        )
+        se1 = FrontierItem(
+            frontier_id="front-click",
+            research_run_id="run-1",
+            goal_kind=DiscoveryGoalKind.INSPECT_CONTROL,
+            candidate_origin="http://127.0.0.1:1",
+            candidate_path="/",
+            identity_id=ANONYMOUS_IDENTITY_ID,
+            proposed_capability="browser.page",
+            proposed_action="interact",
+            expected_side_effect=1,
+            budget_class=1,
+            structural_signature="sig-click",
+            dedupe_identity="dedupe-click",
+        )
+
+        def _eligible(frontier_id: str) -> tuple[FrontierEvent, ...]:
+            return (
+                FrontierEvent(
+                    event_id=f"{frontier_id}-c",
+                    frontier_id=frontier_id,
+                    research_run_id="run-1",
+                    event_kind=FrontierEventKind.CREATED,
+                    sequence=1,
+                ),
+                FrontierEvent(
+                    event_id=f"{frontier_id}-e",
+                    frontier_id=frontier_id,
+                    research_run_id="run-1",
+                    event_kind=FrontierEventKind.ELIGIBLE,
+                    sequence=2,
+                ),
+            )
+
+        chosen = select_eligible_frontier(
+            (se1, se0),
+            {"front-http": _eligible("front-http"), "front-click": _eligible("front-click")},
+            max_side_effect=1,
+        )
+        self.assertIsNotNone(chosen)
+        assert chosen is not None
+        self.assertEqual(chosen.goal_kind, DiscoveryGoalKind.CHARACTERIZE_HTTP_OPERATION)
 
 
 class ProjectionAndGraphTests(unittest.TestCase):

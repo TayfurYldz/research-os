@@ -28,7 +28,10 @@ from research_os.data.records import (
     DiscoveryRunConfigRecord,
     FrontierEventRecord,
     FrontierItemRecord,
+    ObservationRecord,
+    WorkerResultRecord,
 )
+from research_os.application.discovery.project import project_observation, reconcile_missing_projections
 from sqlalchemy import text
 
 TEST_URL = configured_test_url()
@@ -130,6 +133,74 @@ class Gate22DiscoveryPersistenceTests(unittest.TestCase):
                     )
                 )
                 uow.commit()
+
+
+    def test_projection_tx_b_rollback_then_replay_without_worker(self) -> None:
+        with PostgresUnitOfWork(self.engine) as uow:
+            uow.worker_results.insert(
+                WorkerResultRecord(
+                    worker_result_id="wr-1",
+                    experiment_id="exp-1",
+                    research_run_id="run-1",
+                    request_id="req-g22-1",
+                    correlation_id="corr-g22-1",
+                    worker_capability="browser.page",
+                    action="observe",
+                    authorization_decision_reference="authz-1",
+                    budget_id="budget-1",
+                    side_effect_level=0,
+                    contract_version="v1",
+                    worker_id="worker-1",
+                    status="SUCCEEDED",
+                    received_at=NOW,
+                )
+            )
+            uow.observations.insert(
+                ObservationRecord(
+                    observation_id="obs-1",
+                    worker_result_id="wr-1",
+                    observation_kind="BROWSER_PAGE_STATE",
+                    payload={
+                        "normalized_url": "http://127.0.0.1:1/",
+                        "path": "/",
+                        "snapshot_fingerprint": "fp-1",
+                        "browser_context_reference": "ctx-1",
+                        "page_reference": "page-1",
+                        "controls": [],
+                        "network_events": [],
+                    },
+                    normalization_version="browser.page.v1",
+                    observed_at=NOW,
+                    created_at=NOW,
+                )
+            )
+            uow.commit()
+        with PostgresUnitOfWork(self.engine) as uow:
+            project_observation(
+                uow,
+                uow.observations.list_for_research_run("run-1")[0],
+                created_at=NOW,
+                target_reference="target-1",
+            )
+        with PostgresUnitOfWork(self.engine) as uow:
+            self.assertEqual(uow.discovery_facts.list_for_research_run("run-1"), [])
+            self.assertFalse(uow.discovery_projection_receipts.has_observation("run-1", "obs-1"))
+            uow.rollback()
+        with PostgresUnitOfWork(self.engine) as uow:
+            projected = reconcile_missing_projections(
+                uow, "run-1", created_at=NOW, target_reference="target-1"
+            )
+            facts = len(uow.discovery_facts.list_for_research_run("run-1"))
+            uow.commit()
+        self.assertEqual(projected, 1)
+        self.assertGreaterEqual(facts, 1)
+        with PostgresUnitOfWork(self.engine) as uow:
+            again = reconcile_missing_projections(
+                uow, "run-1", created_at=NOW, target_reference="target-1"
+            )
+            self.assertEqual(again, 0)
+            self.assertEqual(len(uow.discovery_facts.list_for_research_run("run-1")), facts)
+            uow.commit()
 
 
 if __name__ == "__main__":

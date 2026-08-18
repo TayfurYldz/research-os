@@ -63,6 +63,7 @@ from research_os.research.discovery.inference import DiscoveryInference
 from research_os.research.discovery.types import (
     ANONYMOUS_IDENTITY_ID,
     SURFACE_DISCOVERY_STRATEGY_VERSION,
+    AttackSurfaceEdgeKind,
     DiscoveryFactKind,
     DiscoveryGoalKind,
     DiscoveryInferenceKind,
@@ -369,6 +370,8 @@ class Gate22SurfaceDiscoveryE2ETests(unittest.TestCase):
         self.assertTrue(any(item[0] == "GET" for item in methods))
         identities = {item.identity_id for item in facts}
         self.assertIn(ANONYMOUS_IDENTITY_ID, identities)
+        self.assertIn("id-alice", identities)
+        self.assertIn("id-bob", identities)
         graph = rebuild_attack_surface_graph(
             research_run_id="run-1",
             strategy_version=SURFACE_DISCOVERY_STRATEGY_VERSION,
@@ -379,6 +382,9 @@ class Gate22SurfaceDiscoveryE2ETests(unittest.TestCase):
         self.assertFalse(graph.binds_session())
         self.assertFalse(graph.mints_budget())
         self.assertFalse(graph.mints_capability())
+        self.assertTrue(
+            any(item.kind is AttackSurfaceEdgeKind.OBSERVED_REQUEST_TO for item in graph.edges)
+        )
         self.assertFalse(any(item.inference_kind == "OBJECT_INSTANCE" for item in inferences))
         templates = [item for item in inferences if item.inference_kind == "ROUTE_TEMPLATE"]
         self.assertTrue(templates)
@@ -393,6 +399,17 @@ class Gate22SurfaceDiscoveryE2ETests(unittest.TestCase):
         browser_calls = [call for call in worker.calls if call.get("worker_capability") == "browser.page"]
         http_calls = [call for call in worker.calls if call.get("worker_capability") == "http.transaction"]
         self.assertTrue(browser_calls)
+        first_http_index = next(
+            (index for index, call in enumerate(worker.calls) if call.get("worker_capability") == "http.transaction"),
+            None,
+        )
+        if first_http_index is not None:
+            self.assertTrue(
+                any(
+                    call.get("worker_capability") == "browser.page"
+                    for call in worker.calls[:first_http_index]
+                )
+            )
         origins = {
             str((call.get("arguments") or {}).get("authorized_origin") or "").rstrip("/")
             for call in worker.calls
@@ -428,10 +445,20 @@ class Gate22SurfaceDiscoveryE2ETests(unittest.TestCase):
         self.assertEqual(controller._discovery._live_pages, {})
         if http_calls:
             self.assertTrue(all(call.get("action") in {"read", "mutate"} for call in http_calls))
-        self.assertIn("/hidden", paths.union({str((c.get("arguments") or {}).get("path") or "") for c in worker.calls}))
+        self.assertIn("/hidden", paths)
+        self.assertTrue(any(item[0] == "POST" for item in methods) or any(
+            (item.attributes or {}).get("method") == "POST" for item in characterize
+        ))
         transitions = [item for item in facts if item.fact_kind == "WORKFLOW_TRANSITION"]
-        self.assertTrue(control_events or transitions or characterize)
-        del control_events, transitions, result
+        self.assertTrue(
+            transitions
+            or any(item.kind is AttackSurfaceEdgeKind.TRANSITIONS_TO for item in graph.edges)
+        )
+        self.assertTrue(
+            control_events
+            or any(item.fact_kind == "SCOPE_BOUNDARY_CANDIDATE" for item in facts)
+        )
+        del result
 
 
 def _fact_from_record(uow, record) -> DiscoveryFact | None:

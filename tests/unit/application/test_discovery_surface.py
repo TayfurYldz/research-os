@@ -11,10 +11,15 @@ from research_os.application.discovery.config import (
     config_from_record,
     record_from_config,
 )
-from research_os.application.discovery.project import project_observation, reconcile_missing_projections
+from research_os.application.discovery.project import (
+    project_control,
+    project_observation,
+    reconcile_missing_projections,
+)
 from research_os.application.discovery.runner import SurfaceDiscoveryRunner, SurfaceDiscoveryStart
 from research_os.application.errors import ApplicationError, OrchestrationIntegrityError
 from research_os.data.records import (
+    ControlEventRecord,
     FrontierEventRecord,
     FrontierItemRecord,
     ObservationRecord,
@@ -231,6 +236,79 @@ class ProjectionReceiptTests(unittest.TestCase):
         self.assertEqual(first, second)
         self.assertGreater(len(sources), first)
 
+    def test_tx_b_rollback_replays_without_duplicate_or_worker(self) -> None:
+        store = _Store()
+        seed_authorization_run(store)
+        store.worker_results["wr-1"] = _worker_result()
+        store.observations["obs-1"] = _observation()
+        factory = FakeUnitOfWorkFactory(store)
+        worker = RecordingWorkerPort(store=store)
+        with factory.open() as uow:
+            project_observation(uow, store.observations["obs-1"], created_at=CREATED_AT)
+        self.assertEqual(len(store.discovery_facts), 0)
+        self.assertEqual(len(store.discovery_projection_receipts), 0)
+        self.assertEqual(len(worker.calls), 0)
+        with factory.open() as uow:
+            projected = reconcile_missing_projections(
+                uow, "run-1", created_at=CREATED_AT, target_reference="target-1"
+            )
+            uow.commit()
+        fact_count = len(store.discovery_facts)
+        frontier_count = len(store.frontier_items)
+        receipt_count = len(store.discovery_projection_receipts)
+        self.assertEqual(projected, 1)
+        self.assertGreaterEqual(fact_count, 1)
+        self.assertEqual(receipt_count, 1)
+        self.assertEqual(len(worker.calls), 0)
+        with factory.open() as uow:
+            again = reconcile_missing_projections(
+                uow, "run-1", created_at=CREATED_AT, target_reference="target-1"
+            )
+            uow.commit()
+        self.assertEqual(again, 0)
+        self.assertEqual(len(store.discovery_facts), fact_count)
+        self.assertEqual(len(store.frontier_items), frontier_count)
+        self.assertEqual(len(store.discovery_projection_receipts), 1)
+        self.assertEqual(len(worker.calls), 0)
+
+    def test_control_event_missing_receipt_replays_without_worker(self) -> None:
+        store = _Store()
+        seed_authorization_run(store)
+        store.worker_results["wr-1"] = _worker_result()
+        store.control_events["ce-1"] = ControlEventRecord(
+            control_event_id="ce-1",
+            research_run_id="run-1",
+            event_kind="NEW_ORIGIN_BOUNDARY",
+            worker_result_id="wr-1",
+            identity_id="ANONYMOUS",
+            target_reference="target-1",
+            created_at=CREATED_AT,
+            channel="REDIRECT",
+            location_origin="http://example.com",
+            location_path="/",
+            request_id="req-1",
+        )
+        factory = FakeUnitOfWorkFactory(store)
+        worker = RecordingWorkerPort(store=store)
+        with factory.open() as uow:
+            projected = reconcile_missing_projections(
+                uow, "run-1", created_at=CREATED_AT, target_reference="target-1"
+            )
+            uow.commit()
+        self.assertEqual(projected, 1)
+        self.assertEqual(len(store.discovery_projection_receipts), 1)
+        facts = list(store.discovery_facts.values())
+        self.assertTrue(facts)
+        self.assertTrue(all(item.epistemic_status == "DERIVED" for item in facts))
+        self.assertTrue(all(item.fact_kind == "SCOPE_BOUNDARY_CANDIDATE" for item in facts))
+        self.assertEqual(len(worker.calls), 0)
+        with factory.open() as uow:
+            project_control(uow, store.control_events["ce-1"], created_at=CREATED_AT)
+            uow.commit()
+        self.assertEqual(len(store.discovery_facts), len(facts))
+        self.assertEqual(len(store.discovery_projection_receipts), 1)
+        self.assertEqual(len(worker.calls), 0)
+
 
 class FrontierClaimTests(unittest.TestCase):
     def test_concurrent_selected_generation_has_one_winner(self) -> None:
@@ -280,3 +358,85 @@ class RunnerConfigTests(unittest.TestCase):
         with self.assertRaises(OrchestrationIntegrityError):
             runner.ensure_started(wider)
         self.assertEqual(len(store.discovery_run_configs), 1)
+
+    def test_zero_frontier_allowance_stops_without_worker(self) -> None:
+        store = _Store()
+        seed_authorization_run(store)
+        factory = FakeUnitOfWorkFactory(store)
+        worker = RecordingWorkerPort(store=store)
+        runner = SurfaceDiscoveryRunner(factory, worker)
+        start = SurfaceDiscoveryStart(config=_config(bounds=_bounds(max_frontier_items=0)))
+        result = runner.run_cycle(
+            start,
+            budget_id="budget-1",
+            target_reference="target-1",
+            scope=_scope(),
+        )
+        self.assertEqual(result.stop_reason, "MAX_FRONTIER_ITEMS")
+        self.assertFalse(result.worker_invoked)
+        self.assertEqual(len(worker.calls), 0)
+
+    def test_zero_browser_allowance_stops_without_worker(self) -> None:
+        store = _Store()
+        seed_authorization_run(store)
+        factory = FakeUnitOfWorkFactory(store)
+        worker = RecordingWorkerPort(store=store)
+        runner = SurfaceDiscoveryRunner(factory, worker)
+        start = SurfaceDiscoveryStart(config=_config(bounds=_bounds(max_browser_actions=0)))
+        result = runner.run_cycle(
+            start,
+            budget_id="budget-1",
+            target_reference="target-1",
+            scope=_scope(),
+        )
+        self.assertEqual(result.stop_reason, "MAX_BROWSER_ACTIONS")
+        self.assertEqual(len(worker.calls), 0)
+
+
+def _scope():
+    from research_os.core.enums import ScopeRuleEffect
+    from research_os.core.scope import ScopeEvaluationInput, ScopeRuleMatch
+
+    return ScopeEvaluationInput(
+        matches=(ScopeRuleMatch("rule-allow", ScopeRuleEffect.ALLOW, True, "scope-src"),),
+        ambiguous=False,
+    )
+
+
+def _worker_result(result_id: str = "wr-1") -> WorkerResultRecord:
+    return WorkerResultRecord(
+        worker_result_id=result_id,
+        experiment_id="exp-1",
+        research_run_id="run-1",
+        request_id="req-1",
+        correlation_id="corr-1",
+        worker_capability="browser.page",
+        action="observe",
+        authorization_decision_reference="authz-1",
+        budget_id="budget-1",
+        side_effect_level=0,
+        contract_version="v1",
+        worker_id="worker-1",
+        status="SUCCEEDED",
+        received_at=CREATED_AT,
+    )
+
+
+def _observation(observation_id: str = "obs-1", result_id: str = "wr-1") -> ObservationRecord:
+    return ObservationRecord(
+        observation_id=observation_id,
+        worker_result_id=result_id,
+        observation_kind="BROWSER_PAGE_STATE",
+        payload={
+            "normalized_url": "http://127.0.0.1:9/",
+            "path": "/",
+            "snapshot_fingerprint": "fp-1",
+            "browser_context_reference": "ctx-1",
+            "page_reference": "page-1",
+            "controls": [],
+            "network_events": [],
+        },
+        normalization_version="browser.page.v1",
+        observed_at=CREATED_AT,
+        created_at=CREATED_AT,
+    )

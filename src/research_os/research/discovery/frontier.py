@@ -251,7 +251,7 @@ def select_eligible_frontier(
         if latest is None or latest.event_kind is not FrontierEventKind.ELIGIBLE:
             continue
         goal_rank = GOAL_PRIORITY.index(item.goal_kind)
-        ranked.append((goal_rank, item.budget_class, item.dedupe_identity, item))
+        ranked.append((item.budget_class, goal_rank, item.dedupe_identity, item))
     if not ranked:
         return None
     ranked.sort(key=lambda row: (row[0], row[1], row[2], row[3].frontier_id))

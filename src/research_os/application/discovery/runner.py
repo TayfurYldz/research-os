@@ -62,7 +62,11 @@ from research_os.research.discovery.types import (
     FrontierEventKind,
 )
 from research_os.research.identity_session import Identity
-from research_os.tools.capabilities import BROWSER_PAGE_CAPABILITY, BROWSER_PAGE_OBSERVE_ACTION
+from research_os.tools.capabilities import (
+    BROWSER_PAGE_CAPABILITY,
+    BROWSER_PAGE_OBSERVE_ACTION,
+    HTTP_TRANSACTION_CAPABILITY,
+)
 
 
 DISCOVERY_HYPOTHESIS_CLAIM = (
@@ -137,11 +141,6 @@ class SurfaceDiscoveryRunner:
         now = self._clock.now()
         research_run_id = start.config.research_run_id
         with self._uow_factory.open() as uow:
-            if start.config.bounds.max_discovery_cycles == 0:
-                uow.rollback()
-                return SurfaceDiscoveryCycleResult(
-                    research_run_id, "MAX_DISCOVERY_CYCLES", None, None, False
-                )
             for result in uow.worker_results.list_for_research_run(research_run_id):
                 ingest_control_event_from_worker_result(
                     uow, result, created_at=now, target_reference=target_reference
@@ -149,18 +148,13 @@ class SurfaceDiscoveryRunner:
             reconcile_missing_projections(
                 uow, research_run_id, created_at=now, target_reference=target_reference
             )
-            cycles = len(uow.experiments.list_for_research_run(research_run_id))
-            if cycles >= start.config.bounds.max_discovery_cycles:
+            bound_stop = _bound_stop_reason(uow, start.config)
+            if bound_stop is not None:
                 uow.commit()
                 return SurfaceDiscoveryCycleResult(
-                    research_run_id, "MAX_DISCOVERY_CYCLES", None, None, False
+                    research_run_id, bound_stop, None, None, False
                 )
             items = uow.frontier_items.list_for_research_run(research_run_id)
-            if start.config.bounds.max_frontier_items > 0 and len(items) > start.config.bounds.max_frontier_items:
-                uow.commit()
-                return SurfaceDiscoveryCycleResult(
-                    research_run_id, "MAX_FRONTIER_ITEMS", None, None, False
-                )
             events_by = {
                 item.frontier_id: tuple(
                     _domain_events(uow.frontier_events.list_for_frontier(item.frontier_id))
@@ -475,6 +469,27 @@ class SurfaceDiscoveryRunner:
                 created_at=created_at,
             )
         )
+
+
+def _bound_stop_reason(uow, config: DiscoveryRunConfig) -> str | None:
+    """0 means no allowance. Counts already-committed work before the next grant."""
+
+    bounds = config.bounds
+    research_run_id = config.research_run_id
+    cycles = len(uow.experiments.list_for_research_run(research_run_id))
+    if cycles >= bounds.max_discovery_cycles:
+        return "MAX_DISCOVERY_CYCLES"
+    items = uow.frontier_items.list_for_research_run(research_run_id)
+    if len(items) >= bounds.max_frontier_items:
+        return "MAX_FRONTIER_ITEMS"
+    results = uow.worker_results.list_for_research_run(research_run_id)
+    browser = sum(1 for item in results if item.worker_capability == BROWSER_PAGE_CAPABILITY)
+    if browser >= bounds.max_browser_actions:
+        return "MAX_BROWSER_ACTIONS"
+    http = sum(1 for item in results if item.worker_capability == HTTP_TRANSACTION_CAPABILITY)
+    if http >= bounds.max_http_transactions:
+        return "MAX_HTTP_TRANSACTIONS"
+    return None
 
 
 def _domain_item(record: FrontierItemRecord) -> FrontierItem:

@@ -91,8 +91,8 @@ def select_surface_discovery_opportunities(
     ordered = sorted(
         opportunities,
         key=lambda item: (
-            _goal_rank(item.goal_kind),
             item.budget_class,
+            _goal_rank(item.goal_kind),
             0 if item.identity_id == "ANONYMOUS" else 1,
             item.structural_identity,
             item.opportunity_id,
