@@ -186,7 +186,7 @@ class SurfaceDiscoveryRunner:
             uow.commit()
         assert record is not None
         live_page = self._live_pages.get(
-            (research_run_id, record.candidate_origin, record.candidate_path)
+            (research_run_id, record.candidate_origin.rstrip("/"), record.candidate_path or "/")
         )
         try:
             plan = compile_frontier_plan(
@@ -424,6 +424,9 @@ class SurfaceDiscoveryRunner:
             if parsed.port:
                 origin = f"{origin}:{parsed.port}"
             path = parsed.path or "/"
+        origin = origin.rstrip("/")
+        if not path.startswith("/"):
+            path = "/" + path
         fingerprint = payload.get("snapshot_fingerprint")
         context_ref = payload.get("browser_context_reference")
         page_ref = payload.get("page_reference")
@@ -446,7 +449,7 @@ class SurfaceDiscoveryRunner:
                     input_type=str(item.get("input_type") or ""),
                 )
             )
-        self._live_pages[(research_run_id, origin, path)] = LivePageSnapshot(
+        self._live_pages[(research_run_id, origin, path or "/")] = LivePageSnapshot(
             snapshot_fingerprint=fingerprint,
             browser_context_reference=context_ref,
             page_reference=page_ref,

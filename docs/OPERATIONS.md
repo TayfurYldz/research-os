@@ -432,6 +432,7 @@ python -m unittest tests.e2e.test_gate16_state_transition_security
 python -m unittest tests.e2e.test_gate17_autonomous_research_selection
 python -m unittest tests.e2e.test_gate21_browser_page
 python -m unittest tests.e2e.test_gate21_linux_cgroup
+python -m unittest tests.e2e.test_gate22_surface_discovery
 ```
 
 ### Browser resource containment
@@ -494,18 +495,32 @@ GATE 21 does **not** claim:
 - production readiness
 - GATE 21 PASS
 
-Alembic head remains `a21_001_session_context`. No GATE 21 migration.
+Alembic head after GATE 21 remained `a21_001_session_context`. GATE 22 appended `a22_001_discovery_surface`. GATE 21 added no migration.
 
 If Chromium is unavailable, implementation may exist, but `GATE21_IMPLEMENTATION_READY_FOR_KALI` is FAIL. A skipped real-browser suite is not PASS.
 
 Kernel memory and process enforcement is implemented on both supported hosts, and both bound the aggregate browser process tree. Linux cgroup enforcement is proved by `tests.e2e.test_gate21_linux_cgroup`, which must run on the authoritative Kali host; the Windows Job Object limits are proved by reading them back from the kernel in `tests.unit.platform_runtime.test_browser_resource_control`.
+
+## GATE 22 — autonomous recon + attack surface graph
+
+**GATE 22 status: PENDING.** Formal PASS requires later Kali + real PostgreSQL + real Chromium validation. Local Windows unit tests are not a formal PASS.
+
+Strategy: `surface.discovery.v1`. Existing `exploration.diagnostic.echo.v1` is unchanged. AttackSurfaceGraph is a rebuildable Research projection with no node/edge SoR tables.
+
+Durable tables live in `a22_001_discovery_surface`: discovery_run_config, control_event, discovery_fact, discovery_fact_source, discovery_inference, discovery_inference_source, frontier_item, frontier_source, frontier_event, discovery_projection_receipt.
+
+G22 does not add shell, scanners, browser.evaluate, CDP, HAR, screenshots, wildcard scope, DNS widening, Neo4j, or NetworkX. G19 additive: none. G21 production capability/fingerprint is unchanged.
+
+Hidden lab truth lives only in tests. ResearchContext must not receive route maps, vulnerability labels, or benchmark canaries.
+
+Do not set `LIVE_MODEL_VALIDATED`, `SECURITY_RESEARCH_VALIDATED`, or `PRODUCTION_READY`. GATE 04B remains PENDING. GATE 23 is not authorized.
 
 ## Maturity
 
 - ARCHITECTURE_VALIDATED: architecture package complete
 - DIAGNOSTIC_E2E_VALIDATED: yes after Gate 12/13 PASS on real PostgreSQL, process crash/restart, and clean install. Not live-model validation.
 - LIVE_MODEL_VALIDATED: no while GATE 04B is PENDING
-- SECURITY_RESEARCH_VALIDATED: no; GATE 14/15/16/17/18/19/20 PASS cover controlled local pipeline, ground-truth, cross-class, adaptive research-selection, capability/risk/scope substrate, bounded authorized HTTP transaction, and identity/session isolation validation, not broad or real-world security-research validation
+- SECURITY_RESEARCH_VALIDATED: no; GATE 14/15/16/17/18/19/20 PASS cover controlled local pipeline, ground-truth, cross-class, adaptive research-selection, capability/risk/scope substrate, bounded authorized HTTP transaction, and identity/session isolation validation, not broad or real-world security-research validation. GATE 22 local implementation is not security-research validation.
 - PRODUCTION_READY: no until operational and live-research gates that have not passed actually pass
 - GATE 14: PASS (2026-08-17, Kali, dedicated PostgreSQL, 19 E2E OK / 0 skipped)
 - GATE 15: PASS (2026-08-17, Kali, dedicated PostgreSQL, GATE14 regression 19 OK / 0 skipped, GATE15 21 OK / 0 skipped)

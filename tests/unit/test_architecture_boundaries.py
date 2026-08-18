@@ -148,6 +148,35 @@ class ArchitectureBoundaryTests(unittest.TestCase):
             [],
         )
 
+    def test_application_discovery_does_not_import_playwright(self) -> None:
+        self.assertEqual(
+            _violations(
+                APPLICATION_DIR / "discovery",
+                forbidden_roots=("playwright", "neo4j", "networkx"),
+            ),
+            [],
+        )
+
+    def test_data_does_not_import_research_or_discovery_decisions(self) -> None:
+        found: list[str] = []
+        data_dir = SRC_ROOT / "data"
+        needles = (
+            "select_surface_discovery_opportunities",
+            "admit_route_template_inferences",
+            "rebuild_attack_surface_graph",
+            "select_eligible_frontier",
+        )
+        for path in data_dir.rglob("*.py"):
+            text = path.read_text(encoding="utf-8")
+            tree = ast.parse(text, filename=str(path))
+            for name in _imported_modules(tree):
+                if name == "research_os.research" or name.startswith("research_os.research."):
+                    found.append(f"{path.relative_to(REPO_ROOT)} imports {name}")
+            for needle in needles:
+                if needle in text:
+                    found.append(f"{path.relative_to(REPO_ROOT)} references {needle}")
+        self.assertEqual(found, [])
+
     def test_benchmark_does_not_import_sor_providers_or_workers(self) -> None:
         self.assertEqual(
             _violations(
