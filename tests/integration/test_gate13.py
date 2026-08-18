@@ -423,11 +423,12 @@ class Gate13OperationalReadinessTests(unittest.TestCase):
             self.assertEqual(codex.readiness.stage.value, "NOT_INSTALLED")
         else:
             self.assertFalse(codex.readiness.benchmark_compatible)
-        with patch(
-            "research_os.integrations.strix.adapter.resolve_executable",
-            return_value=None,
-        ):
+        original_resolve = probe_strix_runtime.__globals__["resolve_executable"]
+        probe_strix_runtime.__globals__["resolve_executable"] = lambda _name: None
+        try:
             strix = probe_strix_runtime()
+        finally:
+            probe_strix_runtime.__globals__["resolve_executable"] = original_resolve
         self.assertFalse(strix["available"])
         self.assertFalse(strix["installed"])
         self.assertEqual(SUBSCRIPTION_OAUTH_STATUS, "NOT_IMPLEMENTED")

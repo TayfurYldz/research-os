@@ -10,3 +10,4 @@ build/
 *.log
 var/benchmark-results/
 var/security-benchmark-results/
+*:Zone.Identifier
