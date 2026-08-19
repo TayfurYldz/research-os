@@ -10,16 +10,17 @@ not prove autonomous vulnerability discovery, arbitrary external internet target
 live bug-bounty performance, platform sync to live HackerOne/Bugcrowd endpoints,
 OAST callbacks, program-policy actions beyond DENY, or production readiness.
 
-GATE 02 PENDING means the Sensor/Acquisition Plane (SD-G2) is implemented locally
-but formal PASS requires Kali + real PostgreSQL validation. This is the Attack
-Period sensor plane: passive/semi-passive external census (DNS, certificate
-transparency, archive, certificate metadata, technology fingerprint) that produces
-SensorObservation records marked UNTRUSTED_EXTERNAL. Sensors never write domain
-truth; observations become DiscoveryFact only after deterministic admission
-(forbidden-key rejection, scope provenance binding, capped at OBSERVED, admission
-receipt). SD-G2 is NOT the old infrastructure GATE 02 (Bounded Research Reasoning
-Cycle, a8_001_research_reasoning, closed 2026-08-16); those are separate eras and
-must never be confused. GATE 02 does not prove autonomous vulnerability discovery,
+GATE 02 PASS means the Sensor/Acquisition Plane (SD-G2) is sealed at e2bf18b +
+seal commit; independent architect audit: 977 unit+contract passed, boundary
+clean, admission per spec. This is the Attack Period sensor plane:
+passive/semi-passive external census (DNS, certificate transparency, archive,
+certificate metadata, technology fingerprint) that produces SensorObservation
+records marked UNTRUSTED_EXTERNAL. Sensors never write domain truth; observations
+become DiscoveryFact only after deterministic admission (forbidden-key rejection,
+scope provenance binding, capped at OBSERVED, admission receipt). SD-G2 is NOT the
+old infrastructure GATE 02 (Bounded Research Reasoning Cycle,
+a8_001_research_reasoning, closed 2026-08-16); those are separate eras and must
+never be confused. GATE 02 does not prove autonomous vulnerability discovery,
 active probing, live internet reconnaissance, bug-bounty performance, or production
 readiness.
 
@@ -95,7 +96,7 @@ SECURITY_RESEARCH_VALIDATED = False
 PRODUCTION_READY = False
 
 GATE_01_STATUS = "PASS"
-GATE_02_STATUS = "PENDING"
+GATE_02_STATUS = "PASS"
 GATE_12_STATUS = "PASS"
 GATE_13_STATUS = "PASS"
 GATE_14_STATUS = "PASS"
