@@ -110,11 +110,13 @@ never be confused. GATE 04 does not prove autonomous vulnerability discovery,
 active probing, live internet reconnaissance, bug-bounty performance, or
 production readiness.
 
-GATE 05 PENDING means the Attack Period HunterFamily Registry + First Hunt Cycle
-(SD-G5) is implemented locally; formal PASS requires Kali + real PostgreSQL
-validation. SD-G5 replaces the old hardcoded two-family claim-string matching
-with a data-driven `hunter_family` registry and runs the first hunt cycle:
-surface graph → family matching → deterministic hypothesis generation →
+GATE 05 PASS means the Attack Period HunterFamily Registry + First Hunt Cycle
+(SD-G5) is sealed at 310993d + seal commit; independent architect audit: 1038
+unit+contract passed; data-driven HunterFamily registry (5 seed families);
+V1/V2/V3 tiers enforced; V3 queue approval-gated; scope confinement via
+IN_SCOPE preconditions. SD-G5 replaces the old hardcoded two-family claim-string
+matching with a data-driven `hunter_family` registry and runs the first hunt
+cycle: surface graph → family matching → deterministic hypothesis generation →
 V1 (static) → V2 (passive evidence) → V3 (active experiment queue). The registry
 is append-only versioned data; LLM cannot write to it. Five seed families cover
 OBJECT_AUTHORIZATION, WORKFLOW_STATE_TRANSITION, EXPOSED_API_SPEC,
@@ -141,7 +143,7 @@ GATE_01_STATUS = "PASS"
 GATE_02_STATUS = "PASS"
 GATE_03_STATUS = "PASS"
 GATE_04_STATUS = "PASS"
-GATE_05_STATUS = "PENDING"
+GATE_05_STATUS = "PASS"
 GATE_12_STATUS = "PASS"
 GATE_13_STATUS = "PASS"
 GATE_14_STATUS = "PASS"

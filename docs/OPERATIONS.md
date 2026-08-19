@@ -859,10 +859,13 @@ If `RESEARCH_OS_TEST_DATABASE_URL` is unset, PostgreSQL-required suites must SKI
 
 ## GATE 05 — Attack Period (HunterFamily Registry + First Hunt Cycle)
 
-**GATE 05 status: PENDING.** Local implementation exists; formal PASS requires
-Kali + real PostgreSQL validation. This is the Attack Period HunterFamily
-Registry + First Hunt Cycle (SD-G5). It is **not** the old infrastructure
-GATE 05 (Learning Cycle); those are separate eras and must never be confused.
+**GATE 05 status: PASS.** Sealed at `310993d` + seal commit; independent
+architect audit: 1036 unit passed, 4 skipped (Windows Job Object kernel tests on
+Linux/Kali); zero deleted tests; C1 hardcoded-family lock broken; scope
+confinement active on all 5 seed families via IN_SCOPE preconditions; V3 queue
+approval-gated. This is the Attack Period HunterFamily Registry + First Hunt
+Cycle (SD-G5). It is **not** the old infrastructure GATE 05 (Learning Cycle);
+those are separate eras and must never be confused.
 
 Implementation scope:
 
@@ -891,7 +894,7 @@ Implementation scope:
 - `research_os.application.sensor.admit`: TECH facts now carry a `technology`
   attribute from the sensor payload so the `TECH_KNOWN_CVE_SURFACE` claim
   template can render deterministically.
-- `maturity.py`: `GATE_05_STATUS = "PENDING"` until authoritative validation.
+- `maturity.py`: `GATE_05_STATUS = "PASS"` sealed by architect audit.
 
 Formal claim (upon PASS):
 
@@ -942,7 +945,7 @@ If `RESEARCH_OS_TEST_DATABASE_URL` is unset, PostgreSQL-required suites must SKI
 - GATE 02: PASS (Sensor/Acquisition Plane sealed at e2bf18b; independent architect audit: 977 unit+contract passed, boundary clean, admission per spec; not the old infrastructure GATE 02 reasoning cycle)
 - GATE 03: PASS (Attack Period SurfaceGraph v2 sealed at 05ce3c0 + f74677d; independent architect audit: 991 unit+contract passed; not the old infrastructure GATE 03 learning cycle)
 - GATE 04: PENDING (Attack Period Token Economy Policy implemented locally; formal PASS requires Kali + real PostgreSQL validation; not the old infrastructure GATE 04/04B benchmark policy)
-- GATE 05: PENDING (Attack Period HunterFamily Registry + First Hunt Cycle implemented locally; formal PASS requires Kali + real PostgreSQL validation; not the old infrastructure GATE 05 learning cycle)
+- GATE 05: PASS (2026-08-19, sealed at 310993d + seal commit; independent architect audit: 1036 unit passed / 4 skipped; data-driven HunterFamily registry with 5 seed families; V1/V2/V3 tiers enforced; V3 queue approval-gated; not the old infrastructure GATE 05 learning cycle)
 - GATE 14: PASS (2026-08-17, Kali, dedicated PostgreSQL, 19 E2E OK / 0 skipped)
 - GATE 15: PASS (2026-08-17, Kali, dedicated PostgreSQL, GATE14 regression 19 OK / 0 skipped, GATE15 21 OK / 0 skipped)
 - GATE 16: PASS (2026-08-17, Kali, dedicated PostgreSQL, GATE14 19 OK / 0 skipped, GATE15 21 OK / 0 skipped, GATE16 34 OK / 0 skipped)
