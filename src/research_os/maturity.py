@@ -141,7 +141,27 @@ separate eras and must never be confused. GATE 06 does not prove live OAST
 infrastructure, autonomous exploitation execution, live internet reconnaissance,
 bug-bounty performance, or production readiness.
 
-GATE 08 PENDING means the Attack Period Coverage Debt matrix (SD-G8) is under
+GATE 08 PASS means the Attack Period Coverage Debt matrix (SD-G8) is sealed at
+ec5e4df + seal commit; independent architect audit: 1111 unit+contract passed;
+deterministic coverage debt matrix (Asset x Identity x Family); IN_SCOPE-only
+debt; identity-agnostic hypothesis semantics sealed; snapshot append-only. SD-G8
+computes a deterministic, LLM-free (node x identity x HunterFamily) coverage-debt
+matrix from the AttackSurfaceGraph v2, the HunterFamily registry, and the
+hypothesis/audit ledger. Only IN_SCOPE nodes produce debt cells;
+UNKNOWN/OUT_OF_SCOPE nodes are marked NOT_APPLICABLE and do not enter the debt
+count. Identity-agnostic hypotheses (the SD-G8 boundary, because HypothesisRecord
+does not carry identity) are spread to all identity cells of the matching
+(node, family) pair; per-identity binding is scheduled for SD-G9. The matrix
+computes a SHA-256 hash over a canonical, sorted cell list so that identical
+inputs always yield identical hashes. A durable but rebuildable summary is
+persisted in coverage_debt_snapshot (matrix_hash + cell_counts + total_debt);
+the full matrix remains reconstructible from the ledger. SD-G8 is NOT the old
+infrastructure GATE 08 (Invariant Chain benchmark, a14_001_invariant_chain,
+closed 2026-08-16); those are separate eras and must never be confused. GATE 08
+does not prove autonomous vulnerability discovery, active probing execution,
+live internet reconnaissance, bug-bounty performance, or production readiness.
+
+GATE 07 PASS means the Attack Period ImpactGraph (SD-G7) is sealed at
 construction. SD-G8 builds a deterministic, LLM-free (node × identity ×
 HunterFamily) coverage-debt matrix from the AttackSurfaceGraph v2, the
 HunterFamily registry, and the hypothesis/audit ledger. Only IN_SCOPE nodes
@@ -197,7 +217,7 @@ GATE_04_STATUS = "PASS"
 GATE_05_STATUS = "PASS"
 GATE_06_STATUS = "PASS"
 GATE_07_STATUS = "PASS"
-GATE_08_STATUS = "PENDING"
+GATE_08_STATUS = "PASS"
 GATE_12_STATUS = "PASS"
 GATE_13_STATUS = "PASS"
 GATE_14_STATUS = "PASS"
