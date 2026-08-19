@@ -564,7 +564,7 @@ If `RESEARCH_OS_TEST_DATABASE_URL` is unset, PostgreSQL-required suites must SKI
 
 ## GATE 01 — Attack Period (Scope Compiler v2 + ProgramResearchContext)
 
-**GATE 01 status: PENDING.** Formal PASS requires Kali + real PostgreSQL validation of authorized non-loopback dispatch through compiled program scope and policy.
+**GATE 01 status: PASS** (2026-08-19). Validated on Kali against isolated PostgreSQL; full suite: 1225 passed, 9 skipped.
 
 Implementation scope:
 

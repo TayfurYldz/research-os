@@ -2,11 +2,13 @@
 
 ARCHITECTURE_VALIDATED means Decisions 001–050 and GATE 01–13 architecture exist.
 
-GATE 01 is the Attack Period gate. It gates the transition from defensive scaffolding
-to authorized offensive-scope compilation and dispatch. PASS means ProgramResearchContext,
-scope compiler v2, program policy-derived loopback fixture, and envelope Worker enforcement
-are validated on real PostgreSQL. It does not mean arbitrary external targeting,
-unrestricted tooling, or autonomous vulnerability discovery.
+GATE 01 PASS means Research OS can compile authorized program scope and policy into a
+fail-closed dispatch envelope that differentiates loopback fixtures from real IN_SCOPE
+targets, while keeping UNKNOWN targets observable-but-not-probed. It was validated on
+Kali against dedicated PostgreSQL with the full suite (1225 passed, 9 skipped). It does
+not prove autonomous vulnerability discovery, arbitrary external internet targeting,
+live bug-bounty performance, platform sync to live HackerOne/Bugcrowd endpoints,
+OAST callbacks, program-policy actions beyond DENY, or production readiness.
 
 GATE 14 PASS means the controlled authorized local HTTP authorization-differential
 pipeline E2E ran on Kali against dedicated PostgreSQL. It does not mean live models,
@@ -79,7 +81,7 @@ LIVE_MODEL_VALIDATED = False
 SECURITY_RESEARCH_VALIDATED = False
 PRODUCTION_READY = False
 
-GATE_01_STATUS = "PENDING"
+GATE_01_STATUS = "PASS"
 GATE_12_STATUS = "PASS"
 GATE_13_STATUS = "PASS"
 GATE_14_STATUS = "PASS"
