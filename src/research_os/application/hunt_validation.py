@@ -126,7 +126,8 @@ class ValidateHuntTiers:
             v3_queued = False
             queue_id: str | None = None
             if command.family.validation_tier == "V3":
-                queue_id = self._enqueue_v3(uow, command, node, now)
+                identity_id = hypothesis.identity_id
+                queue_id = self._enqueue_v3(uow, command, node, identity_id, now)
                 v3_queued = True
                 uow.audit_events.insert(
                     _tier_audit(
@@ -187,6 +188,7 @@ class ValidateHuntTiers:
         uow: UnitOfWork,
         command: ValidateHuntTiersCommand,
         node,
+        identity_id: str | None,
         now,
     ) -> str:
         # G5 mühür notu: V3 aktif deney kuyruğu yalnızca IN_SCOPE node'lara açık.
@@ -205,7 +207,9 @@ class ValidateHuntTiers:
                 f"V3 capability {capability} has no mapped action"
             )
         queue_id = new_opaque_id()
-        claim = claim_from_template(node, command.family)
+        claim = claim_from_template(
+            node, command.family, extra_context={"identity_id": identity_id or "ANONYMOUS"}
+        )
         uow.hunt_v3_queue.insert(
             HuntV3QueueRecord(
                 queue_id=queue_id,
@@ -213,12 +217,14 @@ class ValidateHuntTiers:
                 hypothesis_id=command.hypothesis_id,
                 family_id=command.family.family_id,
                 node_canonical_key=node.canonical_key,
+                identity_id=identity_id,
                 capability=capability,
                 action=action,
                 arguments={
                     "claim": claim,
                     "node_id": node.node_id,
                     "family_name": command.family.name,
+                    "identity_id": identity_id or "ANONYMOUS",
                 },
                 side_effect_level=_side_effect_for_family(command.family.name),
                 state="PENDING",

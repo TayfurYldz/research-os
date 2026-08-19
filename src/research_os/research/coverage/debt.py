@@ -78,9 +78,11 @@ def compute_coverage_debt(
     emitted as single NOT_APPLICABLE cells per (node, family) pair so they
     remain visible without entering the debt count.
 
-    Identity-agnostic hypotheses (identity_id is None) are spread across all
-    identity cells of the matching (node, family) pair. This is the SD-G8
-    boundary; per-identity binding is scheduled for SD-G9.
+    Identity binding (SD-G9):
+    - Hypotheses with identity_id == None are legacy/agnostic: they are spread
+      across all identity cells of the matching (node, family) pair.
+    - Hypotheses with a non-None identity_id (including "ANONYMOUS") affect
+      only their own (node, family, identity) cell.
     """
 
     if not isinstance(graph, AttackSurfaceGraph):

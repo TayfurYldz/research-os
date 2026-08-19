@@ -198,6 +198,42 @@ class CoverageDebtCoreTests(unittest.TestCase):
         self.assertEqual(matrix.total_debt, 0)
         self.assertEqual(matrix.cell_counts[CoverageState.COVERED.value], 1)
 
+    def test_identity_aware_hypothesis_affects_only_its_cell(self) -> None:
+        """SD-G9: non-None identity_id is bound to a single cell."""
+        node = _node("n1", identity_ids=("alice", "bob"))
+        family = _family("f1", ("EXACT_PATH",))
+        graph = AttackSurfaceGraph("run-1", "v1", (node,), ())
+        view = CoverageHypothesisView(
+            hypothesis_id="h1",
+            family_id="f1",
+            node_canonical_key="n1",
+            identity_id="alice",
+            highest_tier="V2",
+        )
+        matrix = compute_coverage_debt(graph, (family,), (view,))
+        states = {cell.identity_id: cell.state for cell in matrix.cells}
+        self.assertEqual(states["alice"], CoverageState.V2_PASSED)
+        self.assertEqual(states["bob"], CoverageState.UNTESTED)
+        self.assertEqual(matrix.total_debt, 2)
+
+    def test_null_identity_hypothesis_spreads_to_all_identities(self) -> None:
+        """Legacy/agnostic identity_id=None still spreads (G8 compatibility)."""
+        node = _node("n1", identity_ids=("alice", "bob"))
+        family = _family("f1", ("EXACT_PATH",))
+        graph = AttackSurfaceGraph("run-1", "v1", (node,), ())
+        view = CoverageHypothesisView(
+            hypothesis_id="h1",
+            family_id="f1",
+            node_canonical_key="n1",
+            identity_id=None,
+            highest_tier="V1",
+        )
+        matrix = compute_coverage_debt(graph, (family,), (view,))
+        states = {cell.identity_id: cell.state for cell in matrix.cells}
+        self.assertEqual(states["alice"], CoverageState.V1_PASSED)
+        self.assertEqual(states["bob"], CoverageState.V1_PASSED)
+        self.assertEqual(matrix.total_debt, 2)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -8,6 +8,8 @@ from datetime import datetime, timezone
 import pathsetup  # noqa: F401
 
 from research_os.application.generate_hunt_hypotheses import (
+    IDENTITY_EXPANSION_CAPPED,
+    MAX_IDENTITIES_PER_NODE,
     GenerateHuntHypotheses,
     GenerateHuntHypothesesCommand,
 )
@@ -18,8 +20,10 @@ from research_os.application.hunt_validation import (
 from research_os.application.run_hunt_cycle import RunHuntCycle, RunHuntCycleCommand
 from research_os.core.enums import ScopeClassification
 from research_os.data.records import HunterFamilyRecord, HuntV3QueueRecord
+from research_os.research.coverage.types import CoverageCell, CoverageState
 from research_os.research.discovery.graph import AttackSurfaceEdge, AttackSurfaceGraph, AttackSurfaceNode
 from research_os.research.discovery.types import AttackSurfaceEdgeKind, AttackSurfaceNodeKind
+from research_os.research.scheduler.types import HunterScore, ScoredCell
 from research_os.research.selection import HunterFamilyView
 from research_os.research.target_model import TargetEpistemicStatus
 from support.fake_unit_of_work import FakeUnitOfWorkFactory, _Store
@@ -33,6 +37,7 @@ def _node(
     canonical_key: str,
     scope_classification: ScopeClassification = ScopeClassification.IN_SCOPE,
     epistemic_status: TargetEpistemicStatus = TargetEpistemicStatus.UNTRUSTED_EXTERNAL,
+    identity_ids: tuple[str, ...] = (),
     attributes: dict | None = None,
 ) -> AttackSurfaceNode:
     return AttackSurfaceNode(
@@ -40,7 +45,7 @@ def _node(
         kind=kind,
         canonical_key=canonical_key,
         epistemic_status=epistemic_status,
-        identity_ids=(),
+        identity_ids=identity_ids,
         provenance_refs=("sensor_observation:so-1",),
         scope_classification=scope_classification,
         attributes=attributes,
@@ -204,6 +209,25 @@ def _family_object_authz_no_scope_precondition() -> HunterFamilyView:
     )
 
 
+def _family_object_authz_identity() -> HunterFamilyView:
+    """OBJECT_AUTHORIZATION family with identity placeholder (SD-G9)."""
+    return HunterFamilyView(
+        family_id="hf-object-authz-id",
+        name="OBJECT_AUTHORIZATION",
+        target_node_kinds=("HTTP_OPERATION",),
+        preconditions={"scope_classification": "IN_SCOPE"},
+        claim_template=(
+            "Object authorization boundary on {origin}{path} "
+            "may allow cross-owner access to {resource_id} "
+            "for identity {identity_id}."
+        ),
+        evidence_requirements={},
+        validation_tier="V3",
+        enabled=True,
+        version=1,
+    )
+
+
 class GenerateHuntHypothesesTests(unittest.TestCase):
     def test_generates_hypotheses_for_matching_nodes(self) -> None:
         store = _Store()
@@ -275,6 +299,88 @@ class GenerateHuntHypothesesTests(unittest.TestCase):
         )
 
         self.assertEqual(result.generated_count, 1)
+
+    def test_generates_per_identity_hypotheses(self) -> None:
+        node = _node(
+            node_id="op-1",
+            kind=AttackSurfaceNodeKind.HTTP_OPERATION,
+            canonical_key="origin:http://example.com|path:/api/users|method:GET",
+            identity_ids=("alice", "bob"),
+            attributes={
+                "origin": "http://example.com",
+                "path": "/api/users",
+                "method": "GET",
+                "resource_id": "users",
+            },
+        )
+        graph = AttackSurfaceGraph(
+            research_run_id="run-1",
+            strategy_version="surface.discovery.v1",
+            nodes=(node,),
+            edges=(),
+        )
+        store = _Store()
+        seed_authorization_run(store)
+        factory = FakeUnitOfWorkFactory(store)
+        use_case = GenerateHuntHypotheses(factory)
+
+        result = use_case.execute(
+            GenerateHuntHypothesesCommand(
+                research_run_id="run-1",
+                graph=graph,
+                registry=(_family_object_authz_identity(),),
+            )
+        )
+
+        self.assertEqual(result.generated_count, 2)
+        identities = {source[3] for source in result.hypothesis_sources}
+        self.assertEqual(identities, {"alice", "bob"})
+        for hypothesis in store.hypotheses.values():
+            self.assertIn(hypothesis.identity_id, {"alice", "bob"})
+            self.assertIn(hypothesis.identity_id, hypothesis.claim)
+
+    def test_identity_expansion_capped_at_max_per_node(self) -> None:
+        identities = tuple(f"id-{i}" for i in range(MAX_IDENTITIES_PER_NODE + 3))
+        node = _node(
+            node_id="op-1",
+            kind=AttackSurfaceNodeKind.HTTP_OPERATION,
+            canonical_key="origin:http://example.com|path:/api/users|method:GET",
+            identity_ids=identities,
+            attributes={
+                "origin": "http://example.com",
+                "path": "/api/users",
+                "method": "GET",
+                "resource_id": "users",
+            },
+        )
+        graph = AttackSurfaceGraph(
+            research_run_id="run-1",
+            strategy_version="surface.discovery.v1",
+            nodes=(node,),
+            edges=(),
+        )
+        store = _Store()
+        seed_authorization_run(store)
+        factory = FakeUnitOfWorkFactory(store)
+        use_case = GenerateHuntHypotheses(factory)
+
+        result = use_case.execute(
+            GenerateHuntHypothesesCommand(
+                research_run_id="run-1",
+                graph=graph,
+                registry=(_family_object_authz_identity(),),
+            )
+        )
+
+        self.assertEqual(result.generated_count, MAX_IDENTITIES_PER_NODE)
+        capping_events = [
+            event for event in store.audit_events.values()
+            if event.event_type == IDENTITY_EXPANSION_CAPPED
+        ]
+        self.assertEqual(len(capping_events), 1)
+        payload = capping_events[0].payload
+        self.assertEqual(payload["total_identities"], len(identities))
+        self.assertEqual(payload["max_identities"], MAX_IDENTITIES_PER_NODE)
 
 
 class ValidateHuntTiersTests(unittest.TestCase):
@@ -543,3 +649,87 @@ class RunHuntCycleTests(unittest.TestCase):
         self.assertEqual(result.v1_passed, 1)
         self.assertEqual(result.v2_passed, 1)
         self.assertEqual(result.v3_queued, 0)
+
+    def test_cycle_consumes_scheduler_recommendation(self) -> None:
+        store = _Store()
+        seed_authorization_run(store)
+        factory = FakeUnitOfWorkFactory(store)
+        use_case = RunHuntCycle(factory)
+        graph = _v3_graph()
+        registry = (_family_object_authz_identity(),)
+        cell = CoverageCell(
+            node_canonical_key="origin:http://example.com|path:/api/users|method:GET",
+            identity_id="alice",
+            family_id="hf-object-authz-id",
+            state=CoverageState.UNTESTED,
+            missing_evidence=("NO_HYPOTHESIS",),
+        )
+        scored = ScoredCell(
+            cell=cell,
+            score=HunterScore(
+                cell=cell,
+                total_score=55,
+                state_weight=50,
+                family_success_bonus=0,
+                freshness_bonus=0,
+                budget_suitability_bonus=5,
+                explanation=("test",),
+            ),
+        )
+
+        result = use_case.execute(
+            RunHuntCycleCommand(
+                research_run_id="run-1",
+                graph=graph,
+                registry=registry,
+                schedule=(scored,),
+            )
+        )
+
+        self.assertEqual(result.generated, 1)
+        self.assertEqual(result.v1_passed, 1)
+        self.assertEqual(result.v2_passed, 1)
+        self.assertEqual(result.v3_queued, 1)
+        self.assertFalse(result.no_op)
+        hypothesis = next(iter(store.hypotheses.values()))
+        self.assertEqual(hypothesis.identity_id, "alice")
+        self.assertIn("alice", hypothesis.claim)
+
+    def test_cycle_schedule_skips_covered_cells(self) -> None:
+        store = _Store()
+        seed_authorization_run(store)
+        factory = FakeUnitOfWorkFactory(store)
+        use_case = RunHuntCycle(factory)
+        graph = _v3_graph()
+        registry = (_family_object_authz_identity(),)
+        covered = CoverageCell(
+            node_canonical_key="origin:http://example.com|path:/api/users|method:GET",
+            identity_id="alice",
+            family_id="hf-object-authz-id",
+            state=CoverageState.COVERED,
+            missing_evidence=(),
+        )
+        scored = ScoredCell(
+            cell=covered,
+            score=HunterScore(
+                cell=covered,
+                total_score=0,
+                state_weight=0,
+                family_success_bonus=0,
+                freshness_bonus=0,
+                budget_suitability_bonus=0,
+                explanation=("test",),
+            ),
+        )
+
+        result = use_case.execute(
+            RunHuntCycleCommand(
+                research_run_id="run-1",
+                graph=graph,
+                registry=registry,
+                schedule=(scored,),
+            )
+        )
+
+        self.assertTrue(result.no_op)
+        self.assertEqual(result.generated, 0)

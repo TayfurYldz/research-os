@@ -579,6 +579,7 @@ class HypothesisRecord:
     claim: str
     created_at: datetime
     origin_reference: str | None = None
+    identity_id: str | None = None
 
     def __post_init__(self) -> None:
         require_opaque_id(self.hypothesis_id, "hypothesis_id")
@@ -588,6 +589,8 @@ class HypothesisRecord:
             raise PersistenceInputError("claim must be a non-empty string")
         if self.origin_reference is not None:
             require_opaque_id(self.origin_reference, "origin_reference")
+        if self.identity_id is not None:
+            require_opaque_id(self.identity_id, "identity_id")
 
 
 @dataclass(frozen=True)
@@ -2617,6 +2620,7 @@ class HuntV3QueueRecord:
     hypothesis_id: str
     family_id: str
     node_canonical_key: str
+    identity_id: str | None
     capability: str
     action: str
     arguments: Mapping[str, Any]
@@ -2631,6 +2635,8 @@ class HuntV3QueueRecord:
         require_opaque_id(self.family_id, "family_id")
         if not isinstance(self.node_canonical_key, str) or not self.node_canonical_key.strip():
             raise PersistenceInputError("node_canonical_key must be a non-empty string")
+        if self.identity_id is not None:
+            require_opaque_id(self.identity_id, "identity_id")
         if not isinstance(self.capability, str) or not self.capability.strip():
             raise PersistenceInputError("capability must be a non-empty string")
         if not isinstance(self.action, str) or not self.action.strip():

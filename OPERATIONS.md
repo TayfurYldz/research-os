@@ -57,6 +57,66 @@ operator where the hunt is incomplete:
   the gate.
 - Full suite commands are the same as SD-G7.
 
+## SD-G9 — HunterScore Scheduler + Identity Binding
+
+### Scope
+
+SD-G9 closes the SD-G8 identity-agnostic boundary and adds a deterministic
+priority queue so the operator can see what the system would hunt next:
+
+- **Identity binding**: `HypothesisRecord` and `HuntV3QueueRecord` now carry an
+  `identity_id` column (nullable for legacy rows). `GenerateHuntHypotheses`
+  produces one hypothesis per `(node, identity, family)` tuple. Nodes without
+  explicit identities use `ANONYMOUS`.
+- **Identity expansion cap**: per node, expansion is capped at
+  `MAX_IDENTITIES_PER_NODE = 8` to prevent combinatorial noise. When the cap is
+  hit, an `IDENTITY_EXPANSION_CAPPED` audit event is written and the remaining
+  identities stay `UNTESTED` for future cycles.
+- **HunterScore core** (`research_os.research.scheduler`): deterministic score
+  for every debt cell. Score components:
+  - `state_weight`: `UNTESTED > HYPOTHESIZED > V1_PASSED > V2_PASSED > V3_QUEUED > COVERED`.
+  - `family_success_bonus`: `10 * (supported_count - falsified_count)` per family
+    from the latest hypothesis assessment in the ledger.
+  - `freshness_bonus`: newer nodes (earlier `sensor_observation.collected_at`)
+    score higher, capped at 24 hours.
+  - `budget_suitability_bonus`: when the daily LLM budget is exhausted,
+    V3-bound cells (`V2_PASSED`, `V3_QUEUED`) are penalized and cheap-path cells
+    receive a small bonus.
+- **Explainability**: every `HunterScore` carries a component breakdown
+  (`explanation` tuple) so the ranking is never a black box.
+- **Scheduler use case**: `RunHuntScheduler` rebuilds the coverage-debt matrix,
+  scores all debt cells, selects the top N, and writes a
+  `HUNT_SCHEDULE_RECOMMENDED` audit event. It does not write to the V3 queue.
+- **Cycle intake**: `RunHuntCycle` can optionally consume a schedule; the V1/V2/V3
+  tier gates and the `IN_SCOPE` V3 enqueue lock remain unchanged.
+
+### Determinism Guarantees
+
+- Same graph + registry + ledger + budget view + reference time always yields the
+  same ranked list.
+- Tie-break is deterministic: descending score, then ascending
+  `(node_canonical_key, identity_id, family_id)`.
+
+### Operator Visibility
+
+- `RunHuntScheduler` writes `HUNT_SCHEDULE_RECOMMENDED` events with
+  `matrix_hash`, `recommended_count`, and the top cells with their scores and
+  state.
+- The schedule can be consumed by `RunHuntCycle` for automated execution or kept
+  as a recommendation only.
+
+### Runbook
+
+- `GATE_09_STATUS` stays `PENDING` until the independent architect audit seals
+  the gate.
+- Full suite commands are the same as SD-G8:
+  ```bash
+  source .venv/bin/activate
+  python -m pytest tests/unit tests/contract -q
+  python -m pytest tests/integration -q
+  python -m pytest tests/e2e -q
+  ```
+
 ## SD-G7 — ImpactGraph
 
 ### Scope

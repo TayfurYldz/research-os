@@ -19,6 +19,7 @@ from research_os.application.hunt_validation import (
 from research_os.application.ports import Clock, SystemClock, UnitOfWorkFactory
 from research_os.data.records import HunterFamilyRecord
 from research_os.research.discovery.graph import AttackSurfaceGraph
+from research_os.research.scheduler.types import ScoredCell
 from research_os.research.selection import HunterFamilyView
 
 
@@ -27,6 +28,10 @@ class RunHuntCycleCommand:
     research_run_id: str
     graph: AttackSurfaceGraph
     registry: tuple[HunterFamilyView, ...] | None = None
+    # Optional ranked schedule from RunHuntScheduler. When supplied, the cycle
+    # generates hypotheses only for the scheduled cells instead of scanning the
+    # full graph. The V3 approval gate remains unchanged.
+    schedule: tuple[ScoredCell, ...] | None = None
 
 
 @dataclass(frozen=True)
@@ -61,6 +66,7 @@ class RunHuntCycle:
                 research_run_id=command.research_run_id,
                 graph=command.graph,
                 registry=registry,
+                schedule=command.schedule,
             )
         )
 
@@ -69,7 +75,7 @@ class RunHuntCycle:
         v3_count = 0
         queue_ids: list[str] = []
 
-        for hypothesis_id, node_id, family_id in generated.hypothesis_sources:
+        for hypothesis_id, node_id, family_id, _identity_id in generated.hypothesis_sources:
             family = next((item for item in registry if item.family_id == family_id), None)
             node = next((item for item in command.graph.nodes if item.node_id == node_id), None)
             if family is None or node is None:

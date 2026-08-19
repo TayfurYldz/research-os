@@ -513,6 +513,7 @@ class PostgresHypothesisRepository:
                 research_run_id=record.research_run_id,
                 claim=record.claim,
                 origin_reference=record.origin_reference,
+                identity_id=record.identity_id,
                 created_at=record.created_at,
             ),
         )
@@ -2408,6 +2409,7 @@ class PostgresHuntV3QueueRepository:
                 hypothesis_id=record.hypothesis_id,
                 family_id=record.family_id,
                 node_canonical_key=record.node_canonical_key,
+                identity_id=record.identity_id,
                 capability=record.capability,
                 action=record.action,
                 arguments=dict(record.arguments),

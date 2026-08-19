@@ -210,13 +210,22 @@ def _node_has_edge_kind(
     return False
 
 
-def claim_from_template(node: "AttackSurfaceNode", family: HunterFamilyView) -> str:
+def claim_from_template(
+    node: "AttackSurfaceNode",
+    family: HunterFamilyView,
+    *,
+    extra_context: Mapping[str, str] | None = None,
+) -> str:
     """Deterministic claim from family template and node attributes.
 
     Claim text intentionally contains no severity/confidence/finding language.
+    Optional extra_context allows callers (e.g., SD-G9 identity binding) to
+    inject additional template placeholders without mutating the node.
     """
     attributes = dict(node.attributes or {})
     attributes["canonical_key"] = node.canonical_key
+    if extra_context is not None:
+        attributes.update(extra_context)
     try:
         return family.claim_template.format(**attributes)
     except KeyError as exc:

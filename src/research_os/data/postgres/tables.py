@@ -211,6 +211,7 @@ hypothesis = Table(
     Column("research_run_id", Text, ForeignKey("research_run.research_run_id"), nullable=False),
     Column("claim", Text, nullable=False),
     Column("origin_reference", Text, nullable=True),
+    Column("identity_id", Text, nullable=True),
     Column("created_at", DateTime(timezone=True), nullable=False),
     UniqueConstraint("hypothesis_id", "research_run_id", name="uq_hypothesis_id_run"),
 )
@@ -1520,6 +1521,7 @@ hunt_v3_queue = Table(
     Column("hypothesis_id", Text, nullable=False),
     Column("family_id", Text, nullable=False),
     Column("node_canonical_key", Text, nullable=False),
+    Column("identity_id", Text, nullable=True),
     Column("capability", Text, nullable=False),
     Column("action", Text, nullable=False),
     Column("arguments", JSONB, nullable=False),

@@ -209,6 +209,7 @@ def hypothesis_from_row(row: Mapping[str, Any]) -> HypothesisRecord:
         claim=data["claim"],
         created_at=data["created_at"],
         origin_reference=data.get("origin_reference"),
+        identity_id=data.get("identity_id"),
     )
 
 
@@ -1022,6 +1023,7 @@ def hunt_v3_queue_from_row(row: Mapping[str, Any]) -> HuntV3QueueRecord:
         hypothesis_id=data["hypothesis_id"],
         family_id=data["family_id"],
         node_canonical_key=data["node_canonical_key"],
+        identity_id=data.get("identity_id"),
         capability=data["capability"],
         action=data["action"],
         arguments=dict(data["arguments"] or {}),

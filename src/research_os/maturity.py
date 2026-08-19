@@ -161,24 +161,25 @@ closed 2026-08-16); those are separate eras and must never be confused. GATE 08
 does not prove autonomous vulnerability discovery, active probing execution,
 live internet reconnaissance, bug-bounty performance, or production readiness.
 
-GATE 07 PASS means the Attack Period ImpactGraph (SD-G7) is sealed at
-construction. SD-G8 builds a deterministic, LLM-free (node × identity ×
-HunterFamily) coverage-debt matrix from the AttackSurfaceGraph v2, the
-HunterFamily registry, and the hypothesis/audit ledger. Only IN_SCOPE nodes
-produce debt cells; UNKNOWN/OUT_OF_SCOPE nodes are marked NOT_APPLICABLE and do
-not enter the debt count. Identity-agnostic hypotheses (the SD-G8 boundary,
-because HypothesisRecord does not carry identity) are spread to all identity
-cells of the matching (node, family) pair; per-identity binding is scheduled for
-SD-G9. The matrix computes a SHA-256 hash over a canonical, sorted cell list so
-that identical inputs always yield identical hashes. A durable but rebuildable
-summary is persisted in coverage_debt_snapshot (matrix_hash + cell_counts +
-total_debt); the full matrix remains reconstructible from the ledger. The CLI
-exposes `research-os coverage --research-run-id <id>` for operator visibility.
-SD-G8 is NOT the old infrastructure GATE 08 (Invariant Chain benchmark,
-a14_001_invariant_chain, closed 2026-08-16); those are separate eras and must
-never be confused. GATE 08 does not prove autonomous vulnerability discovery,
-active probing execution, live internet reconnaissance, bug-bounty performance,
-or production readiness.
+GATE 09 PENDING means the Attack Period HunterScore Scheduler + Identity Binding
+(SD-G9) is under construction. SD-G9 closes the SD-G8 D7 boundary by adding
+identity_id to HypothesisRecord and HuntV3QueueRecord, so that each hypothesis
+is bound to a specific identity (or ANONYMOUS) rather than spreading
+identity-agnostic state across all identity cells. GenerateHuntHypotheses now
+expands node.identity_ids per family up to MAX_IDENTITIES_PER_NODE (8), emits
+an IDENTITY_EXPANSION_CAPPED audit event when the cap is hit, and renders the
+identity into the claim template. The RunHuntScheduler use case computes a
+deterministic, LLM-free HunterScore for every (node, identity, family) debt cell
+using state weight, family success history (supported/falsified counts from the
+append-only ledger), surface freshness (earliest sensor observation timestamp),
+and daily LLM budget suitability (cheap-path preference when budget is
+exhausted). It emits a HUNT_SCHEDULE_RECOMMENDED audit event with the ranked top
+N cells. RunHuntCycle can consume this schedule and still enforces the V1/V2/V3
+tier gates and the IN_SCOPE V3 enqueue lock. SD-G9 is NOT the old
+infrastructure GATE 09; those are separate eras and must never be confused.
+GATE 09 does not prove autonomous vulnerability discovery, active probing
+execution, live internet reconnaissance, bug-bounty performance, or production
+readiness.
 
 GATE 07 PASS means the Attack Period ImpactGraph (SD-G7) is sealed at a1d8e39 +
 seal commit; independent architect audit: 1100 unit+contract passed;
@@ -218,6 +219,7 @@ GATE_05_STATUS = "PASS"
 GATE_06_STATUS = "PASS"
 GATE_07_STATUS = "PASS"
 GATE_08_STATUS = "PASS"
+GATE_09_STATUS = "PENDING"
 GATE_12_STATUS = "PASS"
 GATE_13_STATUS = "PASS"
 GATE_14_STATUS = "PASS"
@@ -249,6 +251,7 @@ def maturity_mapping() -> dict[str, object]:
         "GATE_06": GATE_06_STATUS,
         "GATE_07": GATE_07_STATUS,
         "GATE_08": GATE_08_STATUS,
+        "GATE_09": GATE_09_STATUS,
         "GATE_12": GATE_12_STATUS,
         "GATE_13": GATE_13_STATUS,
         "GATE_14": GATE_14_STATUS,

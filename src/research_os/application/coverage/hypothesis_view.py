@@ -29,7 +29,13 @@ def build_coverage_hypothesis_view(
     uow: UnitOfWork,
     research_run_id: str,
 ) -> tuple[CoverageHypothesisView, ...]:
-    """Return identity-agnostic coverage hypothesis views for the run."""
+    """Return coverage hypothesis views for the run.
+
+    SD-G9: HypothesisRecord carries identity_id. If the record has an identity,
+    the view is bound to that identity cell. If the record is NULL (legacy or
+    ANONYMOUS without identity binding), the view is identity-agnostic and the
+    coverage core spreads it to all identity cells of the (node, family) pair.
+    """
 
     hypotheses = uow.hypotheses.list_for_research_run(research_run_id)
     if not hypotheses:
@@ -52,16 +58,19 @@ def build_coverage_hypothesis_view(
     for hypothesis in hypotheses:
         events = audit_by_hypothesis.get(hypothesis.hypothesis_id, [])
         tier = _highest_tier_from_events(events)
-        node_key, family_id = _node_and_family_from_events(events)
+        node_key, family_id, audit_identity_id = _node_family_identity_from_events(events)
         if node_key is None or family_id is None:
             # No audit metadata yet: still hypothesized but unbound to a cell.
             continue
+        # SD-G9 precedence: explicit HypothesisRecord identity wins over audit
+        # payload identity (which may be missing for older records).
+        identity_id = hypothesis.identity_id if hypothesis.identity_id is not None else audit_identity_id
         views.append(
             CoverageHypothesisView(
                 hypothesis_id=hypothesis.hypothesis_id,
                 family_id=family_id,
                 node_canonical_key=node_key,
-                identity_id=None,  # SD-G8 boundary: identity binding is SD-G9.
+                identity_id=identity_id,
                 highest_tier=tier,
             )
         )
@@ -80,13 +89,16 @@ def _highest_tier_from_events(events: list[AuditEventRecord]) -> str:
     return highest
 
 
-def _node_and_family_from_events(events: list[AuditEventRecord]) -> tuple[str | None, str | None]:
-    """Extract node canonical key and family id from the latest tier event."""
+def _node_family_identity_from_events(
+    events: list[AuditEventRecord],
+) -> tuple[str | None, str | None, str | None]:
+    """Extract node canonical key, family id, and identity id from the latest tier event."""
 
     for event in sorted(events, key=lambda item: item.occurred_at, reverse=True):
         payload = event.payload or {}
         node_key = payload.get("node_canonical_key")
         family_id = payload.get("family_id")
+        identity_id = payload.get("identity_id")
         if node_key and family_id:
-            return str(node_key), str(family_id)
-    return None, None
+            return str(node_key), str(family_id), str(identity_id) if identity_id else None
+    return None, None, None

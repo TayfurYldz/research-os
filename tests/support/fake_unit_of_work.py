@@ -54,6 +54,7 @@ from research_os.data.records import (
     ResearchRunRecord,
     ResearchSelectionRecord,
     ScopeRuleV2Record,
+    SensorObservationRecord,
     SnapshotMemberRecord,
     SnapshotRecord,
     TargetInferenceRecord,
@@ -94,6 +95,7 @@ class _Store:
         self.worker_results: dict[str, WorkerResultRecord] = {}
         self.worker_results_by_request: dict[str, str] = {}
         self.observations: dict[str, ObservationRecord] = {}
+        self.sensor_observations: dict[str, SensorObservationRecord] = {}
         self.research_reasoning: dict[str, ResearchReasoningRecord] = {}
         self.research_admissions: dict[str, ResearchAdmissionRecord] = {}
         self.experiment_plans: dict[str, ExperimentPlanRecord] = {}
@@ -532,6 +534,38 @@ class _ObservationRepo(_Repo):
                 if record.worker_result_id in result_ids
             ],
             key=lambda record: record.observation_id,
+        )
+
+
+class _SensorObservationRepo(_Repo):
+    def __init__(self, store: _Store, fail_on_insert: bool = False) -> None:
+        super().__init__(store.sensor_observations, fail_on_insert=fail_on_insert)
+        self._root = store
+
+    def list_for_research_run(self, research_run_id: str) -> list[SensorObservationRecord]:
+        return sorted(
+            [
+                record
+                for record in self._root.sensor_observations.values()
+                if record.research_run_id == research_run_id
+            ],
+            key=lambda record: record.observation_id,
+        )
+
+
+class _AuditEventRepo(_Repo):
+    def __init__(self, store: _Store, fail_on_insert: bool = False) -> None:
+        super().__init__(store.audit_events, fail_on_insert=fail_on_insert)
+        self._root = store
+
+    def list_for_subject_type(self, subject_type: str) -> list[AuditEventRecord]:
+        return sorted(
+            [
+                record
+                for record in self._root.audit_events.values()
+                if record.subject_type == subject_type
+            ],
+            key=lambda record: record.audit_event_id,
         )
 
 
@@ -1414,6 +1448,7 @@ class _HuntV3QueueRepo(_Repo):
             hypothesis_id=current.hypothesis_id,
             family_id=current.family_id,
             node_canonical_key=current.node_canonical_key,
+            identity_id=current.identity_id,
             capability=current.capability,
             action=current.action,
             arguments=current.arguments,
@@ -1451,6 +1486,9 @@ class FakeUnitOfWork:
         )
         self.observations = _ObservationRepo(
             self._store, fail_on_insert=fail_on == "observations"
+        )
+        self.sensor_observations = _SensorObservationRepo(
+            self._store, fail_on_insert=fail_on == "sensor_observations"
         )
         self.research_reasoning = _ResearchReasoningRepo(
             self._store, fail_on_insert=fail_on == "research_reasoning"
@@ -1520,8 +1558,8 @@ class FakeUnitOfWork:
             self._store, fail_on_insert=fail_on == "research_cycles"
         )
         self.budget_consumptions = _BudgetConsumptionRepo(self._store)
-        self.audit_events = _Repo(
-            self._store.audit_events, fail_on_insert=fail_on == "audit_events"
+        self.audit_events = _AuditEventRepo(
+            self._store, fail_on_insert=fail_on == "audit_events"
         )
         self.session_contexts = _SessionContextRepo(
             self._store, fail_on_insert=fail_on == "session_contexts"
