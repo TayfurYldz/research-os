@@ -186,6 +186,24 @@ def _family_object_authz() -> HunterFamilyView:
     )
 
 
+def _family_object_authz_no_scope_precondition() -> HunterFamilyView:
+    """V3 family without scope precondition; used to test _enqueue_v3 IN_SCOPE lock."""
+    return HunterFamilyView(
+        family_id="hf-object-authz-noscope",
+        name="OBJECT_AUTHORIZATION",
+        target_node_kinds=("HTTP_OPERATION",),
+        preconditions={},
+        claim_template=(
+            "Object authorization boundary on {origin}{path} "
+            "may allow cross-owner access to {resource_id}."
+        ),
+        evidence_requirements={},
+        validation_tier="V3",
+        enabled=True,
+        version=1,
+    )
+
+
 class GenerateHuntHypothesesTests(unittest.TestCase):
     def test_generates_hypotheses_for_matching_nodes(self) -> None:
         store = _Store()
@@ -351,6 +369,98 @@ class ValidateHuntTiersTests(unittest.TestCase):
         self.assertIsInstance(queue_record, HuntV3QueueRecord)
         self.assertEqual(queue_record.state, "PENDING")
         self.assertEqual(queue_record.capability, "http.authorization_differential")
+
+    def test_v3_family_rejects_unknown_scope_node(self) -> None:
+        store = _Store()
+        seed_authorization_run(store)
+        factory = FakeUnitOfWorkFactory(store)
+        use_case = GenerateHuntHypotheses(factory)
+        node = _node(
+            node_id="op-1",
+            kind=AttackSurfaceNodeKind.HTTP_OPERATION,
+            canonical_key="origin:http://example.com|path:/api/users|method:GET",
+            scope_classification=ScopeClassification.UNKNOWN,
+            attributes={
+                "origin": "http://example.com",
+                "path": "/api/users",
+                "method": "GET",
+                "resource_id": "users",
+            },
+        )
+        graph = AttackSurfaceGraph(
+            research_run_id="run-1",
+            strategy_version="surface.discovery.v1",
+            nodes=(node,),
+            edges=(),
+        )
+        registry = (_family_object_authz_no_scope_precondition(),)
+
+        generated = use_case.execute(
+            GenerateHuntHypothesesCommand(
+                research_run_id="run-1",
+                graph=graph,
+                registry=registry,
+            )
+        )
+
+        hypothesis_id = generated.hypothesis_ids[0]
+        validator = ValidateHuntTiers(factory)
+        with self.assertRaises(Exception):
+            validator.execute(
+                ValidateHuntTiersCommand(
+                    research_run_id="run-1",
+                    hypothesis_id=hypothesis_id,
+                    family=_family_object_authz_no_scope_precondition(),
+                    node_id="op-1",
+                    graph=graph,
+                )
+            )
+
+    def test_v3_family_rejects_out_of_scope_node(self) -> None:
+        store = _Store()
+        seed_authorization_run(store)
+        factory = FakeUnitOfWorkFactory(store)
+        use_case = GenerateHuntHypotheses(factory)
+        node = _node(
+            node_id="op-1",
+            kind=AttackSurfaceNodeKind.HTTP_OPERATION,
+            canonical_key="origin:http://example.com|path:/api/users|method:GET",
+            scope_classification=ScopeClassification.OUT_OF_SCOPE,
+            attributes={
+                "origin": "http://example.com",
+                "path": "/api/users",
+                "method": "GET",
+                "resource_id": "users",
+            },
+        )
+        graph = AttackSurfaceGraph(
+            research_run_id="run-1",
+            strategy_version="surface.discovery.v1",
+            nodes=(node,),
+            edges=(),
+        )
+        registry = (_family_object_authz_no_scope_precondition(),)
+
+        generated = use_case.execute(
+            GenerateHuntHypothesesCommand(
+                research_run_id="run-1",
+                graph=graph,
+                registry=registry,
+            )
+        )
+
+        hypothesis_id = generated.hypothesis_ids[0]
+        validator = ValidateHuntTiers(factory)
+        with self.assertRaises(Exception):
+            validator.execute(
+                ValidateHuntTiersCommand(
+                    research_run_id="run-1",
+                    hypothesis_id=hypothesis_id,
+                    family=_family_object_authz_no_scope_precondition(),
+                    node_id="op-1",
+                    graph=graph,
+                )
+            )
 
     def test_missing_hypothesis_raises(self) -> None:
         store = _Store()

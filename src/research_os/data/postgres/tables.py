@@ -115,6 +115,18 @@ rate_limit_profile = Table(
     CheckConstraint("window_seconds >= 0", name="ck_rate_limit_window_seconds"),
 )
 
+oast_token = Table(
+    "oast_token",
+    metadata,
+    Column("token_id", Text, primary_key=True),
+    Column("research_run_id", Text, ForeignKey("research_run.research_run_id"), nullable=False),
+    Column("hypothesis_id", Text, nullable=False),
+    Column("target_reference", Text, nullable=False),
+    Column("expires_at", DateTime(timezone=True), nullable=False),
+    Column("created_at", DateTime(timezone=True), nullable=False),
+    UniqueConstraint("token_id", "research_run_id", name="uq_oast_token_id_run"),
+)
+
 bounty_table = Table(
     "bounty_table",
     metadata,
@@ -1583,10 +1595,12 @@ SPINE_TABLES = (
     scope_rule_v2,
     program_policy,
     rate_limit_profile,
+    oast_token,
     bounty_table,
     sensor_observation,
     hunter_family,
     hunt_v3_queue,
+    oast_token,
 )
 
 APPEND_ONLY_TABLES = (

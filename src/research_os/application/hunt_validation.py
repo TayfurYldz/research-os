@@ -12,7 +12,7 @@ from typing import Any, Mapping
 
 from research_os.application.identity import new_opaque_id
 from research_os.application.ports import Clock, SystemClock, UnitOfWorkFactory
-from research_os.core.enums import ActorType
+from research_os.core.enums import ActorType, ScopeClassification
 from research_os.data.records import AuditEventRecord, HuntV3QueueRecord
 from research_os.data.unit_of_work import UnitOfWork
 from research_os.research.discovery.graph import AttackSurfaceGraph
@@ -189,6 +189,11 @@ class ValidateHuntTiers:
         node,
         now,
     ) -> str:
+        # G5 mühür notu: V3 aktif deney kuyruğu yalnızca IN_SCOPE node'lara açık.
+        if node.scope_classification is not ScopeClassification.IN_SCOPE:
+            raise HuntValidationTierError(
+                f"V3 enqueue requires IN_SCOPE node, got {node.scope_classification.value}"
+            )
         capability = V3_CAPABILITY_FOR_FAMILY.get(command.family.name)
         if capability is None:
             raise HuntValidationTierError(

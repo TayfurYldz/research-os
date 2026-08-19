@@ -452,7 +452,7 @@ class Gate17AutonomousResearchSelectionTests(unittest.TestCase):
         self.assertFalse(PRODUCTION_READY)
         with self.engine.connect() as connection:
             version = connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one()
-        self.assertEqual(version, "a29_001_hunter_family_registry")
+        self.assertEqual(version, "a30_001_oast_token")
 
     def test_55_execution_harness_does_not_read_hidden_evaluation(self) -> None:
         path = Path(__file__).resolve().parent / "gate17_harness.py"

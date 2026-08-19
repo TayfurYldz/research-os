@@ -13,6 +13,7 @@ from research_os.application.execute_planned_experiment import (
     ExecutePlannedExperimentCommand,
     ResearchLoopStatus,
 )
+from research_os.application.program_research_context import ProgramPolicyView
 from research_os.application.ingest_worker_invocation import IngestionStatus
 from research_os.application.retry_policy import automatic_retry_allowed
 from research_os.core.enums import (
@@ -22,7 +23,7 @@ from research_os.core.enums import (
 )
 from research_os.core.scope import ScopeEvaluationInput, ScopeRuleMatch
 from research_os.data.errors import PersistenceConflictError, PersistenceError
-from research_os.data.records import ExecutionAttemptRecord, ExecutionAttemptState, HypothesisRecord
+from research_os.data.records import ExecutionAttemptRecord, ExecutionAttemptState, HypothesisRecord, RateLimitProfileRecord
 from research_os.platform.worker import InvocationStatus
 from research_os.research.planning import human_seeded_hypothesis, plan_diagnostic_echo
 from support.fake_unit_of_work import FakeUnitOfWorkFactory, _Store
@@ -484,6 +485,82 @@ class UnknownOutcomeTests(unittest.TestCase):
         self.assertEqual(len(port.calls), 0)
 
 
+class RateLimitEnforcementTests(unittest.TestCase):
+    def test_no_rate_limit_profile_allows_dispatch(self) -> None:
+        use_case, _, port = _use_case()
+        outcome = use_case.execute(_command())
+        self.assertEqual(outcome.status, ResearchLoopStatus.OBSERVATION_PRODUCED)
+        self.assertEqual(len(port.calls), 1)
+
+    def test_rate_limit_under_limit_allows_dispatch(self) -> None:
+        store = _Store()
+        seed_spine(store)
+        store.execution_attempts["ea-1"] = ExecutionAttemptRecord(
+            attempt_id="ea-1",
+            request_id="req-1",
+            experiment_id="exp-other",
+            research_run_id="run-1",
+            correlation_id="corr-1",
+            worker_capability="http.transaction",
+            action="read",
+            target_reference="target-1",
+            budget_id="budget-1",
+            side_effect_level=0,
+            authorization_decision_reference="ad-1",
+            state=ExecutionAttemptState.AUTHORIZED.value,
+            created_at=CREATED_AT,
+            authorized_at=CREATED_AT,
+        )
+        use_case, _, port = _use_case(store)
+        policy = _rate_limit_policy(max_requests=2, window_seconds=60)
+        outcome = use_case.execute(_command(program_policy=policy))
+        self.assertEqual(outcome.status, ResearchLoopStatus.OBSERVATION_PRODUCED)
+        self.assertEqual(len(port.calls), 1)
+
+    def test_rate_limit_over_limit_denies_dispatch(self) -> None:
+        store = _Store()
+        seed_spine(store)
+        for index in range(2):
+            store.execution_attempts[f"ea-{index}"] = ExecutionAttemptRecord(
+                attempt_id=f"ea-{index}",
+                request_id=f"req-{index}",
+                experiment_id="exp-other",
+                research_run_id="run-1",
+                correlation_id="corr-1",
+                worker_capability="http.transaction",
+                action="read",
+                target_reference="target-1",
+                budget_id="budget-1",
+                side_effect_level=0,
+                authorization_decision_reference=f"ad-{index}",
+                state=ExecutionAttemptState.AUTHORIZED.value,
+                created_at=CREATED_AT,
+                authorized_at=CREATED_AT,
+            )
+        use_case, _, port = _use_case(store)
+        policy = _rate_limit_policy(max_requests=2, window_seconds=60)
+        outcome = use_case.execute(_command(program_policy=policy))
+        self.assertEqual(outcome.status, ResearchLoopStatus.DISPATCH_DENIED)
+        self.assertEqual(outcome.core_reason_code, ReasonCode.RATE_LIMIT_DENIED)
+        self.assertEqual(len(port.calls), 0)
+        self.assertEqual(store.experiments["exp-1"].execution_state, "BLOCKED")
+        audit = next(
+            (a for a in store.audit_events.values() if a.event_type == "RATE_LIMIT_DENIED"),
+            None,
+        )
+        self.assertIsNotNone(audit)
+
+    def test_rate_limit_zero_max_requests_denies_dispatch(self) -> None:
+        store = _Store()
+        seed_spine(store)
+        use_case, _, port = _use_case(store)
+        policy = _rate_limit_policy(max_requests=0, window_seconds=60)
+        outcome = use_case.execute(_command(program_policy=policy))
+        self.assertEqual(outcome.status, ResearchLoopStatus.DISPATCH_DENIED)
+        self.assertEqual(outcome.core_reason_code, ReasonCode.RATE_LIMIT_DENIED)
+        self.assertEqual(len(port.calls), 0)
+
+
 class LocalProcessLogicalLoopTests(unittest.TestCase):
     def test_local_diagnostic_worker_completes_the_logical_loop(self) -> None:
         from pathlib import Path
@@ -509,6 +586,23 @@ class LocalProcessLogicalLoopTests(unittest.TestCase):
         self.assertEqual(outcome.status, ResearchLoopStatus.OBSERVATION_PRODUCED)
         self.assertEqual(len(outcome.observation_ids), 1)
         self.assertEqual(store.hypotheses["hyp-1"].claim, DIAGNOSTIC_CLAIM)
+
+
+def _rate_limit_policy(max_requests: int, window_seconds: int) -> ProgramPolicyView:
+    profile = RateLimitProfileRecord(
+        profile_id="rl-1",
+        program_id="prog-1",
+        max_requests_per_window=max_requests,
+        window_seconds=window_seconds,
+        created_at=CREATED_AT,
+    )
+    return ProgramPolicyView(
+        loopback_fixture=False,
+        max_response_bytes=4096,
+        timeout_ms=2000,
+        action_policy={},
+        rate_limit_profile=profile,
+    )
 
 
 if __name__ == "__main__":

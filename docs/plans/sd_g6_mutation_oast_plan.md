@@ -53,10 +53,11 @@ Hiçbir varyant scope dışına üretilmez; OAST token'ları provenance taşır;
 **Dosya**: `src/research_os/research/mutation/types.py`
 - **Sınıf**: `MutationVariant`
   - Alanlar: `variant_id`, `node_id`, `family_id`, `mutation_rule_id`, `target_reference`, `scope_classification`, `capability_id`, `action`, `arguments`, `provenance`.
+  - `to_public_summary()` ile boyut sınırlı (≤ 2 KB), sır içermeyen audit payload.
 - **Sınıf**: `MutationRule`
-  - Alanlar: `rule_id`, `family`, `input_kind`, `output_transform`, `deterministic`.
+  - Alanlar: `rule_id`, `family_id`, `description`.
 - **Protokol**: `MutationFamily`
-  - `generate(observed, node, provenance) -> tuple[MutationVariant, ...]`
+  - `generate(node, provenance, variant_id_prefix) -> tuple[MutationVariant, ...]`
 
 **Dosya**: `src/research_os/research/mutation/families.py`
 - Aile implementasyonları:
@@ -71,13 +72,21 @@ Hiçbir varyant scope dışına üretilmez; OAST token'ları provenance taşır;
 - Her varyant `provenance = {"node_id", "family_id", "mutation_rule_id"}` taşır.
 
 **Dosya**: `src/research_os/research/mutation/engine.py`
-- **Fonksiyon**: `mutate_for_node(node, graph) -> tuple[MutationVariant, ...]`
+- **Fonksiyon**: `mutate_for_node(node, graph, *, variant_id_prefix: str) -> tuple[MutationVariant, ...]`
+- `MutationEngine.mutate(node, graph, *, variant_id_prefix: str)` arayüzü.
 - IN_SCOPE olmayan node için boş tuple döner (K1).
+- ID üretimi research katmanında değil, application katmanında yapılır (F2).
 - Determinizm testi: aynı girdi → aynı varyant seti.
 
-**Dosya**: `src/research_os/research/compiler.py` (adaptasyon, dokunmadan)
-- `compile_experiment_intent` zaten `scope_derived` requirement'ını kabul ediyor; mutation varyantları bu requirement'ı taşıyan `http.transaction` intentleri üretir.
-- **Yeni helper**: `research/mutation/intent.py` → `mutation_variant_to_intent(variant, budget_id) -> ExperimentIntent`.
+**Dosya**: `src/research_os/research/mutation/intent.py`
+- **Yeni helper**: `mutation_variant_to_intent(variant, budget_id) -> ExperimentIntent`.
+
+**Dosya**: `src/research_os/application/record_mutation_variants.py` (yeni)
+- **Use case**: `RecordMutationVariants`
+  - `MutationEngine` ile varyant üretir.
+  - Her varyantı `audit_event` ledger'ına `MUTATION_VARIANT_PLANNED` olarak yazar.
+  - ID üretimi `application.identity.new_opaque_id()` ile yapılır.
+  - Clock injection ile `occurred_at` yazar (D4).
 
 **Testler**:
 - `tests/unit/research/test_mutation_engine.py`
@@ -90,17 +99,17 @@ Hiçbir varyant scope dışına üretilmez; OAST token'ları provenance taşır;
 
 **Dosya**: `src/research_os/research/oast/types.py`
 - **Sınıf**: `OastToken`
-  - Alanlar: `token_id`, `research_run_id`, `hypothesis_id`, `target_reference`, `expires_at`, `created_at`.
+  - Alanlar: `token_id`, `research_run_id`, `hypothesis_id`, `target_reference`, `expires_at`.
 - **Protokol**: `OastPort`
   - `mint_token(...) -> OastToken`
-  - `poll_callback(token_id, *, before) -> tuple[OastCallback, ...]`
+  - `poll(token_id, *, now) -> tuple[OastCallback, ...]` (clock injection, D4).
 - **Sınıf**: `OastCallback`
-  - Alanlar: `callback_id`, `token_id`, `received_at`, `raw_payload`, `headers`.
+  - Alanlar: `callback_id`, `token_id`, `received_at`, `source_address`, `request_summary`.
 
-**Dosya**: `src/research_os/research/oast/loopback.py`
+**Dosya**: `tests/fixtures/oast/loopback.py`
 - **Sınıf**: `LoopbackOastPort(OastPort)`
-  - Bellek içi token/callback store.
-  - Süresi dolmuş token'a callback gelirse: ledger'a yazılır ama kanıt olarak kabul edilmez.
+  - Bellek içi token/callback store; test/fixture sınırında, application identity kullanabilir.
+  - Süresi dolmuş token'a `poll` çağrısı `OastTokenExpiredError` verir.
 
 **Dosya**: `src/research_os/application/admit_oast_callback.py`
 - **Use case**: `AdmitOastCallback`
@@ -152,9 +161,11 @@ Hiçbir varyant scope dışına üretilmez; OAST token'ları provenance taşır;
 
 **Dosya**: `tests/integration/test_sd_g6_mutation_oast.py`
 - PostgreSQL'li uçtan uca:
-  - census → admission → graf → mutation varyant üretimi → ledger.
-  - OAST loopback callback → evidence admission.
-  - rate-limit uçtan uca DENY.
+  - attack surface node → mutation varyant üretimi → `audit_event` ledger.
+  - OAST loopback callback → `sensor_observation` → evidence admission.
+
+**Dosya**: `tests/integration/test_sd_g6_rate_limit.py`
+- PostgreSQL'li uçtan uca: pencere dolu → `ExecutePlannedExperiment` → `RATE_LIMIT_DENIED`.
 
 **Dosya**: `src/research_os/maturity.py`
 - Yeni: `GATE_06_STATUS = "PENDING"`
@@ -163,15 +174,11 @@ Hiçbir varyant scope dışına üretilmez; OAST token'ları provenance taşır;
 **Dosya**: `OPERATIONS.md`
 - SD-G6 bölümü: mutation aileleri listesi, OAST token yaşam döngüsü, rate-limit zorlaması, loopback-only test garantisi.
 
-**Alembic**: `alembic/versions/a30_001_mutation_oast.py`
-- Yeni tablolar (öneri):
-  - `mutation_variant` (opsiyonel; varyantlar ledger'da tutulabilir).
-  - `oast_token`
-  - `oast_callback`
-  - `hunt_v3_queue` zaten var; `mutation_queue` gerekirse.
-- Eğer varyantlar sadece runtime üretilecekse tablo eklemeden `audit_event` payload'ına yazılabilir.
-
-> **Karar**: Varyantlar append-only `audit_event` + geçici runtime listesi olarak tutulur; ayrı tablo eklenmez (SoR şişmesin). OAST token/callback için kalıcı tablo eklenir çünkü kanıt zinciri gerektirir.
+**Alembic**: `alembic/versions/a30_001_oast_token.py`
+- Yeni tablo: `oast_token`
+  - `token_id`, `research_run_id`, `hypothesis_id`, `target_reference`, `expires_at`, `created_at`.
+- Varyantlar ayrı tabloya yazılmaz; `RecordMutationVariants` bunları `audit_event` payload'ına yazar (SoR şişmesin).
+- OAST callback'leri için kalıcı tablo yok; callback'ler `sensor_observation` olarak kaydedilir ve mevcut admission zincirinden geçer.
 
 ## 5. UYGULAMA SIRASI
 
@@ -187,6 +194,7 @@ Hiçbir varyant scope dışına üretilmez; OAST token'ları provenance taşır;
 
 - `GATE_06_STATUS = "PENDING"` + docstring.
 - `OPERATIONS.md` SD-G6 bölümü.
-- Unit+contract: 1038+ PASS, sıfır silinen test.
-- Integration: mutation varyant → ledger; OAST loopback → evidence; rate-limit DENY uçtan uca.
+- Unit+contract: 1076+ PASS, sıfır silinen test.
+- Integration: 143+ PASS; mutation varyant → ledger; OAST loopback → evidence; rate-limit DENY uçtan uca.
+- E2E: 155 PASS, 5 skipped.
 - Mühür bende: push + bağımsız denetim olmadan PASS yazılmaz.

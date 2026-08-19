@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass, replace
+from datetime import datetime, timezone
 from enum import Enum
 from typing import Any, Mapping
 
@@ -53,6 +54,7 @@ from research_os.core.enums import (
     ReasonCode,
 )
 from research_os.core.execution import ExecutionDecision, ExecutionRequest, evaluate_execution
+from research_os.core.rate_limit import RateLimitProfile, check_rate_limit
 from research_os.core.scope import ScopeEvaluationInput
 from research_os.core.scope_compiler import CompiledScope
 from research_os.data.budget_ledger import remaining_for_resource, usage_from_consumptions
@@ -66,6 +68,7 @@ from research_os.data.records import (
     ExperimentExecutionState,
     ExperimentRecord,
     IssuedBudgetRecord,
+    RateLimitProfileRecord,
 )
 from research_os.data.unit_of_work import UnitOfWork
 from research_os.platform.contract_validation import ContractValidator
@@ -274,6 +277,20 @@ class ExecutePlannedExperiment:
                     core_decision=ExecutionDecisionKind.DENY,
                     core_reason_code=http_decision.reason_code,
                 )
+            rate_limit_outcome = self._check_rate_limit(
+                uow,
+                command.program_policy,
+                experiment,
+                hypothesis_id,
+                now,
+            )
+            if rate_limit_outcome is not None:
+                uow.experiments.set_execution_state(
+                    experiment.experiment_id,
+                    ExperimentExecutionState.BLOCKED.value,
+                )
+                uow.commit()
+                return rate_limit_outcome
             if bound_plan.required_capability in HTTP_SCOPE_CAPABILITIES:
                 if command.compiled_scope is None or http_decision.scope_check is None:
                     core_scope: ScopeEvaluationInput = ScopeEvaluationInput(
@@ -827,6 +844,62 @@ class ExecutePlannedExperiment:
             attempt_state=attempt.state,
         )
 
+    def _check_rate_limit(
+        self,
+        uow: UnitOfWork,
+        program_policy: ProgramPolicyView | None,
+        experiment: ExperimentRecord,
+        hypothesis_id: str,
+        now: datetime,
+    ) -> ResearchLoopOutcome | None:
+        """Fail-closed rate-limit gate before Core execution. D4 clock injection."""
+        if program_policy is None or program_policy.rate_limit_profile is None:
+            return None
+        profile_record = program_policy.rate_limit_profile
+        profile = _rate_limit_profile_from_record(profile_record)
+        attempts = uow.execution_attempts.list_for_research_run(experiment.research_run_id)
+        authorized_times = tuple(
+            attempt.authorized_at
+            for attempt in attempts
+            if attempt.authorized_at is not None
+        )
+        check = check_rate_limit(profile, authorized_times, now)
+        if check.allowed:
+            return None
+        audit_id = execution_decision_audit_id(new_opaque_id())
+        uow.audit_events.insert(
+            AuditEventRecord(
+                audit_event_id=audit_id,
+                occurred_at=now,
+                actor_id=self._actor_id,
+                actor_type=ActorType.CONTROL_PLANE.value,
+                event_type="RATE_LIMIT_DENIED",
+                subject_type="experiment",
+                subject_id=experiment.experiment_id,
+                correlation_id=experiment.research_run_id,
+                payload={
+                    "profile_id": profile_record.profile_id,
+                    "max_requests_per_window": profile.max_requests_per_window,
+                    "window_seconds": profile.window_seconds,
+                    "reason_code": check.reason_code.value,
+                    "next_allowed_at": (
+                        check.next_allowed_at.isoformat()
+                        if check.next_allowed_at is not None
+                        else None
+                    ),
+                },
+            )
+        )
+        return ResearchLoopOutcome(
+            status=ResearchLoopStatus.DISPATCH_DENIED,
+            hypothesis_id=hypothesis_id,
+            experiment_id=experiment.experiment_id,
+            experiment_execution_state=ExperimentExecutionState.BLOCKED.value,
+            core_decision=ExecutionDecisionKind.DENY,
+            core_reason_code=check.reason_code,
+            authorization_decision_reference=audit_id,
+        )
+
 
 def _authorization_view(
     record: AuthorizationSourceRecord | None,
@@ -854,6 +927,15 @@ def _deny_experiment_state(reason: ReasonCode) -> str:
     if reason is ReasonCode.BUDGET_EXHAUSTED:
         return ExperimentExecutionState.BUDGET_EXHAUSTED.value
     return ExperimentExecutionState.BLOCKED.value
+
+
+def _rate_limit_profile_from_record(record: RateLimitProfileRecord) -> RateLimitProfile:
+    return RateLimitProfile(
+        profile_id=record.profile_id,
+        program_id=record.program_id,
+        max_requests_per_window=record.max_requests_per_window,
+        window_seconds=record.window_seconds,
+    )
 
 
 def _execution_decision_audit(

@@ -179,14 +179,16 @@ def build_observation(
     research_run_id: str,
     payload: Mapping[str, Any],
     source_metadata: Mapping[str, Any],
+    collected_at: datetime | None = None,
 ) -> SensorObservation:
+    when = collected_at if collected_at is not None else datetime.now(timezone.utc)
     payload_bytes = json.dumps(payload, sort_keys=True, default=str).encode("utf-8")
     return SensorObservation(
         observation_id=observation_id,
         research_run_id=research_run_id,
         sensor_id=sensor_id,
         target_reference=target_reference,
-        collected_at=datetime.now(timezone.utc),
+        collected_at=when,
         payload_digest=hashlib.sha256(payload_bytes).hexdigest(),
         source_metadata=dict(source_metadata),
         payload=dict(payload),

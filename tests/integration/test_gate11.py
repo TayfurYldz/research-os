@@ -189,7 +189,7 @@ class Gate11RuntimeRoutingTests(unittest.TestCase):
             version = connection.execute(
                 text("SELECT version_num FROM alembic_version")
             ).scalar_one()
-        self.assertEqual(version, "a29_001_hunter_family_registry")
+        self.assertEqual(version, "a30_001_oast_token")
 
 
 if __name__ == "__main__":

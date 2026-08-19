@@ -56,7 +56,7 @@ class Gate22DiscoveryPersistenceTests(unittest.TestCase):
     def test_a22_head_and_constraints(self) -> None:
         with self.engine.connect() as connection:
             version = connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one()
-        self.assertEqual(version, "a29_001_hunter_family_registry")
+        self.assertEqual(version, "a30_001_oast_token")
         with PostgresUnitOfWork(self.engine) as uow:
             uow.discovery_run_configs.insert(
                 DiscoveryRunConfigRecord(

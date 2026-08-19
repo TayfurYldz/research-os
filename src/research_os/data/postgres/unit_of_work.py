@@ -29,6 +29,7 @@ from research_os.data.postgres.repositories import (
     PostgresInvariantHypothesisRepository,
     PostgresIssuedBudgetRepository,
     PostgresObservationRepository,
+    PostgresOastTokenRepository,
     PostgresProgramPolicyRepository,
     PostgresProgramRepository,
     PostgresRateLimitProfileRepository,
@@ -84,6 +85,7 @@ class PostgresUnitOfWork:
         self.execution_attempts: PostgresExecutionAttemptRepository
         self.worker_results: PostgresWorkerResultRepository
         self.observations: PostgresObservationRepository
+        self.oast_tokens: PostgresOastTokenRepository
         self.research_reasoning: PostgresResearchReasoningRepository
         self.research_admissions: PostgresResearchAdmissionRepository
         self.experiment_plans: PostgresExperimentPlanRepository
@@ -144,6 +146,7 @@ class PostgresUnitOfWork:
         self.execution_attempts = PostgresExecutionAttemptRepository(self._connection)
         self.worker_results = PostgresWorkerResultRepository(self._connection)
         self.observations = PostgresObservationRepository(self._connection)
+        self.oast_tokens = PostgresOastTokenRepository(self._connection)
         self.research_reasoning = PostgresResearchReasoningRepository(self._connection)
         self.research_admissions = PostgresResearchAdmissionRepository(self._connection)
         self.experiment_plans = PostgresExperimentPlanRepository(self._connection)

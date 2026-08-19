@@ -127,6 +127,22 @@ be confused. GATE 05 does not prove autonomous vulnerability discovery, active
 probing execution, live internet reconnaissance, bug-bounty performance, or
 production readiness.
 
+GATE 06 PENDING means the Attack Period Mutation Engine + OAST Core (SD-G6) is
+under construction. When sealed, it will provide deterministic attack-variant
+plan generation from observed HTTP surface nodes (param-pollution, type-juggling,
+boundary values, auth-header variations, method-override, content-type confusion,
+id/traversal candidates), scope-confined to IN_SCOPE nodes with provenance and
+size-bounded audit payloads. It will also provide an OAST callback core:
+target+hypothesis-bound opaque tokens, loopback callback reception for tests,
+expired-token rejection, and admission of valid callbacks as
+UNTRUSTED_EXTERNAL sensor observations that become DiscoveryFact only through
+the existing deterministic admission chain. Rate-limit policy enforcement is
+integrated before Core execution with clock-injected deterministic tests. SD-G6
+is NOT the old infrastructure GATE 06 (State Transition Security benchmark);
+those are separate eras and must never be confused. GATE 06 does not prove
+autonomous vulnerability exploitation, live OAST infrastructure, live internet
+reconnaissance, bug-bounty performance, or production readiness.
+
 PRODUCTION_READY must stay false until operational and live-research gates
 that this environment has not passed actually pass.
 """
@@ -144,6 +160,7 @@ GATE_02_STATUS = "PASS"
 GATE_03_STATUS = "PASS"
 GATE_04_STATUS = "PASS"
 GATE_05_STATUS = "PASS"
+GATE_06_STATUS = "PENDING"
 GATE_12_STATUS = "PASS"
 GATE_13_STATUS = "PASS"
 GATE_14_STATUS = "PASS"
@@ -172,6 +189,7 @@ def maturity_mapping() -> dict[str, object]:
         "GATE_04": GATE_04_STATUS,
         "GATE_04B": GATE_04B_STATUS,
         "GATE_05": GATE_05_STATUS,
+        "GATE_06": GATE_06_STATUS,
         "GATE_12": GATE_12_STATUS,
         "GATE_13": GATE_13_STATUS,
         "GATE_14": GATE_14_STATUS,

@@ -464,6 +464,24 @@ class RateLimitProfileRecord:
 
 
 @dataclass(frozen=True)
+class OastTokenRecord:
+    token_id: str
+    research_run_id: str
+    hypothesis_id: str
+    target_reference: str
+    expires_at: datetime
+    created_at: datetime
+
+    def __post_init__(self) -> None:
+        require_opaque_id(self.token_id, "token_id")
+        require_opaque_id(self.research_run_id, "research_run_id")
+        require_opaque_id(self.hypothesis_id, "hypothesis_id")
+        require_opaque_id(self.target_reference, "target_reference")
+        require_aware_datetime(self.expires_at, "expires_at")
+        require_aware_datetime(self.created_at, "created_at")
+
+
+@dataclass(frozen=True)
 class BountyTableRecord:
     program_id: str
     severity: str

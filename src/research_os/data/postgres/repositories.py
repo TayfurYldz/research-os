@@ -50,6 +50,7 @@ from research_os.data.records import (
     InvariantHypothesisRecord,
     IssuedBudgetRecord,
     ObservationRecord,
+    OastTokenRecord,
     ProgramPolicyRecord,
     ProgramRecord,
     RateLimitProfileRecord,
@@ -313,6 +314,46 @@ class PostgresRateLimitProfileRepository:
         except SQLAlchemyError as exc:
             raise PersistenceError("persistence read failed") from exc
         return [map_row.rate_limit_profile_from_row(row) for row in rows]
+
+
+class PostgresOastTokenRepository:
+    def __init__(self, connection: Connection) -> None:
+        self._connection = connection
+
+    def insert(self, record: OastTokenRecord) -> None:
+        _execute_write(
+            self._connection,
+            tables.oast_token.insert().values(
+                token_id=record.token_id,
+                research_run_id=record.research_run_id,
+                hypothesis_id=record.hypothesis_id,
+                target_reference=record.target_reference,
+                expires_at=record.expires_at,
+                created_at=record.created_at,
+            ),
+        )
+
+    def get(self, token_id: str) -> OastTokenRecord | None:
+        require_opaque_id(token_id, "token_id")
+        return _fetch_one(
+            self._connection,
+            tables.oast_token,
+            tables.oast_token.c.token_id,
+            token_id,
+            map_row.oast_token_from_row,
+        )
+
+    def list_for_research_run(self, research_run_id: str) -> list[OastTokenRecord]:
+        require_opaque_id(research_run_id, "research_run_id")
+        try:
+            rows = self._connection.execute(
+                select(tables.oast_token)
+                .where(tables.oast_token.c.research_run_id == research_run_id)
+                .order_by(tables.oast_token.c.created_at)
+            ).mappings().all()
+        except SQLAlchemyError as exc:
+            raise PersistenceError("persistence read failed") from exc
+        return [map_row.oast_token_from_row(row) for row in rows]
 
 
 class PostgresBountyTableRepository:
@@ -1967,6 +2008,19 @@ class PostgresAuditEventRepository:
             audit_event_id,
             map_row.audit_event_from_row,
         )
+
+    def list_for_subject_type(self, subject_type: str) -> list[AuditEventRecord]:
+        if not isinstance(subject_type, str) or not subject_type.strip():
+            raise PersistenceInputError("subject_type must be a non-empty string")
+        try:
+            rows = self._connection.execute(
+                select(tables.audit_event)
+                .where(tables.audit_event.c.subject_type == subject_type)
+                .order_by(tables.audit_event.c.occurred_at)
+            ).mappings().all()
+        except SQLAlchemyError as exc:
+            raise PersistenceError("persistence read failed") from exc
+        return [map_row.audit_event_from_row(row) for row in rows]
 
 
 class PostgresResearchOrchestrationRepository:

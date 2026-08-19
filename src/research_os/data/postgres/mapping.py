@@ -60,6 +60,7 @@ from research_os.data.records import (
     FrontierSourceRecord,
     HunterFamilyRecord,
     HuntV3QueueRecord,
+    OastTokenRecord,
 )
 
 
@@ -132,6 +133,18 @@ def rate_limit_profile_from_row(row: Mapping[str, Any]) -> RateLimitProfileRecor
         program_id=data["program_id"],
         max_requests_per_window=int(data["max_requests_per_window"]),
         window_seconds=int(data["window_seconds"]),
+        created_at=data["created_at"],
+    )
+
+
+def oast_token_from_row(row: Mapping[str, Any]) -> OastTokenRecord:
+    data = _mapping(row)
+    return OastTokenRecord(
+        token_id=data["token_id"],
+        research_run_id=data["research_run_id"],
+        hypothesis_id=data["hypothesis_id"],
+        target_reference=data["target_reference"],
+        expires_at=data["expires_at"],
         created_at=data["created_at"],
     )
 

@@ -15,6 +15,7 @@ from research_os.core.scope_compiler import (
 from research_os.data.records import (
     ProgramPolicyRecord,
     ProgramRecord,
+    RateLimitProfileRecord,
     ScopeRuleV2Record,
 )
 from research_os.data.unit_of_work import UnitOfWork
@@ -28,6 +29,7 @@ class ProgramPolicyView:
     max_response_bytes: int
     timeout_ms: int
     action_policy: Mapping[str, Any]
+    rate_limit_profile: RateLimitProfileRecord | None = None
 
     def allows_action(self, action_name: str) -> bool:
         """Fail-closed action policy: missing or denied → False."""
@@ -68,10 +70,12 @@ def load_program_research_context(
     policy_record = uow.program_policies.get(program_id)
     if policy_record is None:
         policy_record = _default_policy(program_id, now=now)
+    rate_limit_profiles = uow.rate_limit_profiles.list_for_program(program_id)
+    rate_limit_profile = rate_limit_profiles[0] if rate_limit_profiles else None
     return ProgramResearchContext(
         program=program,
         compiled_scope=_compile_rules(rules),
-        policy=_policy_view(policy_record),
+        policy=_policy_view(policy_record, rate_limit_profile=rate_limit_profile),
     )
 
 
@@ -97,12 +101,17 @@ def _compile_rules(records: list[ScopeRuleV2Record]) -> CompiledScope:
     return compile_scope_rules(tuple(definitions))
 
 
-def _policy_view(record: ProgramPolicyRecord) -> ProgramPolicyView:
+def _policy_view(
+    record: ProgramPolicyRecord,
+    *,
+    rate_limit_profile: RateLimitProfileRecord | None = None,
+) -> ProgramPolicyView:
     return ProgramPolicyView(
         loopback_fixture=record.loopback_fixture,
         max_response_bytes=record.max_response_bytes,
         timeout_ms=record.timeout_ms,
         action_policy=record.action_policy or {},
+        rate_limit_profile=rate_limit_profile,
     )
 
 

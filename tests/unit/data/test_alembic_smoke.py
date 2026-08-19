@@ -110,6 +110,7 @@ class AlembicSmokeTests(unittest.TestCase):
                 "scope_rule_v2",
                 "program_policy",
                 "rate_limit_profile",
+                "oast_token",
                 "bounty_table",
                 "sensor_observation",
                 "hunter_family",
