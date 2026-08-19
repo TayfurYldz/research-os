@@ -265,7 +265,7 @@ class Gate10RuntimeStrixBoundaryTests(unittest.TestCase):
             version = connection.execute(
                 text("SELECT version_num FROM alembic_version")
             ).scalar_one()
-        self.assertEqual(version, "a23_001_program_scope")
+        self.assertEqual(version, "a26_001_sensor_obs_src")
 
 
 if __name__ == "__main__":

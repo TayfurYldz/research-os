@@ -621,6 +621,81 @@ python scripts/clean_install_smoke.py
 
 If `RESEARCH_OS_TEST_DATABASE_URL` is unset, PostgreSQL-required suites must SKIP, never fabricate PASS.
 
+## GATE 02 — Attack Period (Sensor/Acquisition Plane)
+
+**GATE 02 status: PENDING.** Local implementation exists; formal PASS requires
+Kali + real PostgreSQL validation. This is the Attack Period sensor plane
+(SD-G2). It is **not** the old infrastructure GATE 02 (Bounded Research
+Reasoning Cycle, `a8_001_research_reasoning`, closed 2026-08-16); those are
+separate eras and must never be confused.
+
+Implementation scope:
+
+- Alembic `a24_001_sensor_plane`: `sensor_observation` table for raw,
+  UNTRUSTED_EXTERNAL sensor records. This is not `discovery_fact`.
+- `research_os.research.sensor.types`: `SensorObservation`,
+  `SensorCollectionResult`, `SensorPort`, `ScopeCensusView`. Sensors produce
+  observations; they never write domain truth or generate authoritative IDs.
+- `research_os.research.sensor.{dns,ctlog,archive,cert,techfp}`: five
+  passive/semi-passive sensors using fixture-based or already-collected data.
+  No active probing, no banner grab, no live external calls in tests.
+- `research_os.application.sensor.runner`: `SensorAcquisitionRunner`
+  coordinates sensors for one target under Core scope control and persists
+  `SensorObservationRecord`s only.
+- `research_os.application.sensor.admit`: deterministic admission
+  (`AdmitSensorObservations`) turns one observation into one `DiscoveryFact`,
+  capped at `OBSERVED`, source marked `UNTRUSTED_EXTERNAL`, with an admission
+  receipt in `discovery_fact_source`. Forbidden discovery keys are rejected;
+  rejected observations produce no fact.
+- `research_os.interface.cli`: `research-os census --research-run-id <id>
+  --target <host> [--fixture-dir <dir>]` operator trigger; scope control is
+  enforced by Core, CLI cannot bypass it.
+- `core/enums.py`: `ScopeClassification.UNKNOWN` allows census; explicit
+  `OUT_OF_SCOPE` denies even census. `ReasonCode.SENSOR_TIMEOUT`,
+  `ReasonCode.SENSOR_FAILED`, `ReasonCode.CENSUS_ALLOWED`,
+  `ReasonCode.CENSUS_DENIED`.
+- `maturity.py`: `GATE_02_STATUS = "PENDING"` until authoritative validation.
+
+Formal claim (upon PASS):
+
+Research OS can execute a Core-controlled, passive/semi-passive external census
+of an authorized target using multiple sensors, persist raw observations as
+UNTRUSTED_EXTERNAL, and deterministically admit them into the discovery ledger
+as OBSERVED facts with provenance receipts, while keeping sensors unable to
+write domain truth directly.
+
+GATE 02 proves only: controlled sensor acquisition + deterministic admission
+plumbing against PostgreSQL.
+
+GATE 02 does **not** prove:
+
+- autonomous vulnerability discovery
+- active probing or live internet reconnaissance
+- real bug-bounty performance
+- production readiness
+- old infrastructure GATE 02 behavior
+
+Current limitations:
+
+- Sensors are fixture-based or already-collected-data only in this gate.
+- Live sensor execution is restricted to the operator-triggered `census` CLI
+  command under Core scope control.
+- No INFERRED/HYPOTHESIZED epistemic upgrade in admission; that is later work.
+
+Validation commands (to be run on authoritative Kali host with real PostgreSQL):
+
+```
+python -m compileall src tests scripts
+python -m unittest discover -s tests/unit -q
+python -m unittest discover -s tests/contract -q
+python -m unittest tests.unit.test_architecture_boundaries -q
+python -m unittest discover -s tests/integration -q
+python scripts/run_research_benchmark.py --baseline GOOD_BASELINE --single-run-legacy
+python scripts/clean_install_smoke.py
+```
+
+If `RESEARCH_OS_TEST_DATABASE_URL` is unset, PostgreSQL-required suites must SKIP, never fabricate PASS.
+
 ## Maturity
 
 - ARCHITECTURE_VALIDATED: architecture package complete
@@ -628,6 +703,8 @@ If `RESEARCH_OS_TEST_DATABASE_URL` is unset, PostgreSQL-required suites must SKI
 - LIVE_MODEL_VALIDATED: no while GATE 04B is PENDING
 - SECURITY_RESEARCH_VALIDATED: no; GATE 14/15/16/17/18/19/20 PASS cover controlled local pipeline, ground-truth, cross-class, adaptive research-selection, capability/risk/scope substrate, bounded authorized HTTP transaction, and identity/session isolation validation, not broad or real-world security-research validation. GATE 22 PASS is not security-research validation.
 - PRODUCTION_READY: no until operational and live-research gates that have not passed actually pass
+- GATE 01: PASS (2026-08-19, Kali, isolated PostgreSQL, full suite 1225 passed / 9 skipped)
+- GATE 02: PENDING (Sensor/Acquisition Plane implemented locally; formal PASS requires Kali + real PostgreSQL validation; not the old infrastructure GATE 02 reasoning cycle)
 - GATE 14: PASS (2026-08-17, Kali, dedicated PostgreSQL, 19 E2E OK / 0 skipped)
 - GATE 15: PASS (2026-08-17, Kali, dedicated PostgreSQL, GATE14 regression 19 OK / 0 skipped, GATE15 21 OK / 0 skipped)
 - GATE 16: PASS (2026-08-17, Kali, dedicated PostgreSQL, GATE14 19 OK / 0 skipped, GATE15 21 OK / 0 skipped, GATE16 34 OK / 0 skipped)

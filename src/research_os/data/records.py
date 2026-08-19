@@ -326,6 +326,12 @@ def _optional_mapping(
 ) -> dict[str, Any] | None:
     if value is None:
         return None
+    return _require_mapping(value, field_name)
+
+
+def _require_mapping(
+    value: Mapping[str, Any], field_name: str
+) -> dict[str, Any]:
     if not isinstance(value, Mapping):
         raise PersistenceInputError(f"{field_name} must be a mapping")
     _reject_secret_keys(value, field_name)
@@ -407,6 +413,33 @@ class ProgramPolicyRecord:
         require_non_negative_int(self.max_response_bytes, "max_response_bytes")
         require_non_negative_int(self.timeout_ms, "timeout_ms")
         _optional_mapping(self.action_policy, "action_policy")
+
+
+@dataclass(frozen=True)
+class SensorObservationRecord:
+    observation_id: str
+    research_run_id: str
+    sensor_id: str
+    target_reference: str
+    collected_at: datetime
+    payload_digest: str
+    epistemic_status: str
+    source_metadata: Mapping[str, Any]
+    payload: Mapping[str, Any]
+    created_at: datetime
+
+    def __post_init__(self) -> None:
+        require_opaque_id(self.observation_id, "observation_id")
+        require_opaque_id(self.research_run_id, "research_run_id")
+        require_opaque_id(self.sensor_id, "sensor_id")
+        require_opaque_id(self.target_reference, "target_reference")
+        require_opaque_id(self.payload_digest, "payload_digest")
+        if not isinstance(self.epistemic_status, str) or not self.epistemic_status.strip():
+            raise PersistenceInputError("epistemic_status must be a non-empty string")
+        require_aware_datetime(self.collected_at, "collected_at")
+        require_aware_datetime(self.created_at, "created_at")
+        _require_mapping(self.source_metadata, "source_metadata")
+        _require_mapping(self.payload, "payload")
 
 
 @dataclass(frozen=True)
@@ -2077,6 +2110,14 @@ ALLOWED_DISCOVERY_FACT_KINDS = frozenset(
         "WORKFLOW_STATE",
         "WORKFLOW_TRANSITION",
         "SCOPE_BOUNDARY_CANDIDATE",
+        # SD-G2 sensor-derived external census kinds.
+        "DOMAIN",
+        "HOSTNAME",
+        "CERT",
+        "SERVICE",
+        "TECH",
+        "JS_BUNDLE",
+        "API_SPEC",
     }
 )
 ALLOWED_CONTROL_EVENT_KINDS = frozenset(
@@ -2238,6 +2279,7 @@ class DiscoveryFactSourceRecord:
     fact_id: str
     created_at: datetime
     observation_id: str | None = None
+    sensor_observation_id: str | None = None
     control_event_id: str | None = None
     source_fact_id: str | None = None
     source_inference_id: str | None = None
@@ -2251,6 +2293,7 @@ class DiscoveryFactSourceRecord:
         require_aware_datetime(self.created_at, "created_at")
         _one_primary(
             self.observation_id,
+            self.sensor_observation_id,
             self.control_event_id,
             self.source_fact_id,
             self.source_inference_id,

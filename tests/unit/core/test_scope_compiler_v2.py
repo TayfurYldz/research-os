@@ -74,7 +74,7 @@ class ScopeCompilerV2Tests(unittest.TestCase):
             normalize_url("https://example.com/app"), compiled
         )
         self.assertEqual(decision.reason_code, ReasonCode.SCOPE_NOT_EXPLICITLY_ALLOWED)
-        self.assertEqual(decision.classification, ScopeClassification.OUT_OF_SCOPE)
+        self.assertEqual(decision.classification, ScopeClassification.UNKNOWN)
 
     def test_wildcard_rejects_suffix_attacks(self) -> None:
         compiled = compile_scope_rules((self._wildcard_allow(),))
@@ -86,7 +86,7 @@ class ScopeCompilerV2Tests(unittest.TestCase):
                 self.assertEqual(
                     decision.reason_code, ReasonCode.SCOPE_NOT_EXPLICITLY_ALLOWED
                 )
-                self.assertEqual(decision.classification, ScopeClassification.OUT_OF_SCOPE)
+                self.assertEqual(decision.classification, ScopeClassification.UNKNOWN)
 
     def test_wildcard_plus_exclusion_denies(self) -> None:
         compiled = compile_scope_rules(
@@ -178,6 +178,7 @@ class ScopeCompilerV2Tests(unittest.TestCase):
             normalize_url("http://api.example.com/app"), compiled
         )
         self.assertEqual(decision.reason_code, ReasonCode.SCOPE_NOT_EXPLICITLY_ALLOWED)
+        self.assertEqual(decision.classification, ScopeClassification.UNKNOWN)
 
     def test_invalid_wildcard_pattern_rejected(self) -> None:
         with self.assertRaisesRegex(CoreInputError, "host_pattern must start with"):
@@ -206,6 +207,7 @@ class ScopeCompilerV2Tests(unittest.TestCase):
             normalize_url("https://api.example.com:8443/app"), compiled
         )
         self.assertEqual(decision.reason_code, ReasonCode.SCOPE_NOT_EXPLICITLY_ALLOWED)
+        self.assertEqual(decision.classification, ScopeClassification.UNKNOWN)
 
     def test_explicit_port_match_allows(self) -> None:
         rule = ScopeRuleDefinition(
@@ -265,6 +267,7 @@ class ScopeCompilerV2Tests(unittest.TestCase):
             normalize_url("https://api.example.com/admin"), compiled
         )
         self.assertEqual(decision.reason_code, ReasonCode.SCOPE_NOT_EXPLICITLY_ALLOWED)
+        self.assertEqual(decision.classification, ScopeClassification.UNKNOWN)
 
     def test_idn_punycode_normalized_and_matched(self) -> None:
         compiled = compile_scope_rules((self._wildcard_allow(),))
@@ -288,7 +291,7 @@ class ScopeCompilerV2Tests(unittest.TestCase):
             normalize_url("https://example.com./app"), compiled
         )
         self.assertEqual(decision.reason_code, ReasonCode.SCOPE_NOT_EXPLICITLY_ALLOWED)
-        self.assertEqual(decision.classification, ScopeClassification.OUT_OF_SCOPE)
+        self.assertEqual(decision.classification, ScopeClassification.UNKNOWN)
 
     def test_casing_host_normalized(self) -> None:
         compiled = compile_scope_rules((self._exact_allow("API.Example.COM"),))
@@ -373,6 +376,48 @@ class ScopeCompilerV2Tests(unittest.TestCase):
             normalize_url("https://api.example.com/app"), compiled
         )
         self.assertEqual(decision.reason_code, ReasonCode.SCOPE_NOT_EXPLICITLY_ALLOWED)
+        self.assertEqual(decision.classification, ScopeClassification.UNKNOWN)
+
+    def test_wildcard_dotless_suffix_is_unknown(self) -> None:
+        compiled = compile_scope_rules((self._wildcard_allow(),))
+        for host in ("examplecom", "apiexamplecom", "example.co"):
+            with self.subTest(host=host):
+                decision = evaluate_scope_candidate(
+                    normalize_url(f"https://{host}/app"), compiled
+                )
+                self.assertEqual(
+                    decision.reason_code, ReasonCode.SCOPE_NOT_EXPLICITLY_ALLOWED
+                )
+                self.assertEqual(decision.classification, ScopeClassification.UNKNOWN)
+
+    def test_unknown_classification_allows_census_but_denies_active_probe(self) -> None:
+        compiled = compile_scope_rules((self._wildcard_unknown("*.example.com"),))
+        decision = evaluate_scope_candidate(
+            normalize_url("https://api.example.com/app"), compiled
+        )
+        self.assertEqual(decision.decision, ScopeDecision.DENY)
+        self.assertEqual(decision.reason_code, ReasonCode.SCOPE_UNKNOWN_CLASSIFICATION)
+        self.assertEqual(decision.classification, ScopeClassification.UNKNOWN)
+
+    def test_explicit_out_of_scope_denies_census(self) -> None:
+        compiled = compile_scope_rules(
+            (
+                self._wildcard_allow("*.example.com"),
+                ScopeRuleDefinition(
+                    rule_id="rule-exclude-evil",
+                    effect=ScopeRuleEffect.OUT_OF_SCOPE,
+                    scheme="https",
+                    host="evil.example.com",
+                    source_reference="scope-src",
+                ),
+            )
+        )
+        decision = evaluate_scope_candidate(
+            normalize_url("https://evil.example.com/app"), compiled
+        )
+        self.assertEqual(decision.decision, ScopeDecision.DENY)
+        self.assertEqual(decision.reason_code, ReasonCode.SCOPE_DENIED)
+        self.assertEqual(decision.classification, ScopeClassification.OUT_OF_SCOPE)
 
 
 if __name__ == "__main__":

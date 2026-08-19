@@ -39,6 +39,7 @@ from research_os.data.records import (
     ResearchReasoningRecord,
     ResearchRunRecord,
     ScopeRuleV2Record,
+    SensorObservationRecord,
     TargetInferenceRecord,
     VerificationRecord,
     WorkerResultRecord,
@@ -75,6 +76,15 @@ class ScopeRuleV2Repository(Protocol):
 class ProgramPolicyRepository(Protocol):
     def insert(self, record: ProgramPolicyRecord) -> None: ...
     def get(self, program_id: str) -> ProgramPolicyRecord | None: ...
+
+
+class SensorObservationRepository(Protocol):
+    def insert(self, record: SensorObservationRecord) -> None: ...
+    def get(self, observation_id: str) -> SensorObservationRecord | None: ...
+    def list_for_research_run(self, research_run_id: str) -> list[SensorObservationRecord]: ...
+    def list_for_sensor(
+        self, research_run_id: str, sensor_id: str
+    ) -> list[SensorObservationRecord]: ...
 
 
 class RateLimitProfileRepository(Protocol):

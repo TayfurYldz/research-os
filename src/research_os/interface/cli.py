@@ -141,9 +141,95 @@ def build_status_snapshot(*, env: Mapping[str, str] | None = None, argv_runner=N
     )
 
 
+def _cmd_census(rest: list[str]) -> int:
+    from research_os.application.program_research_context import (
+        load_program_research_context,
+    )
+    from research_os.application.sensor.runner import SensorAcquisitionRunner
+    from research_os.data.postgres.engine import create_sync_engine
+    from research_os.data.postgres.unit_of_work import PostgresUnitOfWork
+    from research_os.platform.url_normalize import normalize_url
+    from research_os.core.scope_compiler import evaluate_scope_candidate
+    from research_os.research.sensor import (
+        CTLogSensor,
+        CertificateMetaSensor,
+        DNSSensor,
+        TechnologyFingerprintSensor,
+        WaybackArchiveSensor,
+    )
+    from research_os.research.sensor.types import FixtureLoader, ScopeCensusView
+
+    census_parser = argparse.ArgumentParser(prog="research-os census")
+    census_parser.add_argument("--research-run-id", required=True)
+    census_parser.add_argument("--target", required=True)
+    census_parser.add_argument("--fixture-dir", default=None)
+    census_args = census_parser.parse_args(rest)
+
+    db_url = os.environ.get("RESEARCH_OS_DATABASE_URL")
+    if not db_url:
+        sys.stderr.write("RESEARCH_OS_DATABASE_URL is not set\n")
+        return 1
+
+    engine = create_sync_engine(db_url)
+    uow_factory = PostgresUnitOfWork(engine)
+
+    fixture_loader: FixtureLoader | None = None
+    if census_args.fixture_dir:
+        from pathlib import Path
+        from research_os.research.sensor.fixture_loader import FileFixtureLoader
+        fixture_loader = FileFixtureLoader(Path(census_args.fixture_dir))
+
+    sensors = [
+        DNSSensor(fixture_loader),
+        CTLogSensor(fixture_loader),
+        WaybackArchiveSensor(fixture_loader),
+        CertificateMetaSensor(fixture_loader),
+        TechnologyFingerprintSensor(fixture_loader),
+    ]
+
+    with uow_factory.open() as uow:
+        run = uow.research_runs.get(census_args.research_run_id)
+        if run is None:
+            sys.stderr.write(f"research run not found: {census_args.research_run_id}\n")
+            return 1
+        context = load_program_research_context(uow, run.program_id)
+        if context is None:
+            sys.stderr.write(f"program not found: {run.program_id}\n")
+            return 1
+        scope_check = evaluate_scope_candidate(
+            normalize_url(census_args.target),
+            context.compiled_scope,
+        )
+        uow.rollback()
+
+    scope_view = ScopeCensusView(
+        classification=scope_check.classification,
+        reason_code=scope_check.reason_code,
+        matched_rule_ids=scope_check.matched_rule_ids,
+    )
+    if not scope_view.allows_census():
+        sys.stderr.write(
+            f"census denied: {scope_view.reason_code.value} "
+            f"({scope_view.classification.value})\n"
+        )
+        return 1
+
+    runner = SensorAcquisitionRunner(uow_factory, sensors)
+    result = runner.run(
+        census_args.research_run_id,
+        census_args.target,
+        scope_view,
+    )
+    sys.stdout.write(
+        f"census completed: {len(result.observations)} observations, "
+        f"{len(result.errors)} errors, {result.budget_units_consumed} budget units\n"
+    )
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="research-os")
-    parser.add_argument("command", choices=("status", "export-source"))
+    parser.add_argument("command", choices=("status", "export-source", "census"))
     args, rest = parser.parse_known_args(argv)
     if args.command == "status":
         sys.stdout.write(render_operator_status(build_status_snapshot()) + "\n")
@@ -161,6 +247,8 @@ def main(argv: list[str] | None = None) -> int:
         )
         sys.stdout.write(f"{archive}\n{manifest}\n")
         return 0
+    if args.command == "census":
+        return _cmd_census(rest)
     return 1
 
 

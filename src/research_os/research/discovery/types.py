@@ -49,6 +49,14 @@ class DiscoveryFactKind(Enum):
     WORKFLOW_STATE = "WORKFLOW_STATE"
     WORKFLOW_TRANSITION = "WORKFLOW_TRANSITION"
     SCOPE_BOUNDARY_CANDIDATE = "SCOPE_BOUNDARY_CANDIDATE"
+    # SD-G2 sensor-derived external census kinds.
+    DOMAIN = "DOMAIN"
+    HOSTNAME = "HOSTNAME"
+    CERT = "CERT"
+    SERVICE = "SERVICE"
+    TECH = "TECH"
+    JS_BUNDLE = "JS_BUNDLE"
+    API_SPEC = "API_SPEC"
 
 
 class DiscoveryInferenceKind(Enum):

@@ -36,6 +36,7 @@ from research_os.data.records import (
     ResearchReasoningRecord,
     ResearchRunRecord,
     ScopeRuleV2Record,
+    SensorObservationRecord,
     TargetInferenceRecord,
     VerificationRecord,
     WorkerResultRecord,
@@ -101,6 +102,22 @@ def program_policy_from_row(row: Mapping[str, Any]) -> ProgramPolicyRecord:
         created_at=data["created_at"],
         updated_at=data["updated_at"],
         action_policy=dict(data["action_policy"] or {}),
+    )
+
+
+def sensor_observation_from_row(row: Mapping[str, Any]) -> SensorObservationRecord:
+    data = _mapping(row)
+    return SensorObservationRecord(
+        observation_id=data["observation_id"],
+        research_run_id=data["research_run_id"],
+        sensor_id=data["sensor_id"],
+        target_reference=data["target_reference"],
+        collected_at=data["collected_at"],
+        payload_digest=data["payload_digest"],
+        epistemic_status=data["epistemic_status"],
+        source_metadata=dict(data["source_metadata"] or {}),
+        payload=dict(data["payload"] or {}),
+        created_at=data["created_at"],
     )
 
 
@@ -826,6 +843,7 @@ def discovery_fact_source_from_row(row: Mapping[str, Any]) -> DiscoveryFactSourc
         fact_id=data["fact_id"],
         created_at=data["created_at"],
         observation_id=data.get("observation_id"),
+        sensor_observation_id=data.get("sensor_observation_id"),
         control_event_id=data.get("control_event_id"),
         source_fact_id=data.get("source_fact_id"),
         source_inference_id=data.get("source_inference_id"),

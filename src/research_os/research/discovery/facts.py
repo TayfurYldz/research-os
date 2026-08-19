@@ -35,6 +35,7 @@ class DiscoveryFactSourceView:
 
     source_plane: DiscoverySourcePlane | None
     observation_id: str | None = None
+    sensor_observation_id: str | None = None
     control_event_id: str | None = None
     source_fact_id: str | None = None
     source_inference_id: str | None = None
@@ -42,6 +43,7 @@ class DiscoveryFactSourceView:
     def __post_init__(self) -> None:
         present = [
             self.observation_id is not None,
+            self.sensor_observation_id is not None,
             self.control_event_id is not None,
             self.source_fact_id is not None,
             self.source_inference_id is not None,
@@ -52,6 +54,10 @@ class DiscoveryFactSourceView:
             _require_text(self.observation_id, "observation_id")
             if self.source_plane is not DiscoverySourcePlane.OBSERVATION:
                 raise ResearchInputError("observation source requires OBSERVATION plane")
+        if self.sensor_observation_id is not None:
+            _require_text(self.sensor_observation_id, "sensor_observation_id")
+            if self.source_plane is not DiscoverySourcePlane.OBSERVATION:
+                raise ResearchInputError("sensor observation source requires OBSERVATION plane")
         if self.control_event_id is not None:
             _require_text(self.control_event_id, "control_event_id")
             if self.source_plane is not DiscoverySourcePlane.CONTROL_EVENT:

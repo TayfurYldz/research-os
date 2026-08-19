@@ -35,12 +35,26 @@ FORBIDDEN_TARGET_KEYS = frozenset(
 
 
 class TargetEpistemicStatus(Enum):
-    """How a target-model element was established. Not a promotion rank."""
+    """How a target-model element was established. Not a promotion rank.
+
+    UNTRUSTED_EXTERNAL represents raw data from external sensor sources. It is
+    strictly below OBSERVED: it must NEVER be automatically promoted to
+    OBSERVED, DERIVED, INFERRED, or HYPOTHESIZED without passing deterministic
+    admission control (forbidden-key rejection, scope provenance binding, and
+    an admission receipt).
+
+    Türkçe: Bu durum dış sensör kaynaklarından gelen ham veriyi temsil eder;
+    OBSERVED'ın ALTINDADIR; admission (kabul) geçmeden ASLA otomatik olarak
+    OBSERVED/DERIVED/INFERRED/HYPOTHESIZED'a yükseltilemez; yükseltme yalnızca
+    deterministic admission kontrolünden (yasak anahtarlar + scope provenance +
+    receipt) geçerse olur.
+    """
 
     OBSERVED = "OBSERVED"
     DERIVED = "DERIVED"
     INFERRED = "INFERRED"
     HYPOTHESIZED = "HYPOTHESIZED"
+    UNTRUSTED_EXTERNAL = "UNTRUSTED_EXTERNAL"
 
 
 class TargetElementKind(Enum):

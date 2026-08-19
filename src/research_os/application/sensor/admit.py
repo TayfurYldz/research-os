@@ -1,0 +1,137 @@
+"""Deterministic admission of SensorObservation into DiscoveryFact.
+
+This is not model inference. It enforces the epistemic boundary:
+- FORBIDDEN_DISCOVERY_KEYS are rejected.
+- Epistemic status is capped at OBSERVED.
+- Source is marked UNTRUSTED_EXTERNAL.
+- Each admitted fact carries an admission receipt provenance record.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from typing import Any, Mapping
+
+from research_os.application.identity import new_opaque_id
+from research_os.application.ports import UnitOfWorkFactory
+from research_os.data.records import DiscoveryFactRecord, DiscoveryFactSourceRecord
+from research_os.research.discovery.facts import DiscoveryFact, DiscoveryFactSourceView
+from research_os.research.discovery.types import (
+    FORBIDDEN_DISCOVERY_KEYS,
+    DiscoveryFactKind,
+    DiscoverySourcePlane,
+)
+from research_os.research.sensor import SensorObservation
+from research_os.research.target_model import TargetEpistemicStatus
+
+
+class SensorAdmissionError(Exception):
+    """Observation rejected from fact admission."""
+
+
+@dataclass(frozen=True)
+class SensorAdmissionResult:
+    fact_id: str
+    observation_id: str
+
+
+class AdmitSensorObservations:
+    """Admit one SensorObservation as one DiscoveryFact."""
+
+    _SENSOR_FACT_KIND: dict[str, DiscoveryFactKind] = {
+        "sensor.dns": DiscoveryFactKind.HOSTNAME,
+        "sensor.ctlog": DiscoveryFactKind.HOSTNAME,
+        "sensor.archive": DiscoveryFactKind.EXACT_PATH,
+        "sensor.cert": DiscoveryFactKind.CERT,
+        "sensor.techfp": DiscoveryFactKind.TECH,
+    }
+
+    def __init__(self, uow_factory: UnitOfWorkFactory) -> None:
+        self._uow_factory = uow_factory
+
+    def execute(
+        self,
+        observation: SensorObservation,
+        *,
+        research_run_id: str,
+        identity_id: str = "ANONYMOUS",
+        scope_classification: str = "UNKNOWN",
+    ) -> SensorAdmissionResult:
+        payload = dict(observation.payload)
+        source_metadata = dict(observation.source_metadata)
+        self._reject_forbidden(payload, "payload")
+        self._reject_forbidden(source_metadata, "source_metadata")
+
+        fact_kind = self._SENSOR_FACT_KIND.get(
+            observation.sensor_id, DiscoveryFactKind.HOSTNAME
+        )
+        canonical_key = self._canonical_key(observation, fact_kind)
+
+        domain_fact = DiscoveryFact(
+            fact_id=new_opaque_id(),
+            research_run_id=research_run_id,
+            fact_kind=fact_kind,
+            canonical_key=canonical_key,
+            epistemic_status=TargetEpistemicStatus.OBSERVED,
+            identity_id=identity_id,
+            target_reference=observation.target_reference,
+            sources=(
+                DiscoveryFactSourceView(
+                    source_plane=DiscoverySourcePlane.OBSERVATION,
+                    sensor_observation_id=observation.observation_id,
+                ),
+            ),
+            normalized_origin=observation.target_reference,
+            attributes={
+                "sensor_id": observation.sensor_id,
+                "scope_classification": scope_classification,
+                "source_status": TargetEpistemicStatus.UNTRUSTED_EXTERNAL.value,
+                "admitted_at": observation.collected_at.isoformat(),
+            },
+        )
+
+        with self._uow_factory.open() as uow:
+            uow.discovery_facts.insert(
+                DiscoveryFactRecord(
+                    fact_id=domain_fact.fact_id,
+                    research_run_id=domain_fact.research_run_id,
+                    fact_kind=domain_fact.fact_kind.value,
+                    canonical_key=domain_fact.canonical_key,
+                    epistemic_status=domain_fact.epistemic_status.value,
+                    identity_id=domain_fact.identity_id,
+                    target_reference=domain_fact.target_reference,
+                    session_context_id=domain_fact.session_context_id,
+                    normalized_origin=domain_fact.normalized_origin,
+                    normalized_path=domain_fact.normalized_path,
+                    http_method=domain_fact.http_method,
+                    attributes=dict(domain_fact.attributes),
+                    created_at=observation.collected_at,
+                )
+            )
+            uow.discovery_fact_sources.insert(
+                DiscoveryFactSourceRecord(
+                    source_row_id=new_opaque_id(),
+                    research_run_id=research_run_id,
+                    fact_id=domain_fact.fact_id,
+                    sensor_observation_id=observation.observation_id,
+                    created_at=observation.collected_at,
+                )
+            )
+            uow.commit()
+
+        return SensorAdmissionResult(
+            fact_id=domain_fact.fact_id,
+            observation_id=observation.observation_id,
+        )
+
+    def _reject_forbidden(
+        self, mapping: Mapping[str, Any], field_name: str
+    ) -> None:
+        found = FORBIDDEN_DISCOVERY_KEYS.intersection(mapping.keys())
+        if found:
+            raise SensorAdmissionError(
+                f"{field_name} contains forbidden discovery keys: {sorted(found)}"
+            )
+
+    def _canonical_key(self, observation: SensorObservation, fact_kind: DiscoveryFactKind) -> str:
+        return f"{observation.sensor_id}:{fact_kind.value}:{observation.target_reference}"

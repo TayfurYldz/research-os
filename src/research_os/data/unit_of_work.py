@@ -29,6 +29,7 @@ from research_os.data.ports import (
     ProgramRepository,
     ResearchAdmissionRepository,
     ResearchCycleRepository,
+    SensorObservationRepository,
     ResearchOrchestrationRepository,
     ResearchReasoningRepository,
     ResearchRunRepository,
@@ -59,6 +60,7 @@ class UnitOfWork(Protocol):
     programs: ProgramRepository
     scope_rules_v2: ScopeRuleV2Repository
     program_policies: ProgramPolicyRepository
+    sensor_observations: SensorObservationRepository
     rate_limit_profiles: RateLimitProfileRepository
     bounty_tables: BountyTableRepository
     authorization_sources: AuthorizationSourceRepository

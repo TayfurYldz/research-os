@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Mapping
 
-from research_os.core.enums import ReasonCode
+from research_os.core.enums import ReasonCode, ScopeRuleEffect
 from research_os.core.scope_compiler import (
     CompiledScope,
     ScopeRuleDefinition,
@@ -78,10 +78,13 @@ def load_program_research_context(
 def _compile_rules(records: list[ScopeRuleV2Record]) -> CompiledScope:
     definitions: list[ScopeRuleDefinition] = []
     for record in records:
+        effect = record.effect
+        if isinstance(effect, str):
+            effect = ScopeRuleEffect(effect)
         definitions.append(
             ScopeRuleDefinition(
                 rule_id=record.rule_id,
-                effect=record.effect,
+                effect=effect,
                 scheme=record.scheme,
                 host=record.host,
                 host_pattern=record.host_pattern,

@@ -57,6 +57,7 @@ from research_os.data.records import (
     ResearchReasoningRecord,
     ResearchRunRecord,
     ScopeRuleV2Record,
+    SensorObservationRecord,
     TargetInferenceRecord,
     VerificationRecord,
     WorkerResultRecord,
@@ -210,6 +211,66 @@ class PostgresProgramPolicyRepository:
             program_id,
             map_row.program_policy_from_row,
         )
+
+
+class PostgresSensorObservationRepository:
+    def __init__(self, connection: Connection) -> None:
+        self._connection = connection
+
+    def insert(self, record: SensorObservationRecord) -> None:
+        _execute_write(
+            self._connection,
+            tables.sensor_observation.insert().values(
+                observation_id=record.observation_id,
+                research_run_id=record.research_run_id,
+                sensor_id=record.sensor_id,
+                target_reference=record.target_reference,
+                collected_at=record.collected_at,
+                payload_digest=record.payload_digest,
+                epistemic_status=record.epistemic_status,
+                source_metadata=dict(record.source_metadata),
+                payload=dict(record.payload),
+                created_at=record.created_at,
+            ),
+        )
+
+    def get(self, observation_id: str) -> SensorObservationRecord | None:
+        require_opaque_id(observation_id, "observation_id")
+        return _fetch_one(
+            self._connection,
+            tables.sensor_observation,
+            tables.sensor_observation.c.observation_id,
+            observation_id,
+            map_row.sensor_observation_from_row,
+        )
+
+    def list_for_research_run(self, research_run_id: str) -> list[SensorObservationRecord]:
+        require_opaque_id(research_run_id, "research_run_id")
+        try:
+            rows = self._connection.execute(
+                select(tables.sensor_observation)
+                .where(tables.sensor_observation.c.research_run_id == research_run_id)
+                .order_by(tables.sensor_observation.c.created_at)
+            ).mappings().all()
+        except SQLAlchemyError as exc:
+            raise PersistenceError("persistence read failed") from exc
+        return [map_row.sensor_observation_from_row(row) for row in rows]
+
+    def list_for_sensor(
+        self, research_run_id: str, sensor_id: str
+    ) -> list[SensorObservationRecord]:
+        require_opaque_id(research_run_id, "research_run_id")
+        require_opaque_id(sensor_id, "sensor_id")
+        try:
+            rows = self._connection.execute(
+                select(tables.sensor_observation)
+                .where(tables.sensor_observation.c.research_run_id == research_run_id)
+                .where(tables.sensor_observation.c.sensor_id == sensor_id)
+                .order_by(tables.sensor_observation.c.created_at)
+            ).mappings().all()
+        except SQLAlchemyError as exc:
+            raise PersistenceError("persistence read failed") from exc
+        return [map_row.sensor_observation_from_row(row) for row in rows]
 
 
 class PostgresRateLimitProfileRepository:

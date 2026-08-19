@@ -30,6 +30,10 @@ A19_MIGRATION = ALEMBIC_VERSIONS / "a19_001_http_state_class.py"
 A20_MIGRATION = ALEMBIC_VERSIONS / "a20_001_capability_plan_binding.py"
 A21_MIGRATION = ALEMBIC_VERSIONS / "a21_001_session_context.py"
 A22_MIGRATION = ALEMBIC_VERSIONS / "a22_001_discovery_surface.py"
+A23_MIGRATION = ALEMBIC_VERSIONS / "a23_001_program_scope.py"
+A24_MIGRATION = ALEMBIC_VERSIONS / "a24_001_sensor_plane.py"
+A25_MIGRATION = ALEMBIC_VERSIONS / "a25_001_discovery_fact_kinds.py"
+A26_MIGRATION = ALEMBIC_VERSIONS / "a26_001_sensor_obs_src.py"
 
 
 def _imported_modules(tree: ast.AST) -> set[str]:
@@ -103,6 +107,7 @@ class AlembicSmokeTests(unittest.TestCase):
                 "program_policy",
                 "rate_limit_profile",
                 "bounty_table",
+                "sensor_observation",
             },
         )
         self.assertEqual(set(metadata.tables), names)
@@ -347,6 +352,49 @@ class AlembicSmokeTests(unittest.TestCase):
         a21 = A21_MIGRATION.read_text(encoding="utf-8")
         self.assertNotIn("discovery_run_config", a21)
         self.assertNotIn("control_event", a21)
+
+    def test_a23_migration_is_program_scope(self) -> None:
+        source = A23_MIGRATION.read_text(encoding="utf-8")
+        self.assertIn("a23_001_program_scope", source)
+        self.assertIn("a22_001_discovery_surface", source)
+        self.assertIn("scope_rule_v2", source)
+        self.assertIn("program_policy", source)
+        self.assertNotIn("create_all", source)
+        a22 = A22_MIGRATION.read_text(encoding="utf-8")
+        self.assertNotIn("scope_rule_v2", a22)
+        self.assertNotIn("program_policy", a22)
+
+    def test_a24_migration_is_append_only_sensor_plane(self) -> None:
+        source = A24_MIGRATION.read_text(encoding="utf-8")
+        self.assertIn("a24_001_sensor_plane", source)
+        self.assertIn("a23_001_program_scope", source)
+        self.assertIn("sensor_observation", source)
+        self.assertIn("UNTRUSTED_EXTERNAL", source)
+        self.assertNotIn("create_all", source)
+        a23 = A23_MIGRATION.read_text(encoding="utf-8")
+        self.assertNotIn("sensor_observation", a23)
+
+    def test_a25_migration_expands_discovery_fact_kinds(self) -> None:
+        source = A25_MIGRATION.read_text(encoding="utf-8")
+        self.assertIn("a25_001_discovery_fact_kinds", source)
+        self.assertIn("a24_001_sensor_plane", source)
+        self.assertIn("ck_discovery_fact_kind", source)
+        self.assertIn("DOMAIN", source)
+        self.assertIn("HOSTNAME", source)
+        self.assertIn("CERT", source)
+        self.assertNotIn("create_all", source)
+        a24 = A24_MIGRATION.read_text(encoding="utf-8")
+        self.assertNotIn("DOMAIN", a24)
+
+    def test_a26_migration_adds_sensor_observation_source(self) -> None:
+        source = A26_MIGRATION.read_text(encoding="utf-8")
+        self.assertIn("a26_001_sensor_obs_src", source)
+        self.assertIn("a25_001_discovery_fact_kinds", source)
+        self.assertIn("sensor_observation_id", source)
+        self.assertIn("discovery_fact_source", source)
+        self.assertNotIn("create_all", source)
+        a25 = A25_MIGRATION.read_text(encoding="utf-8")
+        self.assertNotIn("sensor_observation_id", a25)
 
 
 if __name__ == "__main__":

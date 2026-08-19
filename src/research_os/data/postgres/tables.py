@@ -79,6 +79,23 @@ program_policy = Table(
     CheckConstraint("timeout_ms >= 0", name="ck_program_policy_timeout_ms"),
 )
 
+sensor_observation = Table(
+    "sensor_observation",
+    metadata,
+    Column("observation_id", Text, primary_key=True),
+    Column("research_run_id", Text, ForeignKey("research_run.research_run_id"), nullable=False),
+    Column("sensor_id", Text, nullable=False),
+    Column("target_reference", Text, nullable=False),
+    Column("collected_at", DateTime(timezone=True), nullable=False),
+    Column("payload_digest", Text, nullable=False),
+    Column("epistemic_status", Text, nullable=False),
+    Column("source_metadata", JSONB, nullable=False),
+    Column("payload", JSONB, nullable=False),
+    Column("created_at", DateTime(timezone=True), nullable=False),
+    UniqueConstraint("observation_id", "research_run_id", name="uq_sensor_observation_id_run"),
+    CheckConstraint("epistemic_status = 'UNTRUSTED_EXTERNAL'", name="ck_sensor_observation_epistemic"),
+)
+
 rate_limit_profile = Table(
     "rate_limit_profile",
     metadata,
@@ -1264,6 +1281,7 @@ discovery_fact_source = Table(
     Column("fact_id", Text, nullable=False),
     Column("created_at", DateTime(timezone=True), nullable=False),
     Column("observation_id", Text, ForeignKey("observation.observation_id"), nullable=True),
+    Column("sensor_observation_id", Text, ForeignKey("sensor_observation.observation_id"), nullable=True),
     Column("control_event_id", Text, nullable=True),
     Column("source_fact_id", Text, nullable=True),
     Column("source_inference_id", Text, nullable=True),
@@ -1493,6 +1511,7 @@ SPINE_TABLES = (
     program_policy,
     rate_limit_profile,
     bounty_table,
+    sensor_observation,
 )
 
 APPEND_ONLY_TABLES = (
@@ -1532,4 +1551,5 @@ APPEND_ONLY_TABLES = (
     "frontier_source",
     "frontier_event",
     "discovery_projection_receipt",
+    "sensor_observation",
 )

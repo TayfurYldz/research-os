@@ -34,6 +34,7 @@ from research_os.data.postgres.repositories import (
     PostgresResearchReasoningRepository,
     PostgresResearchRunRepository,
     PostgresScopeRuleV2Repository,
+    PostgresSensorObservationRepository,
     PostgresTargetInferenceRepository,
     PostgresVerificationRepository,
     PostgresWorkerResultRepository,
@@ -69,6 +70,7 @@ class PostgresUnitOfWork:
         self.programs: PostgresProgramRepository
         self.scope_rules_v2: PostgresScopeRuleV2Repository
         self.program_policies: PostgresProgramPolicyRepository
+        self.sensor_observations: PostgresSensorObservationRepository
         self.rate_limit_profiles: PostgresRateLimitProfileRepository
         self.bounty_tables: PostgresBountyTableRepository
         self.authorization_sources: PostgresAuthorizationSourceRepository
@@ -123,6 +125,7 @@ class PostgresUnitOfWork:
         self.programs = PostgresProgramRepository(self._connection)
         self.scope_rules_v2 = PostgresScopeRuleV2Repository(self._connection)
         self.program_policies = PostgresProgramPolicyRepository(self._connection)
+        self.sensor_observations = PostgresSensorObservationRepository(self._connection)
         self.rate_limit_profiles = PostgresRateLimitProfileRepository(self._connection)
         self.bounty_tables = PostgresBountyTableRepository(self._connection)
         self.authorization_sources = PostgresAuthorizationSourceRepository(

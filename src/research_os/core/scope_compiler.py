@@ -203,11 +203,14 @@ def evaluate_scope_candidate(
             tuple(item.rule_id for item in matched_unknown),
             ScopeClassification.UNKNOWN,
         )
+    # No rule matched and the candidate normalized cleanly. It is not explicitly
+    # allowed, denied, or marked unknown by any rule, so it is classified UNKNOWN:
+    # passive census may observe it, but active probing is denied.
     return ScopeCheck(
         ScopeDecision.DENY,
         ReasonCode.SCOPE_NOT_EXPLICITLY_ALLOWED,
         (),
-        ScopeClassification.OUT_OF_SCOPE,
+        ScopeClassification.UNKNOWN,
     )
 
 

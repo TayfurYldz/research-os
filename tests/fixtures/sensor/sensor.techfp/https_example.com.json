@@ -1,0 +1,9 @@
+{
+  "payload": {
+    "technologies": [
+      {"name": "React", "confidence": "high", "category": "javascript-framework"},
+      {"name": "Nginx", "confidence": "medium", "category": "web-server"}
+    ]
+  },
+  "source_metadata": {"source": "passive-header-fixture"}
+}
