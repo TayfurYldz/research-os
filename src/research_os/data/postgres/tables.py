@@ -712,6 +712,7 @@ finding_proposal = Table(
     Column("evidence_ids", JSONB, nullable=False),
     Column("verification_ids", JSONB, nullable=False),
     Column("content_fingerprint", Text, nullable=False),
+    Column("impact_chain_ids", JSONB, nullable=False, server_default=text("'[]'")),
     Column("created_at", DateTime(timezone=True), nullable=False),
     CheckConstraint(
         "state IN ('PROPOSED', 'HUMAN_REVIEW', 'APPROVED', 'REJECTED')",
@@ -1540,6 +1541,50 @@ hunt_v3_queue = Table(
     ),
 )
 
+impact_chain = Table(
+    "impact_chain",
+    metadata,
+    Column("chain_id", Text, primary_key=True),
+    Column("research_run_id", Text, ForeignKey("research_run.research_run_id"), nullable=False),
+    Column("program_id", Text, ForeignKey("program.program_id"), nullable=False),
+    Column("graph_hash", Text, nullable=True),
+    Column("created_at", DateTime(timezone=True), nullable=False),
+    UniqueConstraint("chain_id", "research_run_id", name="uq_impact_chain_id_run"),
+    CheckConstraint(
+        "graph_hash IS NULL OR length(graph_hash) = 64",
+        name="ck_impact_chain_graph_hash_length",
+    ),
+)
+
+impact_chain_node = Table(
+    "impact_chain_node",
+    metadata,
+    Column("node_id", Text, primary_key=True),
+    Column("chain_id", Text, ForeignKey("impact_chain.chain_id"), nullable=False),
+    Column("impact_kind", Text, nullable=False),
+    Column("claim_text", Text, nullable=False),
+    Column("scope_ref", JSONB, nullable=False),
+    Column("proof_refs", JSONB, nullable=False),
+    Column("ordering", Integer, nullable=False),
+    Column("created_at", DateTime(timezone=True), nullable=False),
+    CheckConstraint("ordering >= 0", name="ck_impact_chain_node_ordering"),
+)
+
+impact_chain_edge = Table(
+    "impact_chain_edge",
+    metadata,
+    Column("edge_id", Text, primary_key=True),
+    Column("chain_id", Text, ForeignKey("impact_chain.chain_id"), nullable=False),
+    Column("from_node_id", Text, nullable=False),
+    Column("to_node_id", Text, nullable=False),
+    Column("relation", Text, nullable=False),
+    Column("created_at", DateTime(timezone=True), nullable=False),
+    CheckConstraint(
+        "relation IN ('ENABLES', 'ESCALATES', 'CONFIRMS')",
+        name="ck_impact_chain_edge_relation",
+    ),
+)
+
 SPINE_TABLES = (
     program,
     authorization_source,
@@ -1601,6 +1646,9 @@ SPINE_TABLES = (
     hunter_family,
     hunt_v3_queue,
     oast_token,
+    impact_chain,
+    impact_chain_node,
+    impact_chain_edge,
 )
 
 APPEND_ONLY_TABLES = (
@@ -1642,4 +1690,7 @@ APPEND_ONLY_TABLES = (
     "discovery_projection_receipt",
     "sensor_observation",
     "hunter_family",
+    "impact_chain",
+    "impact_chain_node",
+    "impact_chain_edge",
 )

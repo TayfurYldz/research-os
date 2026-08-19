@@ -23,6 +23,7 @@ from research_os.data.postgres.repositories import (
     PostgresFindingRepository,
     PostgresHunterFamilyRepository,
     PostgresHuntV3QueueRepository,
+    PostgresImpactChainRepository,
     PostgresHypothesisAssessmentRepository,
     PostgresHypothesisRepository,
     PostgresHumanReviewRepository,
@@ -125,6 +126,7 @@ class PostgresUnitOfWork:
         self.attack_surface_snapshots: PostgresAttackSurfaceSnapshotRepository
         self.hunter_families: PostgresHunterFamilyRepository
         self.hunt_v3_queue: PostgresHuntV3QueueRepository
+        self.impact_chains: PostgresImpactChainRepository
 
     def __enter__(self) -> PostgresUnitOfWork:
         self._connection = self._engine.connect()
@@ -198,6 +200,7 @@ class PostgresUnitOfWork:
         )
         self.hunter_families = PostgresHunterFamilyRepository(self._connection)
         self.hunt_v3_queue = PostgresHuntV3QueueRepository(self._connection)
+        self.impact_chains = PostgresImpactChainRepository(self._connection)
         return self
 
     def commit(self) -> None:

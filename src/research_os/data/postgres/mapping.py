@@ -24,6 +24,9 @@ from research_os.data.records import (
     HypothesisAssessmentRecord,
     HypothesisRecord,
     HumanReviewRecord,
+    ImpactChainEdgeRecord,
+    ImpactChainNodeRecord,
+    ImpactChainRecord,
     InvariantHypothesisRecord,
     InvariantCounterexampleRefRecord,
     IssuedBudgetRecord,
@@ -484,6 +487,7 @@ def finding_proposal_from_row(row: Mapping[str, Any]) -> FindingProposalRecord:
         verification_ids=_id_tuple(data["verification_ids"]),
         content_fingerprint=data["content_fingerprint"],
         created_at=data["created_at"],
+        impact_chain_ids=_id_tuple(data.get("impact_chain_ids", [])),
     )
 
 
@@ -1010,5 +1014,42 @@ def hunt_v3_queue_from_row(row: Mapping[str, Any]) -> HuntV3QueueRecord:
         arguments=dict(data["arguments"] or {}),
         side_effect_level=int(data["side_effect_level"]),
         state=data["state"],
+        created_at=data["created_at"],
+    )
+
+
+def impact_chain_from_row(row: Mapping[str, Any]) -> ImpactChainRecord:
+    data = _mapping(row)
+    return ImpactChainRecord(
+        chain_id=data["chain_id"],
+        research_run_id=data["research_run_id"],
+        program_id=data["program_id"],
+        graph_hash=data.get("graph_hash"),
+        created_at=data["created_at"],
+    )
+
+
+def impact_chain_node_from_row(row: Mapping[str, Any]) -> ImpactChainNodeRecord:
+    data = _mapping(row)
+    return ImpactChainNodeRecord(
+        node_id=data["node_id"],
+        chain_id=data["chain_id"],
+        impact_kind=data["impact_kind"],
+        claim_text=data["claim_text"],
+        scope_ref=dict(data["scope_ref"] or {}),
+        proof_refs=_id_tuple(data["proof_refs"]),
+        ordering=int(data["ordering"]),
+        created_at=data["created_at"],
+    )
+
+
+def impact_chain_edge_from_row(row: Mapping[str, Any]) -> ImpactChainEdgeRecord:
+    data = _mapping(row)
+    return ImpactChainEdgeRecord(
+        edge_id=data["edge_id"],
+        chain_id=data["chain_id"],
+        from_node_id=data["from_node_id"],
+        to_node_id=data["to_node_id"],
+        relation=data["relation"],
         created_at=data["created_at"],
     )

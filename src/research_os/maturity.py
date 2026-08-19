@@ -141,6 +141,20 @@ separate eras and must never be confused. GATE 06 does not prove live OAST
 infrastructure, autonomous exploitation execution, live internet reconnaissance,
 bug-bounty performance, or production readiness.
 
+GATE 07 PENDING means the Attack Period ImpactGraph (SD-G7) is implemented and
+under independent architect audit. SD-G7 binds every impact claim in a
+FindingProposal to a proof-supported ImpactChain: each ImpactNode references
+ledger-resolvable proof_ids (evidence/observation/experiment), its impact_kind
+must stay within the demonstrated capabilities of those proofs, and the chain
+must pass structural validation (acyclic, no dangling edges, no empty proofs,
+no hallucinated sources). RegisterImpactChain persists chains append-only;
+SubmitFindingProposal validates them at admission time and rejects any proposal
+with IMPACT_CHAIN_MISSING or IMPACT_EXCEEDS_DEMONSTRATED_CAPABILITY. SD-G7 is
+NOT the old infrastructure GATE 07 (Target Differential benchmark); those are
+separate eras and must never be confused. GATE 07 does not prove autonomous
+vulnerability discovery, active exploitation execution, live internet
+reconnaissance, bug-bounty performance, or production readiness.
+
 PRODUCTION_READY must stay false until operational and live-research gates
 that this environment has not passed actually pass.
 """
@@ -159,6 +173,7 @@ GATE_03_STATUS = "PASS"
 GATE_04_STATUS = "PASS"
 GATE_05_STATUS = "PASS"
 GATE_06_STATUS = "PASS"
+GATE_07_STATUS = "PENDING"
 GATE_12_STATUS = "PASS"
 GATE_13_STATUS = "PASS"
 GATE_14_STATUS = "PASS"
@@ -188,6 +203,7 @@ def maturity_mapping() -> dict[str, object]:
         "GATE_04B": GATE_04B_STATUS,
         "GATE_05": GATE_05_STATUS,
         "GATE_06": GATE_06_STATUS,
+        "GATE_07": GATE_07_STATUS,
         "GATE_12": GATE_12_STATUS,
         "GATE_13": GATE_13_STATUS,
         "GATE_14": GATE_14_STATUS,

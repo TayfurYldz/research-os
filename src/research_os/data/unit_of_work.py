@@ -24,6 +24,7 @@ from research_os.data.ports import (
     HypothesisAssessmentRepository,
     HypothesisRepository,
     HumanReviewRepository,
+    ImpactChainRepository,
     InvariantHypothesisRepository,
     IssuedBudgetRepository,
     ObservationRepository,
@@ -114,6 +115,7 @@ class UnitOfWork(Protocol):
     attack_surface_snapshots: AttackSurfaceSnapshotRepository
     hunter_families: HunterFamilyRepository
     hunt_v3_queue: HuntV3QueueRepository
+    impact_chains: ImpactChainRepository
 
     def commit(self) -> None: ...
     def rollback(self) -> None: ...

@@ -693,7 +693,7 @@ class PostgresSpineTests(unittest.TestCase):
                     )
                 )
             }
-        self.assertEqual(version, "a30_001_oast_token")
+        self.assertEqual(version, "a31_001_impact_graph")
         self.assertIn("execution_attempt", tables)
         self.assertIn("worker_result", tables)
         self.assertIn("audit_event", tables)

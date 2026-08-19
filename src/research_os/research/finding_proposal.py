@@ -64,6 +64,20 @@ class FindingProposalAdmissionOutcome(Enum):
     REJECTED_POLICY_CONFLICT = "REJECTED_POLICY_CONFLICT"
 
 
+@dataclass(frozen=True)
+class ImpactClaim:
+    """One impact claim attached to a FindingProposalDraft. Must be backed by a chain."""
+
+    claim_text: str
+    impact_kind: str
+    chain_id: str
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "claim_text", _require_text(self.claim_text, "claim_text"))
+        object.__setattr__(self, "impact_kind", _require_text(self.impact_kind, "impact_kind"))
+        object.__setattr__(self, "chain_id", _require_text(self.chain_id, "chain_id"))
+
+
 class HumanReviewDecision(Enum):
     APPROVE = "APPROVE"
     REJECT = "REJECT"
@@ -147,6 +161,7 @@ class FindingProposalDraft:
     verification_ids: tuple[str, ...]
     rationale: Mapping[str, Any]
     provenance: Mapping[str, Any]
+    impact_claims: tuple[ImpactClaim, ...] = ()
 
     def __post_init__(self) -> None:
         object.__setattr__(
@@ -173,6 +188,16 @@ class FindingProposalDraft:
         object.__setattr__(self, "rationale", _reject_forbidden(self.rationale, "rationale"))
         object.__setattr__(
             self, "provenance", _reject_forbidden(self.provenance, "provenance")
+        )
+        if not isinstance(self.impact_claims, tuple):
+            raise ResearchInputError("impact_claims must be a tuple")
+        object.__setattr__(
+            self,
+            "impact_claims",
+            tuple(
+                item if isinstance(item, ImpactClaim) else ImpactClaim(**item)
+                for item in self.impact_claims
+            ),
         )
 
     @property
@@ -453,6 +478,16 @@ def admit_finding_proposal(
             admitted=False,
             initial_state=None,
         )
+    if draft.impact_claims:
+        missing = [claim.claim_text for claim in draft.impact_claims if not claim.chain_id.strip()]
+        if missing:
+            return FindingProposalAdmissionDecision(
+                outcome=FindingProposalAdmissionOutcome.REJECTED_POLICY_CONFLICT,
+                reason_codes=("IMPACT_CHAIN_MISSING", *codes),
+                draft=draft,
+                admitted=False,
+                initial_state=None,
+            )
     if "WRONG_CANDIDATE" in codes or "WRONG_RESEARCH_RUN" in codes:
         return FindingProposalAdmissionDecision(
             outcome=FindingProposalAdmissionOutcome.REJECTED_BROKEN_PROVENANCE,

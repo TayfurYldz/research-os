@@ -46,6 +46,9 @@ from research_os.data.records import (
     HuntV3QueueRecord,
     HypothesisRecord,
     HumanReviewRecord,
+    ImpactChainEdgeRecord,
+    ImpactChainNodeRecord,
+    ImpactChainRecord,
     InvariantCounterexampleRefRecord,
     InvariantHypothesisRecord,
     IssuedBudgetRecord,
@@ -1355,6 +1358,7 @@ class PostgresFindingProposalRepository:
                 evidence_ids=list(record.evidence_ids),
                 verification_ids=list(record.verification_ids),
                 content_fingerprint=record.content_fingerprint,
+                impact_chain_ids=list(record.impact_chain_ids),
                 created_at=record.created_at,
             ),
         )
@@ -2459,4 +2463,97 @@ class PostgresHuntV3QueueRepository:
         )
         if result.rowcount != 1:
             raise PersistenceError("hunt_v3_queue item not found for state update")
+
+
+class PostgresImpactChainRepository:
+    def __init__(self, connection: Connection) -> None:
+        self._connection = connection
+
+    def insert(
+        self,
+        record: ImpactChainRecord,
+        nodes: tuple[ImpactChainNodeRecord, ...],
+        edges: tuple[ImpactChainEdgeRecord, ...],
+    ) -> None:
+        _execute_write(
+            self._connection,
+            tables.impact_chain.insert().values(
+                chain_id=record.chain_id,
+                research_run_id=record.research_run_id,
+                program_id=record.program_id,
+                graph_hash=record.graph_hash,
+                created_at=record.created_at,
+            ),
+        )
+        for node in nodes:
+            _execute_write(
+                self._connection,
+                tables.impact_chain_node.insert().values(
+                    node_id=node.node_id,
+                    chain_id=node.chain_id,
+                    impact_kind=node.impact_kind,
+                    claim_text=node.claim_text,
+                    scope_ref=dict(node.scope_ref),
+                    proof_refs=list(node.proof_refs),
+                    ordering=node.ordering,
+                    created_at=node.created_at,
+                ),
+            )
+        for edge in edges:
+            _execute_write(
+                self._connection,
+                tables.impact_chain_edge.insert().values(
+                    edge_id=edge.edge_id,
+                    chain_id=edge.chain_id,
+                    from_node_id=edge.from_node_id,
+                    to_node_id=edge.to_node_id,
+                    relation=edge.relation,
+                    created_at=edge.created_at,
+                ),
+            )
+
+    def get(self, chain_id: str) -> ImpactChainRecord | None:
+        require_opaque_id(chain_id, "chain_id")
+        return _fetch_one(
+            self._connection,
+            tables.impact_chain,
+            tables.impact_chain.c.chain_id,
+            chain_id,
+            map_row.impact_chain_from_row,
+        )
+
+    def get_nodes(self, chain_id: str) -> tuple[ImpactChainNodeRecord, ...]:
+        require_opaque_id(chain_id, "chain_id")
+        try:
+            rows = self._connection.execute(
+                select(tables.impact_chain_node)
+                .where(tables.impact_chain_node.c.chain_id == chain_id)
+                .order_by(tables.impact_chain_node.c.ordering)
+            ).mappings().all()
+        except SQLAlchemyError as exc:
+            raise PersistenceError("persistence read failed") from exc
+        return tuple(map_row.impact_chain_node_from_row(row) for row in rows)
+
+    def get_edges(self, chain_id: str) -> tuple[ImpactChainEdgeRecord, ...]:
+        require_opaque_id(chain_id, "chain_id")
+        try:
+            rows = self._connection.execute(
+                select(tables.impact_chain_edge)
+                .where(tables.impact_chain_edge.c.chain_id == chain_id)
+            ).mappings().all()
+        except SQLAlchemyError as exc:
+            raise PersistenceError("persistence read failed") from exc
+        return tuple(map_row.impact_chain_edge_from_row(row) for row in rows)
+
+    def list_for_research_run(self, research_run_id: str) -> list[ImpactChainRecord]:
+        require_opaque_id(research_run_id, "research_run_id")
+        try:
+            rows = self._connection.execute(
+                select(tables.impact_chain)
+                .where(tables.impact_chain.c.research_run_id == research_run_id)
+                .order_by(tables.impact_chain.c.created_at)
+            ).mappings().all()
+        except SQLAlchemyError as exc:
+            raise PersistenceError("persistence read failed") from exc
+        return [map_row.impact_chain_from_row(row) for row in rows]
 

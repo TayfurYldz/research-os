@@ -27,6 +27,9 @@ from research_os.data.records import (
     HypothesisAssessmentRecord,
     HypothesisRecord,
     HumanReviewRecord,
+    ImpactChainEdgeRecord,
+    ImpactChainNodeRecord,
+    ImpactChainRecord,
     InvariantCounterexampleRefRecord,
     InvariantHypothesisRecord,
     IssuedBudgetRecord,
@@ -446,4 +449,17 @@ class HuntV3QueueRepository(Protocol):
     def list_for_research_run(self, research_run_id: str) -> list[HuntV3QueueRecord]: ...
     def list_pending_for_research_run(self, research_run_id: str) -> list[HuntV3QueueRecord]: ...
     def set_state(self, queue_id: str, state: str) -> None: ...
+
+
+class ImpactChainRepository(Protocol):
+    def insert(
+        self,
+        record: ImpactChainRecord,
+        nodes: tuple[ImpactChainNodeRecord, ...],
+        edges: tuple[ImpactChainEdgeRecord, ...],
+    ) -> None: ...
+    def get(self, chain_id: str) -> ImpactChainRecord | None: ...
+    def get_nodes(self, chain_id: str) -> tuple[ImpactChainNodeRecord, ...]: ...
+    def get_edges(self, chain_id: str) -> tuple[ImpactChainEdgeRecord, ...]: ...
+    def list_for_research_run(self, research_run_id: str) -> list[ImpactChainRecord]: ...
 

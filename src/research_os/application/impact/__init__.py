@@ -1,0 +1,1 @@
+"""Application impact-chain adapters."""

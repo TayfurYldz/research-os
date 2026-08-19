@@ -9,10 +9,17 @@ from dataclasses import dataclass
 
 from research_os.application.errors import ApplicationError
 from research_os.application.identity import new_opaque_id
+from research_os.application.impact.proof_resolver import (
+    UnitOfWorkProofResolver,
+    rebuild_impact_chain,
+)
 from research_os.application.ports import Clock, SystemClock, UnitOfWorkFactory
 from research_os.core.enums import ActorType
 from research_os.data.records import AuditEventRecord, FindingProposalRecord
+from research_os.data.unit_of_work import UnitOfWork
 from research_os.research.candidate import CandidateState
+from research_os.research.impact.capability_map import validate_chain_impact_scope
+from research_os.research.impact.validator import validate_chain
 from research_os.research.finding_proposal import (
     FindingProposalAdmissionContext,
     FindingProposalAdmissionOutcome,
@@ -90,6 +97,7 @@ class SubmitFindingProposal:
             proposal_id = draft.proposal_id if decision.creates_proposal else None
             if proposal_id is not None:
                 assert decision.initial_state is FindingProposalState.PROPOSED
+                impact_chain_ids = _validate_impact_claims(uow, draft)
                 uow.finding_proposals.insert(
                     FindingProposalRecord(
                         proposal_id=proposal_id,
@@ -102,6 +110,7 @@ class SubmitFindingProposal:
                         evidence_ids=draft.evidence_ids,
                         verification_ids=draft.verification_ids,
                         content_fingerprint=draft.content_fingerprint,
+                        impact_chain_ids=impact_chain_ids,
                         created_at=self._clock.now(),
                     )
                 )
@@ -127,3 +136,27 @@ class SubmitFindingProposal:
             state=decision.initial_state,
             reason_codes=decision.reason_codes,
         )
+
+
+def _validate_impact_claims(uow: UnitOfWork, draft: FindingProposalDraft) -> tuple[str, ...]:
+    if not draft.impact_claims:
+        return ()
+    resolver = UnitOfWorkProofResolver(uow)
+    chain_ids: list[str] = []
+    for claim in draft.impact_claims:
+        record = uow.impact_chains.get(claim.chain_id)
+        if record is None:
+            raise ApplicationError(f"impact chain not found: {claim.chain_id}")
+        chain = rebuild_impact_chain(uow, record)
+        structural = validate_chain(chain, resolver)
+        if not structural.valid:
+            raise ApplicationError(
+                f"impact chain validation failed for {claim.chain_id}: {structural.reason_codes}"
+            )
+        scope = validate_chain_impact_scope(chain, resolver)
+        if not scope.valid:
+            raise ApplicationError(
+                f"impact scope validation failed for {claim.chain_id}: {scope.reason_codes}"
+            )
+        chain_ids.append(claim.chain_id)
+    return tuple(chain_ids)

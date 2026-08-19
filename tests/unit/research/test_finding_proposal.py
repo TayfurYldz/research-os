@@ -19,6 +19,7 @@ from research_os.research.finding_proposal import (
     FindingProposalState,
     HumanReviewDecision,
     HumanReviewView,
+    ImpactClaim,
     admit_finding_proposal,
     admit_human_review,
     approval_subject_for,
@@ -146,6 +147,35 @@ class FindingProposalAdmissionTests(unittest.TestCase):
                 verification_ids=("ver-1",),
                 rationale={"confidence": 0.9},
                 provenance={"source": "test"},
+            )
+
+    def test_impact_claim_without_chain_id_is_rejected(self) -> None:
+        context = _context()
+        with self.assertRaises(ResearchInputError):
+            _draft(
+                context,
+                impact_claims=(
+                    ImpactClaim(
+                        claim_text="attacker can read data",
+                        impact_kind="DATA_READ",
+                        chain_id="",
+                    ),
+                ),
+            )
+
+    def test_empty_impact_claims_remains_admissible(self) -> None:
+        context = _context()
+        draft = _draft(context, impact_claims=())
+        decision = admit_finding_proposal(draft, context)
+        self.assertTrue(decision.creates_proposal)
+
+    def test_impact_claim_with_blank_chain_id_is_rejected(self) -> None:
+        context = _context()
+        with self.assertRaises(ResearchInputError):
+            ImpactClaim(
+                claim_text="attacker can read data",
+                impact_kind="DATA_READ",
+                chain_id="   ",
             )
 
 

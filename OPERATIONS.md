@@ -1,5 +1,60 @@
 # Research OS Operations Notes
 
+## SD-G7 — ImpactGraph
+
+### Scope
+
+SD-G7 makes every impact claim in a FindingProposal traceable to a chain of
+proof artifacts from the ledger. A chain without proofs cannot be admitted.
+
+- **ImpactChain core** (`research_os.research.impact`): `ImpactNode`,
+  `ImpactEdge`, and `ImpactChain` with structural validation and a
+  demonstrated-capability scope rule.
+- **Admission integration**: `SubmitFindingProposal` rejects proposals whose
+  `impact_claims` reference a missing chain, an invalid chain, or a chain whose
+  claimed impact kinds exceed what the referenced proofs actually demonstrate.
+- **Persistence**: `impact_chain`, `impact_chain_node`, and `impact_chain_edge`
+  tables store chains append-only; `finding_proposal.impact_chain_ids` links
+  proposals to their chains.
+
+### Impact Kinds and Demonstrated Capabilities
+
+| Demonstrated capability | Allowed impact kinds |
+|-------------------------|----------------------|
+| `READ_OTHER_OBJECT` | `DATA_READ`, `AUTH_BYPASS` |
+| `WRITE_OTHER_OBJECT` | `DATA_WRITE`, `STATE_CORRUPTION` |
+| `WORKFLOW_TRANSITION_WITHOUT_AUTH` | `STATE_CORRUPTION`, `AUTH_BYPASS` |
+| `AUTHENTICATED_AS_USER` | `AUTH_BYPASS` |
+| `PRIVILEGE_ESCALATION_EVIDENCE` | `AUTH_BYPASS`, `ACCOUNT_TAKEOVER_PATH` |
+| `CROSS_ACCOUNT_SESSION_ASSUMPTION` | `ACCOUNT_TAKEOVER_PATH` |
+| `OAST_CALLBACK_RECEIVED` | `EXTERNAL_CALLBACK` |
+
+Unknown capabilities contribute nothing (fail-closed empty set).
+
+### Validation Rules
+
+1. Every `ImpactNode` must reference at least one resolvable `proof_id`.
+2. Every `proof_id` must exist in the ledger (`evidence`, `observation`, or
+   `experiment`).
+3. The chain must be acyclic and every edge must connect nodes inside the chain.
+4. The node's `impact_kind` must be in the allowed set derived from its proofs'
+   demonstrated capabilities.
+5. All node `scope_ref`s must stay within the same program/run boundary.
+
+### Use Cases
+
+- `RegisterImpactChain`: persists a validated chain; performs structural
+  validation only (scope validation happens at proposal admission time).
+- `SubmitFindingProposal`: resolves each impact claim's chain, re-validates it
+  structurally and against demonstrated capabilities, then persists the proposal
+  with `impact_chain_ids`.
+
+### Runbook
+
+- `GATE_07_STATUS` stays `PENDING` until the independent architect audit seals
+  the gate.
+- Full suite commands are the same as SD-G6.
+
 ## SD-G6 — Mutation Engine + OAST Core
 
 ### Scope

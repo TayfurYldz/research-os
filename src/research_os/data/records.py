@@ -1033,6 +1033,7 @@ class FindingProposalRecord:
     verification_ids: tuple[str, ...]
     content_fingerprint: str
     created_at: datetime
+    impact_chain_ids: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         require_opaque_id(self.proposal_id, "proposal_id")
@@ -1069,6 +1070,16 @@ class FindingProposalRecord:
         )
         if not isinstance(self.content_fingerprint, str) or not self.content_fingerprint.strip():
             raise PersistenceInputError("content_fingerprint must be a non-empty string")
+        if not isinstance(self.impact_chain_ids, tuple):
+            raise PersistenceInputError("impact_chain_ids must be a tuple")
+        object.__setattr__(
+            self,
+            "impact_chain_ids",
+            tuple(
+                require_opaque_id(item, f"impact_chain_ids[{index}]")
+                for index, item in enumerate(self.impact_chain_ids)
+            ),
+        )
 
 
 @dataclass(frozen=True)
@@ -2601,4 +2612,82 @@ class HuntV3QueueRecord:
             raise PersistenceInputError("side_effect_level must be 0, 1, 2, or 3")
         if self.state not in {"PENDING", "APPROVED", "RUN", "BLOCKED"}:
             raise PersistenceInputError("state must be PENDING, APPROVED, RUN, or BLOCKED")
+        require_aware_datetime(self.created_at, "created_at")
+
+
+@dataclass(frozen=True)
+class ImpactChainRecord:
+    """Immutable impact-chain registration. Nodes/edges stored separately."""
+
+    chain_id: str
+    research_run_id: str
+    program_id: str
+    graph_hash: str | None
+    created_at: datetime
+
+    def __post_init__(self) -> None:
+        require_opaque_id(self.chain_id, "chain_id")
+        require_opaque_id(self.research_run_id, "research_run_id")
+        require_opaque_id(self.program_id, "program_id")
+        if self.graph_hash is not None and (
+            not isinstance(self.graph_hash, str) or len(self.graph_hash) != 64
+        ):
+            raise PersistenceInputError("graph_hash must be a SHA-256 hex digest or None")
+        require_aware_datetime(self.created_at, "created_at")
+
+
+@dataclass(frozen=True)
+class ImpactChainNodeRecord:
+    """One node of a persisted impact chain."""
+
+    node_id: str
+    chain_id: str
+    impact_kind: str
+    claim_text: str
+    scope_ref: Mapping[str, Any]
+    proof_refs: tuple[str, ...]
+    ordering: int
+    created_at: datetime
+
+    def __post_init__(self) -> None:
+        require_opaque_id(self.node_id, "node_id")
+        require_opaque_id(self.chain_id, "chain_id")
+        if not isinstance(self.impact_kind, str) or not self.impact_kind.strip():
+            raise PersistenceInputError("impact_kind must be a non-empty string")
+        if not isinstance(self.claim_text, str) or not self.claim_text.strip():
+            raise PersistenceInputError("claim_text must be a non-empty string")
+        object.__setattr__(self, "scope_ref", _require_mapping(self.scope_ref, "scope_ref"))
+        if not isinstance(self.proof_refs, tuple) or not self.proof_refs:
+            raise PersistenceInputError("proof_refs must be a non-empty tuple")
+        object.__setattr__(
+            self,
+            "proof_refs",
+            tuple(
+                require_opaque_id(item, f"proof_refs[{index}]")
+                for index, item in enumerate(self.proof_refs)
+            ),
+        )
+        if not isinstance(self.ordering, int) or isinstance(self.ordering, bool) or self.ordering < 0:
+            raise PersistenceInputError("ordering must be a non-negative int")
+        require_aware_datetime(self.created_at, "created_at")
+
+
+@dataclass(frozen=True)
+class ImpactChainEdgeRecord:
+    """One edge of a persisted impact chain."""
+
+    edge_id: str
+    chain_id: str
+    from_node_id: str
+    to_node_id: str
+    relation: str
+    created_at: datetime
+
+    def __post_init__(self) -> None:
+        require_opaque_id(self.edge_id, "edge_id")
+        require_opaque_id(self.chain_id, "chain_id")
+        require_opaque_id(self.from_node_id, "from_node_id")
+        require_opaque_id(self.to_node_id, "to_node_id")
+        if not isinstance(self.relation, str) or not self.relation.strip():
+            raise PersistenceInputError("relation must be a non-empty string")
         require_aware_datetime(self.created_at, "created_at")

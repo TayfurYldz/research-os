@@ -115,6 +115,9 @@ class AlembicSmokeTests(unittest.TestCase):
                 "sensor_observation",
                 "hunter_family",
                 "hunt_v3_queue",
+                "impact_chain",
+                "impact_chain_node",
+                "impact_chain_edge",
             },
         )
         self.assertEqual(set(metadata.tables), names)
