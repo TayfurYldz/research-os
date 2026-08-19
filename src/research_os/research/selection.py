@@ -26,6 +26,9 @@ from research_os.research.planning import (
     HTTP_STATE_TRANSITION_CLAIM,
 )
 from research_os.research.types import ExperimentPlan, ResearchInputError
+
+# Imported lazily inside families_for_node to avoid cycles at module load.
+# from research_os.research.discovery.graph import AttackSurfaceGraph, AttackSurfaceNode
 from research_os.tools.capabilities import (
     HTTP_AUTHORIZATION_DIFFERENTIAL_CAPABILITY,
     HTTP_STATE_TRANSITION_CAPABILITY,
@@ -33,6 +36,7 @@ from research_os.tools.capabilities import (
 from research_os.tools.registry import WORKER_EXECUTOR_CLASS, load_capability_registry
 
 RESEARCH_SELECTION_STRATEGY_VERSION = "research.selection.v1"
+HUNTER_FAMILY_REGISTRY_VERSION = "hunter_family.registry.v1"
 OBJECT_OBSERVATION_KIND = "HTTP_AUTHORIZATION_DIFFERENTIAL"
 WORKFLOW_OBSERVATION_KIND = "HTTP_STATE_TRANSITION_AUTHORIZATION"
 FORBIDDEN_OPTION_KEYS = FORBIDDEN_OPPORTUNITY_KEYS | frozenset(
@@ -60,7 +64,34 @@ WORKFLOW_HYPOTHESIS_ORIGIN = "human-seed-workflow-authorization"
 class HypothesisFamily(Enum):
     OBJECT_AUTHORIZATION = "OBJECT_AUTHORIZATION"
     WORKFLOW_STATE_TRANSITION = "WORKFLOW_STATE_TRANSITION"
+    EXPOSED_API_SPEC = "EXPOSED_API_SPEC"
+    UNPROTECTED_HOSTNAME = "UNPROTECTED_HOSTNAME"
+    TECH_KNOWN_CVE_SURFACE = "TECH_KNOWN_CVE_SURFACE"
     UNKNOWN = "UNKNOWN"
+
+
+@dataclass(frozen=True)
+class HunterFamilyView:
+    """Read-only registry view used by the research-layer resolver.
+
+    The authoritative append-only rows live in the data layer; this is a
+    language-neutral projection passed into research selection.
+    """
+
+    family_id: str
+    name: str
+    target_node_kinds: tuple[str, ...]
+    preconditions: Mapping[str, Any]
+    claim_template: str
+    evidence_requirements: Mapping[str, Any]
+    validation_tier: str
+    enabled: bool
+    version: int
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "target_node_kinds", tuple(self.target_node_kinds))
+        object.__setattr__(self, "preconditions", dict(self.preconditions))
+        object.__setattr__(self, "evidence_requirements", dict(self.evidence_requirements))
 
 
 class HypothesisLifecycle(Enum):
@@ -129,6 +160,69 @@ def family_for_claim(claim: str) -> HypothesisFamily:
     if text == HTTP_STATE_TRANSITION_CLAIM:
         return HypothesisFamily.WORKFLOW_STATE_TRANSITION
     return HypothesisFamily.UNKNOWN
+
+
+def families_for_node(
+    node: "AttackSurfaceNode",
+    graph: "AttackSurfaceGraph",
+    registry: tuple[HunterFamilyView, ...],
+) -> tuple[HunterFamilyView, ...]:
+    """Return enabled families whose preconditions match the node and graph.
+
+    Empty result is normal; it never falls back to UNKNOWN spam.
+    """
+    # Lazy import keeps the module DAG acyclic.
+    from research_os.research.discovery.graph import AttackSurfaceNode
+
+    if not isinstance(node, AttackSurfaceNode):
+        raise ResearchInputError("node must be an AttackSurfaceNode")
+    matched: list[HunterFamilyView] = []
+    node_kind_value = node.kind.value
+    scope_value = node.scope_classification.value
+    for family in registry:
+        if not family.enabled:
+            continue
+        if node_kind_value not in family.target_node_kinds:
+            continue
+        preconditions = family.preconditions
+        required_scope = preconditions.get("scope_classification")
+        if required_scope is not None and required_scope != scope_value:
+            continue
+        absent_edge_kind = preconditions.get("absent_edge_kind")
+        if absent_edge_kind is not None and _node_has_edge_kind(node, graph, absent_edge_kind):
+            continue
+        required_edge_kind = preconditions.get("required_edge_kind")
+        if required_edge_kind is not None and not _node_has_edge_kind(node, graph, required_edge_kind):
+            continue
+        matched.append(family)
+    return tuple(matched)
+
+
+def _node_has_edge_kind(
+    node: "AttackSurfaceNode", graph: "AttackSurfaceGraph", edge_kind_value: str
+) -> bool:
+    """True if any edge touching the node has the given kind value."""
+    for edge in graph.edges:
+        if edge.kind.value != edge_kind_value:
+            continue
+        if edge.from_node_id == node.node_id or edge.to_node_id == node.node_id:
+            return True
+    return False
+
+
+def claim_from_template(node: "AttackSurfaceNode", family: HunterFamilyView) -> str:
+    """Deterministic claim from family template and node attributes.
+
+    Claim text intentionally contains no severity/confidence/finding language.
+    """
+    attributes = dict(node.attributes or {})
+    attributes["canonical_key"] = node.canonical_key
+    try:
+        return family.claim_template.format(**attributes)
+    except KeyError as exc:
+        raise ResearchInputError(
+            f"claim template for {family.family_id} missing placeholder {exc}"
+        ) from exc
 
 
 def lifecycle_from_assessments(

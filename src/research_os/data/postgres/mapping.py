@@ -58,6 +58,8 @@ from research_os.data.records import (
     FrontierEventRecord,
     FrontierItemRecord,
     FrontierSourceRecord,
+    HunterFamilyRecord,
+    HuntV3QueueRecord,
 )
 
 
@@ -962,5 +964,38 @@ def attack_surface_snapshot_from_row(row: Mapping[str, Any]) -> AttackSurfaceSna
         node_count=int(data["node_count"]),
         edge_count=int(data["edge_count"]),
         graph_hash=data["graph_hash"],
+        created_at=data["created_at"],
+    )
+
+
+def hunter_family_from_row(row: Mapping[str, Any]) -> HunterFamilyRecord:
+    data = _mapping(row)
+    return HunterFamilyRecord(
+        family_id=data["family_id"],
+        name=data["name"],
+        target_node_kinds=_id_tuple(data["target_node_kinds"]),
+        preconditions=dict(data["preconditions"] or {}),
+        claim_template=data["claim_template"],
+        evidence_requirements=dict(data["evidence_requirements"] or {}),
+        validation_tier=data["validation_tier"],
+        enabled=bool(data["enabled"]),
+        version=int(data["version"]),
+        created_at=data["created_at"],
+    )
+
+
+def hunt_v3_queue_from_row(row: Mapping[str, Any]) -> HuntV3QueueRecord:
+    data = _mapping(row)
+    return HuntV3QueueRecord(
+        queue_id=data["queue_id"],
+        research_run_id=data["research_run_id"],
+        hypothesis_id=data["hypothesis_id"],
+        family_id=data["family_id"],
+        node_canonical_key=data["node_canonical_key"],
+        capability=data["capability"],
+        action=data["action"],
+        arguments=dict(data["arguments"] or {}),
+        side_effect_level=int(data["side_effect_level"]),
+        state=data["state"],
         created_at=data["created_at"],
     )

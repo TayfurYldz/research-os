@@ -10,6 +10,7 @@ from sqlalchemy import (
     Index,
     Integer,
     MetaData,
+    PrimaryKeyConstraint,
     Table,
     Text,
     UniqueConstraint,
@@ -1477,6 +1478,56 @@ attack_surface_snapshot = Table(
     CheckConstraint("length(graph_hash) = 64", name="ck_attack_surface_snapshot_hash_length"),
 )
 
+hunter_family = Table(
+    "hunter_family",
+    metadata,
+    Column("family_id", Text, nullable=False),
+    Column("name", Text, nullable=False),
+    Column("target_node_kinds", JSONB, nullable=False),
+    Column("preconditions", JSONB, nullable=False),
+    Column("claim_template", Text, nullable=False),
+    Column("evidence_requirements", JSONB, nullable=False),
+    Column("validation_tier", Text, nullable=False),
+    Column("enabled", Boolean, nullable=False),
+    Column("version", Integer, nullable=False),
+    Column("created_at", DateTime(timezone=True), nullable=False),
+    PrimaryKeyConstraint("family_id", "version"),
+    CheckConstraint(
+        "validation_tier IN ('V1', 'V2', 'V3')",
+        name="ck_hunter_family_validation_tier",
+    ),
+    CheckConstraint("version >= 1", name="ck_hunter_family_version_positive"),
+)
+
+hunt_v3_queue = Table(
+    "hunt_v3_queue",
+    metadata,
+    Column("queue_id", Text, primary_key=True),
+    Column("research_run_id", Text, ForeignKey("research_run.research_run_id"), nullable=False),
+    Column("hypothesis_id", Text, nullable=False),
+    Column("family_id", Text, nullable=False),
+    Column("node_canonical_key", Text, nullable=False),
+    Column("capability", Text, nullable=False),
+    Column("action", Text, nullable=False),
+    Column("arguments", JSONB, nullable=False),
+    Column("side_effect_level", Integer, nullable=False),
+    Column("state", Text, nullable=False),
+    Column("created_at", DateTime(timezone=True), nullable=False),
+    ForeignKeyConstraint(
+        ["hypothesis_id", "research_run_id"],
+        ["hypothesis.hypothesis_id", "hypothesis.research_run_id"],
+        name="fk_hunt_v3_queue_hypothesis_same_run",
+    ),
+    CheckConstraint(
+        "side_effect_level IN (0, 1, 2, 3)",
+        name="ck_hunt_v3_queue_side_effect_level",
+    ),
+    CheckConstraint(
+        "state IN ('PENDING', 'APPROVED', 'RUN', 'BLOCKED')",
+        name="ck_hunt_v3_queue_state",
+    ),
+)
+
 SPINE_TABLES = (
     program,
     authorization_source,
@@ -1534,6 +1585,8 @@ SPINE_TABLES = (
     rate_limit_profile,
     bounty_table,
     sensor_observation,
+    hunter_family,
+    hunt_v3_queue,
 )
 
 APPEND_ONLY_TABLES = (
@@ -1574,4 +1627,5 @@ APPEND_ONLY_TABLES = (
     "frontier_event",
     "discovery_projection_receipt",
     "sensor_observation",
+    "hunter_family",
 )

@@ -52,6 +52,9 @@ from research_os.data.ports import (
     FrontierSourceRepository,
     FrontierEventRepository,
     DiscoveryProjectionReceiptRepository,
+    AttackSurfaceSnapshotRepository,
+    HunterFamilyRepository,
+    HuntV3QueueRepository,
 )
 
 
@@ -109,6 +112,8 @@ class UnitOfWork(Protocol):
     frontier_events: FrontierEventRepository
     discovery_projection_receipts: DiscoveryProjectionReceiptRepository
     attack_surface_snapshots: AttackSurfaceSnapshotRepository
+    hunter_families: HunterFamilyRepository
+    hunt_v3_queue: HuntV3QueueRepository
 
     def commit(self) -> None: ...
     def rollback(self) -> None: ...

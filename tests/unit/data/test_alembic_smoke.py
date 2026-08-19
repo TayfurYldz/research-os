@@ -36,6 +36,7 @@ A25_MIGRATION = ALEMBIC_VERSIONS / "a25_001_discovery_fact_kinds.py"
 A26_MIGRATION = ALEMBIC_VERSIONS / "a26_001_sensor_obs_src.py"
 A27_MIGRATION = ALEMBIC_VERSIONS / "a27_001_attack_surface_snapshot.py"
 A28_MIGRATION = ALEMBIC_VERSIONS / "a28_001_token_economy.py"
+A29_MIGRATION = ALEMBIC_VERSIONS / "a29_001_hunter_family_registry.py"
 
 
 def _imported_modules(tree: ast.AST) -> set[str]:
@@ -111,6 +112,8 @@ class AlembicSmokeTests(unittest.TestCase):
                 "rate_limit_profile",
                 "bounty_table",
                 "sensor_observation",
+                "hunter_family",
+                "hunt_v3_queue",
             },
         )
         self.assertEqual(set(metadata.tables), names)

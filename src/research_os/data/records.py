@@ -2505,3 +2505,82 @@ class AttackSurfaceSnapshotRecord:
         if not isinstance(self.graph_hash, str) or len(self.graph_hash) != 64:
             raise PersistenceInputError("graph_hash must be a SHA-256 hex digest")
 
+
+
+
+@dataclass(frozen=True)
+class HunterFamilyRecord:
+    """Data-driven hypothesis family registry entry. Append-only versioning."""
+
+    family_id: str
+    name: str
+    target_node_kinds: tuple[str, ...]
+    preconditions: Mapping[str, Any]
+    claim_template: str
+    evidence_requirements: Mapping[str, Any]
+    validation_tier: str
+    enabled: bool
+    version: int
+    created_at: datetime
+
+    def __post_init__(self) -> None:
+        require_opaque_id(self.family_id, "family_id")
+        if not isinstance(self.name, str) or not self.name.strip():
+            raise PersistenceInputError("name must be a non-empty string")
+        if not isinstance(self.target_node_kinds, tuple) or not all(
+            isinstance(item, str) and item.strip() for item in self.target_node_kinds
+        ):
+            raise PersistenceInputError("target_node_kinds must be a tuple of non-empty strings")
+        object.__setattr__(
+            self, "preconditions", _require_mapping(self.preconditions, "preconditions")
+        )
+        if not isinstance(self.claim_template, str) or not self.claim_template.strip():
+            raise PersistenceInputError("claim_template must be a non-empty string")
+        object.__setattr__(
+            self,
+            "evidence_requirements",
+            _require_mapping(self.evidence_requirements, "evidence_requirements"),
+        )
+        if self.validation_tier not in {"V1", "V2", "V3"}:
+            raise PersistenceInputError("validation_tier must be V1, V2, or V3")
+        if not isinstance(self.enabled, bool):
+            raise PersistenceInputError("enabled must be a boolean")
+        require_non_negative_int(self.version, "version")
+        if self.version < 1:
+            raise PersistenceInputError("version must be >= 1")
+        require_aware_datetime(self.created_at, "created_at")
+
+
+@dataclass(frozen=True)
+class HuntV3QueueRecord:
+    """Pending active-experiment queue item produced by the hunt cycle."""
+
+    queue_id: str
+    research_run_id: str
+    hypothesis_id: str
+    family_id: str
+    node_canonical_key: str
+    capability: str
+    action: str
+    arguments: Mapping[str, Any]
+    side_effect_level: int
+    state: str
+    created_at: datetime
+
+    def __post_init__(self) -> None:
+        require_opaque_id(self.queue_id, "queue_id")
+        require_opaque_id(self.research_run_id, "research_run_id")
+        require_opaque_id(self.hypothesis_id, "hypothesis_id")
+        require_opaque_id(self.family_id, "family_id")
+        if not isinstance(self.node_canonical_key, str) or not self.node_canonical_key.strip():
+            raise PersistenceInputError("node_canonical_key must be a non-empty string")
+        if not isinstance(self.capability, str) or not self.capability.strip():
+            raise PersistenceInputError("capability must be a non-empty string")
+        if not isinstance(self.action, str) or not self.action.strip():
+            raise PersistenceInputError("action must be a non-empty string")
+        object.__setattr__(self, "arguments", _require_mapping(self.arguments, "arguments"))
+        if self.side_effect_level not in (0, 1, 2, 3):
+            raise PersistenceInputError("side_effect_level must be 0, 1, 2, or 3")
+        if self.state not in {"PENDING", "APPROVED", "RUN", "BLOCKED"}:
+            raise PersistenceInputError("state must be PENDING, APPROVED, RUN, or BLOCKED")
+        require_aware_datetime(self.created_at, "created_at")

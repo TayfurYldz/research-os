@@ -75,6 +75,19 @@ class AdmitSensorObservations:
         )
         canonical_key = self._canonical_key(observation, fact_kind)
 
+        attributes: dict[str, Any] = {
+            "sensor_id": observation.sensor_id,
+            "scope_classification": scope_classification,
+            "source_status": TargetEpistemicStatus.UNTRUSTED_EXTERNAL.value,
+            "admitted_at": observation.collected_at.isoformat(),
+        }
+        if fact_kind is DiscoveryFactKind.TECH:
+            technologies = payload.get("technologies")
+            if isinstance(technologies, list) and technologies:
+                first = technologies[0]
+                if isinstance(first, dict) and isinstance(first.get("name"), str):
+                    attributes["technology"] = first["name"]
+
         domain_fact = DiscoveryFact(
             fact_id=new_opaque_id(),
             research_run_id=research_run_id,
@@ -90,12 +103,7 @@ class AdmitSensorObservations:
                 ),
             ),
             normalized_origin=observation.target_reference,
-            attributes={
-                "sensor_id": observation.sensor_id,
-                "scope_classification": scope_classification,
-                "source_status": TargetEpistemicStatus.UNTRUSTED_EXTERNAL.value,
-                "admitted_at": observation.collected_at.isoformat(),
-            },
+            attributes=attributes,
         )
 
         with self._uow_factory.open() as uow:

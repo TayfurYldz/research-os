@@ -42,6 +42,8 @@ from research_os.data.records import (
     FindingProposalRecord,
     FindingRecord,
     HypothesisAssessmentRecord,
+    HunterFamilyRecord,
+    HuntV3QueueRecord,
     HypothesisRecord,
     HumanReviewRecord,
     InvariantCounterexampleRefRecord,
@@ -2267,4 +2269,140 @@ class PostgresSessionContextRepository:
         )
         if result.rowcount != 1:
             raise PersistenceError("session_context not found for state update")
+
+
+class PostgresHunterFamilyRepository:
+    def __init__(self, connection: Connection) -> None:
+        self._connection = connection
+
+    def insert(self, record: HunterFamilyRecord) -> None:
+        _execute_write(
+            self._connection,
+            tables.hunter_family.insert().values(
+                family_id=record.family_id,
+                name=record.name,
+                target_node_kinds=list(record.target_node_kinds),
+                preconditions=dict(record.preconditions),
+                claim_template=record.claim_template,
+                evidence_requirements=dict(record.evidence_requirements),
+                validation_tier=record.validation_tier,
+                enabled=record.enabled,
+                version=record.version,
+                created_at=record.created_at,
+            ),
+        )
+
+    def get(self, family_id: str, version: int) -> HunterFamilyRecord | None:
+        require_opaque_id(family_id, "family_id")
+        if not isinstance(version, int) or isinstance(version, bool) or version < 1:
+            raise PersistenceInputError("version must be a positive integer")
+        try:
+            row = self._connection.execute(
+                select(tables.hunter_family)
+                .where(tables.hunter_family.c.family_id == family_id)
+                .where(tables.hunter_family.c.version == version)
+            ).mappings().one_or_none()
+        except SQLAlchemyError as exc:
+            raise PersistenceError("persistence read failed") from exc
+        if row is None:
+            return None
+        return map_row.hunter_family_from_row(row)
+
+    def get_latest(self, family_id: str) -> HunterFamilyRecord | None:
+        require_opaque_id(family_id, "family_id")
+        try:
+            row = self._connection.execute(
+                select(tables.hunter_family)
+                .where(tables.hunter_family.c.family_id == family_id)
+                .order_by(tables.hunter_family.c.version.desc())
+                .limit(1)
+            ).mappings().one_or_none()
+        except SQLAlchemyError as exc:
+            raise PersistenceError("persistence read failed") from exc
+        if row is None:
+            return None
+        return map_row.hunter_family_from_row(row)
+
+    def list_enabled(self) -> list[HunterFamilyRecord]:
+        try:
+            rows = self._connection.execute(
+                select(tables.hunter_family)
+                .where(tables.hunter_family.c.enabled == True)
+                .order_by(tables.hunter_family.c.family_id, tables.hunter_family.c.version)
+            ).mappings().all()
+        except SQLAlchemyError as exc:
+            raise PersistenceError("persistence read failed") from exc
+        return [map_row.hunter_family_from_row(row) for row in rows]
+
+
+class PostgresHuntV3QueueRepository:
+    ALLOWED_STATES = frozenset({"PENDING", "APPROVED", "RUN", "BLOCKED"})
+
+    def __init__(self, connection: Connection) -> None:
+        self._connection = connection
+
+    def insert(self, record: HuntV3QueueRecord) -> None:
+        _execute_write(
+            self._connection,
+            tables.hunt_v3_queue.insert().values(
+                queue_id=record.queue_id,
+                research_run_id=record.research_run_id,
+                hypothesis_id=record.hypothesis_id,
+                family_id=record.family_id,
+                node_canonical_key=record.node_canonical_key,
+                capability=record.capability,
+                action=record.action,
+                arguments=dict(record.arguments),
+                side_effect_level=record.side_effect_level,
+                state=record.state,
+                created_at=record.created_at,
+            ),
+        )
+
+    def get(self, queue_id: str) -> HuntV3QueueRecord | None:
+        require_opaque_id(queue_id, "queue_id")
+        return _fetch_one(
+            self._connection,
+            tables.hunt_v3_queue,
+            tables.hunt_v3_queue.c.queue_id,
+            queue_id,
+            map_row.hunt_v3_queue_from_row,
+        )
+
+    def list_for_research_run(self, research_run_id: str) -> list[HuntV3QueueRecord]:
+        require_opaque_id(research_run_id, "research_run_id")
+        try:
+            rows = self._connection.execute(
+                select(tables.hunt_v3_queue)
+                .where(tables.hunt_v3_queue.c.research_run_id == research_run_id)
+                .order_by(tables.hunt_v3_queue.c.created_at)
+            ).mappings().all()
+        except SQLAlchemyError as exc:
+            raise PersistenceError("persistence read failed") from exc
+        return [map_row.hunt_v3_queue_from_row(row) for row in rows]
+
+    def list_pending_for_research_run(self, research_run_id: str) -> list[HuntV3QueueRecord]:
+        require_opaque_id(research_run_id, "research_run_id")
+        try:
+            rows = self._connection.execute(
+                select(tables.hunt_v3_queue)
+                .where(tables.hunt_v3_queue.c.research_run_id == research_run_id)
+                .where(tables.hunt_v3_queue.c.state == "PENDING")
+                .order_by(tables.hunt_v3_queue.c.created_at)
+            ).mappings().all()
+        except SQLAlchemyError as exc:
+            raise PersistenceError("persistence read failed") from exc
+        return [map_row.hunt_v3_queue_from_row(row) for row in rows]
+
+    def set_state(self, queue_id: str, state: str) -> None:
+        require_opaque_id(queue_id, "queue_id")
+        if state not in self.ALLOWED_STATES:
+            raise PersistenceInputError("state is not a HuntV3Queue state")
+        result = self._connection.execute(
+            update(tables.hunt_v3_queue)
+            .where(tables.hunt_v3_queue.c.queue_id == queue_id)
+            .values(state=state)
+        )
+        if result.rowcount != 1:
+            raise PersistenceError("hunt_v3_queue item not found for state update")
 

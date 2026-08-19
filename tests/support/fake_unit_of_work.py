@@ -71,6 +71,8 @@ from research_os.data.records import (
     FrontierEventRecord,
     FrontierItemRecord,
     FrontierSourceRecord,
+    HunterFamilyRecord,
+    HuntV3QueueRecord,
 )
 from research_os.data.budget_ledger import assert_within_allowance
 
@@ -130,6 +132,8 @@ class _Store:
         self.frontier_sources: dict[str, FrontierSourceRecord] = {}
         self.frontier_events: dict[str, FrontierEventRecord] = {}
         self.discovery_projection_receipts: dict[str, DiscoveryProjectionReceiptRecord] = {}
+        self.hunter_families: dict[str, HunterFamilyRecord] = {}
+        self.hunt_v3_queue: dict[str, HuntV3QueueRecord] = {}
         self.open_transactions = 0
         self.set_state_calls = 0
 
@@ -318,6 +322,10 @@ def _id_of(record: Any) -> str:
         return record.event_id
     if isinstance(record, DiscoveryProjectionReceiptRecord):
         return record.receipt_id
+    if isinstance(record, HunterFamilyRecord):
+        return f"{record.family_id}:{record.version}"
+    if isinstance(record, HuntV3QueueRecord):
+        return record.queue_id
     raise PersistenceError("unknown record identity")
 
 
@@ -1344,6 +1352,77 @@ class _ReceiptRepo(_Repo):
         )
 
 
+class _HunterFamilyRepo(_Repo):
+    def __init__(self, store: _Store, fail_on_insert: bool = False) -> None:
+        super().__init__(store.hunter_families, fail_on_insert=fail_on_insert)
+        self._root = store
+
+    def get(self, family_id: str, version: int) -> HunterFamilyRecord | None:
+        return self._root.hunter_families.get(f"{family_id}:{version}")
+
+    def get_latest(self, family_id: str) -> HunterFamilyRecord | None:
+        matches = [
+            record
+            for record in self._root.hunter_families.values()
+            if record.family_id == family_id
+        ]
+        if not matches:
+            return None
+        return sorted(matches, key=lambda record: record.version, reverse=True)[0]
+
+    def list_enabled(self) -> list[HunterFamilyRecord]:
+        return sorted(
+            [record for record in self._root.hunter_families.values() if record.enabled],
+            key=lambda record: (record.family_id, record.version),
+        )
+
+
+class _HuntV3QueueRepo(_Repo):
+    def __init__(self, store: _Store, fail_on_insert: bool = False) -> None:
+        super().__init__(store.hunt_v3_queue, fail_on_insert=fail_on_insert)
+        self._root = store
+
+    def list_for_research_run(self, research_run_id: str) -> list[HuntV3QueueRecord]:
+        return sorted(
+            [
+                record
+                for record in self._root.hunt_v3_queue.values()
+                if record.research_run_id == research_run_id
+            ],
+            key=lambda record: record.created_at,
+        )
+
+    def list_pending_for_research_run(self, research_run_id: str) -> list[HuntV3QueueRecord]:
+        return sorted(
+            [
+                record
+                for record in self._root.hunt_v3_queue.values()
+                if record.research_run_id == research_run_id and record.state == "PENDING"
+            ],
+            key=lambda record: record.created_at,
+        )
+
+    def set_state(self, queue_id: str, state: str) -> None:
+        if state not in {"PENDING", "APPROVED", "RUN", "BLOCKED"}:
+            raise PersistenceInputError("state is not a HuntV3Queue state")
+        current = self.get(queue_id)
+        if current is None:
+            raise PersistenceError("hunt_v3_queue item not found for state update")
+        self._store[queue_id] = HuntV3QueueRecord(
+            queue_id=current.queue_id,
+            research_run_id=current.research_run_id,
+            hypothesis_id=current.hypothesis_id,
+            family_id=current.family_id,
+            node_canonical_key=current.node_canonical_key,
+            capability=current.capability,
+            action=current.action,
+            arguments=current.arguments,
+            side_effect_level=current.side_effect_level,
+            state=state,
+            created_at=current.created_at,
+        )
+
+
 class FakeUnitOfWork:
     def __init__(self, store: _Store | None = None, fail_on: str | None = None) -> None:
         self._store = store or _Store()
@@ -1457,6 +1536,12 @@ class FakeUnitOfWork:
         self.frontier_sources = _Repo(self._store.frontier_sources)
         self.frontier_events = _FrontierEventRepo(self._store)
         self.discovery_projection_receipts = _ReceiptRepo(self._store)
+        self.hunter_families = _HunterFamilyRepo(
+            self._store, fail_on_insert=fail_on == "hunter_families"
+        )
+        self.hunt_v3_queue = _HuntV3QueueRepo(
+            self._store, fail_on_insert=fail_on == "hunt_v3_queue"
+        )
 
     def __enter__(self) -> FakeUnitOfWork:
         self._store.open_transactions += 1
@@ -1590,6 +1675,10 @@ class FakeUnitOfWork:
         self._store.frontier_events.update(snapshot.frontier_events)
         self._store.discovery_projection_receipts.clear()
         self._store.discovery_projection_receipts.update(snapshot.discovery_projection_receipts)
+        self._store.hunter_families.clear()
+        self._store.hunter_families.update(snapshot.hunter_families)
+        self._store.hunt_v3_queue.clear()
+        self._store.hunt_v3_queue.update(snapshot.hunt_v3_queue)
 
 
 class FakeUnitOfWorkFactory:

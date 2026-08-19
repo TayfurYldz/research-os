@@ -21,6 +21,8 @@ from research_os.data.postgres.repositories import (
     PostgresExperimentRepository,
     PostgresFindingProposalRepository,
     PostgresFindingRepository,
+    PostgresHunterFamilyRepository,
+    PostgresHuntV3QueueRepository,
     PostgresHypothesisAssessmentRepository,
     PostgresHypothesisRepository,
     PostgresHumanReviewRepository,
@@ -119,6 +121,8 @@ class PostgresUnitOfWork:
         self.frontier_events: PostgresFrontierEventRepository
         self.discovery_projection_receipts: PostgresDiscoveryProjectionReceiptRepository
         self.attack_surface_snapshots: PostgresAttackSurfaceSnapshotRepository
+        self.hunter_families: PostgresHunterFamilyRepository
+        self.hunt_v3_queue: PostgresHuntV3QueueRepository
 
     def __enter__(self) -> PostgresUnitOfWork:
         self._connection = self._engine.connect()
@@ -189,6 +193,8 @@ class PostgresUnitOfWork:
         self.attack_surface_snapshots = PostgresAttackSurfaceSnapshotRepository(
             self._connection
         )
+        self.hunter_families = PostgresHunterFamilyRepository(self._connection)
+        self.hunt_v3_queue = PostgresHuntV3QueueRepository(self._connection)
         return self
 
     def commit(self) -> None:

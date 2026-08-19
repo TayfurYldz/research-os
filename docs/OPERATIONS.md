@@ -857,6 +857,80 @@ python scripts/clean_install_smoke.py
 
 If `RESEARCH_OS_TEST_DATABASE_URL` is unset, PostgreSQL-required suites must SKIP, never fabricate PASS.
 
+## GATE 05 — Attack Period (HunterFamily Registry + First Hunt Cycle)
+
+**GATE 05 status: PENDING.** Local implementation exists; formal PASS requires
+Kali + real PostgreSQL validation. This is the Attack Period HunterFamily
+Registry + First Hunt Cycle (SD-G5). It is **not** the old infrastructure
+GATE 05 (Learning Cycle); those are separate eras and must never be confused.
+
+Implementation scope:
+
+- Alembic `a29_001_hunter_family_registry`: `hunter_family` table (append-only
+  versioning, composite PK `family_id` + `version`) and `hunt_v3_queue` table
+  (PENDING/APPROVED/RUN/BLOCKED active-experiment queue). Five seed families:
+  `OBJECT_AUTHORIZATION`, `WORKFLOW_STATE_TRANSITION`, `EXPOSED_API_SPEC`,
+  `UNPROTECTED_HOSTNAME`, `TECH_KNOWN_CVE_SURFACE`.
+- `research_os.research.selection`: `HypothesisFamily` enum extended with
+  SD-G5 families; `HunterFamilyView` read-only registry view;
+  `families_for_node(node, graph, registry)` matches node kind, scope
+  classification, and edge preconditions without UNKNOWN spam;
+  `claim_from_template(node, family)` produces deterministic claim text.
+- `research_os.application.generate_hunt_hypotheses`:
+  `GenerateHuntHypotheses` use case walks the graph, applies registry families,
+  and persists `HypothesisRecord`s plus `HUNT_HYPOTHESIS_GENERATED` audit events.
+  Default path is LLM-free.
+- `research_os.application.hunt_validation`: `ValidateHuntTiers` runs V1
+  (static preconditions), V2 (passive evidence requirements), and V3
+  (active-experiment enqueue). V3 is never reached unless V1 and V2 pass.
+  Tier decisions are durable in `audit_event`; V3 items are inserted into
+  `hunt_v3_queue` with state PENDING.
+- `research_os.application.run_hunt_cycle`: `RunHuntCycle` orchestrates one
+  hunt cycle: generate → V1 → V2 → V3 queue. All state is in the append-only
+  ledger; the cycle is stateless across invocations.
+- `research_os.application.sensor.admit`: TECH facts now carry a `technology`
+  attribute from the sensor payload so the `TECH_KNOWN_CVE_SURFACE` claim
+  template can render deterministically.
+- `maturity.py`: `GATE_05_STATUS = "PENDING"` until authoritative validation.
+
+Formal claim (upon PASS):
+
+Research OS can read the attack-surface graph, match nodes against a
+versioned data-driven family registry, generate deterministic hypotheses,
+run static + passive validation tiers, and enqueue approved active experiments
+for V3 execution, all without LLM calls in the default path.
+
+GATE 05 proves only: data-driven family registry + deterministic hunt-cycle
+plumbing against PostgreSQL.
+
+GATE 05 does **not** prove:
+
+- autonomous vulnerability discovery
+- active probing or live internet reconnaissance
+- real bug-bounty performance
+- production readiness
+- old infrastructure GATE 05 behavior
+
+Current limitations:
+
+- V3 queue items are PENDING until a separate active-experiment approval gate.
+- Registry is append-only operator/migration data; LLM cannot write to it.
+- Optional LLM enrichment is budget-gated and not implemented in this gate.
+
+Validation commands (to be run on authoritative Kali host with real PostgreSQL):
+
+```
+python -m compileall src tests scripts
+python -m unittest discover -s tests/unit -q
+python -m unittest discover -s tests/contract -q
+python -m unittest tests.unit.test_architecture_boundaries -q
+python -m unittest discover -s tests/integration -q
+python scripts/run_research_benchmark.py --baseline GOOD_BASELINE --single-run-legacy
+python scripts/clean_install_smoke.py
+```
+
+If `RESEARCH_OS_TEST_DATABASE_URL` is unset, PostgreSQL-required suites must SKIP, never fabricate PASS.
+
 ## Maturity
 
 - ARCHITECTURE_VALIDATED: architecture package complete
@@ -868,6 +942,7 @@ If `RESEARCH_OS_TEST_DATABASE_URL` is unset, PostgreSQL-required suites must SKI
 - GATE 02: PASS (Sensor/Acquisition Plane sealed at e2bf18b; independent architect audit: 977 unit+contract passed, boundary clean, admission per spec; not the old infrastructure GATE 02 reasoning cycle)
 - GATE 03: PASS (Attack Period SurfaceGraph v2 sealed at 05ce3c0 + f74677d; independent architect audit: 991 unit+contract passed; not the old infrastructure GATE 03 learning cycle)
 - GATE 04: PENDING (Attack Period Token Economy Policy implemented locally; formal PASS requires Kali + real PostgreSQL validation; not the old infrastructure GATE 04/04B benchmark policy)
+- GATE 05: PENDING (Attack Period HunterFamily Registry + First Hunt Cycle implemented locally; formal PASS requires Kali + real PostgreSQL validation; not the old infrastructure GATE 05 learning cycle)
 - GATE 14: PASS (2026-08-17, Kali, dedicated PostgreSQL, 19 E2E OK / 0 skipped)
 - GATE 15: PASS (2026-08-17, Kali, dedicated PostgreSQL, GATE14 regression 19 OK / 0 skipped, GATE15 21 OK / 0 skipped)
 - GATE 16: PASS (2026-08-17, Kali, dedicated PostgreSQL, GATE14 19 OK / 0 skipped, GATE15 21 OK / 0 skipped, GATE16 34 OK / 0 skipped)

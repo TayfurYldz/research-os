@@ -110,6 +110,21 @@ never be confused. GATE 04 does not prove autonomous vulnerability discovery,
 active probing, live internet reconnaissance, bug-bounty performance, or
 production readiness.
 
+GATE 05 PENDING means the Attack Period HunterFamily Registry + First Hunt Cycle
+(SD-G5) is implemented locally; formal PASS requires Kali + real PostgreSQL
+validation. SD-G5 replaces the old hardcoded two-family claim-string matching
+with a data-driven `hunter_family` registry and runs the first hunt cycle:
+surface graph → family matching → deterministic hypothesis generation →
+V1 (static) → V2 (passive evidence) → V3 (active experiment queue). The registry
+is append-only versioned data; LLM cannot write to it. Five seed families cover
+OBJECT_AUTHORIZATION, WORKFLOW_STATE_TRANSITION, EXPOSED_API_SPEC,
+UNPROTECTED_HOSTNAME, and TECH_KNOWN_CVE_SURFACE. V3 queue items are PENDING
+until a separate active-experiment approval gate. SD-G5 is NOT the old
+infrastructure GATE 05 (Learning Cycle); those are separate eras and must never
+be confused. GATE 05 does not prove autonomous vulnerability discovery, active
+probing execution, live internet reconnaissance, bug-bounty performance, or
+production readiness.
+
 PRODUCTION_READY must stay false until operational and live-research gates
 that this environment has not passed actually pass.
 """
@@ -126,6 +141,7 @@ GATE_01_STATUS = "PASS"
 GATE_02_STATUS = "PASS"
 GATE_03_STATUS = "PASS"
 GATE_04_STATUS = "PASS"
+GATE_05_STATUS = "PENDING"
 GATE_12_STATUS = "PASS"
 GATE_13_STATUS = "PASS"
 GATE_14_STATUS = "PASS"
@@ -153,6 +169,7 @@ def maturity_mapping() -> dict[str, object]:
         "GATE_03": GATE_03_STATUS,
         "GATE_04": GATE_04_STATUS,
         "GATE_04B": GATE_04B_STATUS,
+        "GATE_05": GATE_05_STATUS,
         "GATE_12": GATE_12_STATUS,
         "GATE_13": GATE_13_STATUS,
         "GATE_14": GATE_14_STATUS,
