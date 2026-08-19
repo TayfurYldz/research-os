@@ -448,6 +448,26 @@ def select_runtime(request: RoutingRequest) -> RuntimeSelectionDecision:
             continue
         survivors.append(candidate)
 
+    if not survivors:
+        all_unavailable = bool(filtered) and all(
+            item.reason_code is RoutingReasonCode.UNAVAILABLE for item in filtered
+        )
+        outcome = (
+            RoutingOutcome.UNAVAILABLE
+            if all_unavailable
+            else RoutingOutcome.NO_COMPATIBLE_RUNTIME
+        )
+        codes = tuple(dict.fromkeys(item.reason_code.value for item in filtered)) or (
+            RoutingReasonCode.NO_CANDIDATES.value,
+        )
+        return _decision(
+            outcome=outcome,
+            request=request,
+            reason_codes=codes,
+            considered=considered,
+            filtered=tuple(filtered),
+        )
+
     desired_class = _desired_price_class(request)
     price_filtered: list[FilterRecord] = []
     price_survivors: list[RuntimeCandidate] = []
