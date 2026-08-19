@@ -127,21 +127,19 @@ be confused. GATE 05 does not prove autonomous vulnerability discovery, active
 probing execution, live internet reconnaissance, bug-bounty performance, or
 production readiness.
 
-GATE 06 PENDING means the Attack Period Mutation Engine + OAST Core (SD-G6) is
-under construction. When sealed, it will provide deterministic attack-variant
-plan generation from observed HTTP surface nodes (param-pollution, type-juggling,
-boundary values, auth-header variations, method-override, content-type confusion,
-id/traversal candidates), scope-confined to IN_SCOPE nodes with provenance and
-size-bounded audit payloads. It will also provide an OAST callback core:
-target+hypothesis-bound opaque tokens, loopback callback reception for tests,
-expired-token rejection, and admission of valid callbacks as
-UNTRUSTED_EXTERNAL sensor observations that become DiscoveryFact only through
-the existing deterministic admission chain. Rate-limit policy enforcement is
-integrated before Core execution with clock-injected deterministic tests. SD-G6
-is NOT the old infrastructure GATE 06 (State Transition Security benchmark);
-those are separate eras and must never be confused. GATE 06 does not prove
-autonomous vulnerability exploitation, live OAST infrastructure, live internet
-reconnaissance, bug-bounty performance, or production readiness.
+GATE 06 PASS means the Attack Period Mutation Engine + OAST Core + Rate-Limit
+Enforcement (SD-G6) is sealed at 5556463 + seal commit; independent architect
+audit: 1076 unit+contract passed; 7 mutation families deterministic and
+scope-confined; OAST core loopback-verified with stale rejection; rate-limit
+enforced pre-Core; V3 enqueue hard-locked to IN_SCOPE. SD-G6 provides
+deterministic attack-variant planning from observed HTTP surface nodes and an
+out-of-band callback token lifecycle for blind-vulnerability proofs, while
+keeping all generated variants scoped to IN_SCOPE nodes and all callbacks bound
+to provenance before admission as UNTRUSTED_EXTERNAL observations. SD-G6 is NOT
+the old infrastructure GATE 06 (State Transition Security benchmark); those are
+separate eras and must never be confused. GATE 06 does not prove live OAST
+infrastructure, autonomous exploitation execution, live internet reconnaissance,
+bug-bounty performance, or production readiness.
 
 PRODUCTION_READY must stay false until operational and live-research gates
 that this environment has not passed actually pass.
@@ -160,7 +158,7 @@ GATE_02_STATUS = "PASS"
 GATE_03_STATUS = "PASS"
 GATE_04_STATUS = "PASS"
 GATE_05_STATUS = "PASS"
-GATE_06_STATUS = "PENDING"
+GATE_06_STATUS = "PASS"
 GATE_12_STATUS = "PASS"
 GATE_13_STATUS = "PASS"
 GATE_14_STATUS = "PASS"
