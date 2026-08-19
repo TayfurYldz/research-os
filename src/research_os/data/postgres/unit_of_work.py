@@ -48,6 +48,7 @@ from research_os.data.postgres.repositories import (
     PostgresSessionContextRepository,
 )
 from research_os.data.postgres.discovery_repositories import (
+    PostgresAttackSurfaceSnapshotRepository,
     PostgresControlEventRepository,
     PostgresDiscoveryFactRepository,
     PostgresDiscoveryFactSourceRepository,
@@ -117,6 +118,7 @@ class PostgresUnitOfWork:
         self.frontier_sources: PostgresFrontierSourceRepository
         self.frontier_events: PostgresFrontierEventRepository
         self.discovery_projection_receipts: PostgresDiscoveryProjectionReceiptRepository
+        self.attack_surface_snapshots: PostgresAttackSurfaceSnapshotRepository
 
     def __enter__(self) -> PostgresUnitOfWork:
         self._connection = self._engine.connect()
@@ -182,6 +184,9 @@ class PostgresUnitOfWork:
         self.frontier_sources = PostgresFrontierSourceRepository(self._connection)
         self.frontier_events = PostgresFrontierEventRepository(self._connection)
         self.discovery_projection_receipts = PostgresDiscoveryProjectionReceiptRepository(
+            self._connection
+        )
+        self.attack_surface_snapshots = PostgresAttackSurfaceSnapshotRepository(
             self._connection
         )
         return self

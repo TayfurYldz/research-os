@@ -14,6 +14,7 @@ from typing import Any, Mapping
 
 from research_os.application.identity import new_opaque_id
 from research_os.application.ports import UnitOfWorkFactory
+from research_os.core.enums import ScopeClassification
 from research_os.data.records import DiscoveryFactRecord, DiscoveryFactSourceRecord
 from research_os.research.discovery.facts import DiscoveryFact, DiscoveryFactSourceView
 from research_os.research.discovery.types import (
@@ -55,8 +56,15 @@ class AdmitSensorObservations:
         *,
         research_run_id: str,
         identity_id: str = "ANONYMOUS",
-        scope_classification: str = "UNKNOWN",
+        scope_classification: str,
     ) -> SensorAdmissionResult:
+        try:
+            ScopeClassification(scope_classification)
+        except ValueError as exc:
+            raise SensorAdmissionError(
+                f"scope_classification must be one of {', '.join(item.value for item in ScopeClassification)}"
+            ) from exc
+
         payload = dict(observation.payload)
         source_metadata = dict(observation.source_metadata)
         self._reject_forbidden(payload, "payload")

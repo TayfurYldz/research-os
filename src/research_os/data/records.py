@@ -2469,3 +2469,29 @@ class DiscoveryProjectionReceiptRecord:
             raise PersistenceInputError("source_plane must be OBSERVATION or CONTROL_EVENT")
         require_aware_datetime(self.created_at, "created_at")
 
+
+@dataclass(frozen=True)
+class AttackSurfaceSnapshotRecord:
+    """Immutable attack-surface graph summary. Nodes/edges rebuild from ledger."""
+
+    snapshot_id: str
+    research_run_id: str
+    strategy_version: str
+    node_count: int
+    edge_count: int
+    graph_hash: str
+    created_at: datetime
+
+    def __post_init__(self) -> None:
+        require_opaque_id(self.snapshot_id, "snapshot_id")
+        require_opaque_id(self.research_run_id, "research_run_id")
+        require_aware_datetime(self.created_at, "created_at")
+        if not isinstance(self.strategy_version, str) or not self.strategy_version.strip():
+            raise PersistenceInputError("strategy_version must be a non-empty string")
+        if not isinstance(self.node_count, int) or isinstance(self.node_count, bool) or self.node_count < 0:
+            raise PersistenceInputError("node_count must be a non-negative int")
+        if not isinstance(self.edge_count, int) or isinstance(self.edge_count, bool) or self.edge_count < 0:
+            raise PersistenceInputError("edge_count must be a non-negative int")
+        if not isinstance(self.graph_hash, str) or len(self.graph_hash) != 64:
+            raise PersistenceInputError("graph_hash must be a SHA-256 hex digest")
+

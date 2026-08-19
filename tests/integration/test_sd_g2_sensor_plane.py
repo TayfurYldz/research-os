@@ -187,6 +187,7 @@ class SDG2SensorPlaneIntegrationTests(unittest.TestCase):
         admitted = admission.execute(
             observation,
             research_run_id="run-1",
+            scope_classification="UNKNOWN",
         )
 
         with PostgresUnitOfWork(self.engine) as uow:
@@ -210,7 +211,9 @@ class SDG2SensorPlaneIntegrationTests(unittest.TestCase):
 
         admission = AdmitSensorObservations(uow_factory)
         with self.assertRaises(SensorAdmissionError):
-            admission.execute(observation, research_run_id="run-1")
+            admission.execute(
+                observation, research_run_id="run-1", scope_classification="UNKNOWN"
+            )
 
         with PostgresUnitOfWork(self.engine) as uow:
             facts = uow.discovery_facts.list_for_research_run("run-1")

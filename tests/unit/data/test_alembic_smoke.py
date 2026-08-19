@@ -34,6 +34,7 @@ A23_MIGRATION = ALEMBIC_VERSIONS / "a23_001_program_scope.py"
 A24_MIGRATION = ALEMBIC_VERSIONS / "a24_001_sensor_plane.py"
 A25_MIGRATION = ALEMBIC_VERSIONS / "a25_001_discovery_fact_kinds.py"
 A26_MIGRATION = ALEMBIC_VERSIONS / "a26_001_sensor_obs_src.py"
+A27_MIGRATION = ALEMBIC_VERSIONS / "a27_001_attack_surface_snapshot.py"
 
 
 def _imported_modules(tree: ast.AST) -> set[str]:
@@ -103,6 +104,7 @@ class AlembicSmokeTests(unittest.TestCase):
                 "frontier_source",
                 "frontier_event",
                 "discovery_projection_receipt",
+                "attack_surface_snapshot",
                 "scope_rule_v2",
                 "program_policy",
                 "rate_limit_profile",
@@ -395,6 +397,18 @@ class AlembicSmokeTests(unittest.TestCase):
         self.assertNotIn("create_all", source)
         a25 = A25_MIGRATION.read_text(encoding="utf-8")
         self.assertNotIn("sensor_observation_id", a25)
+
+    def test_a27_migration_adds_attack_surface_snapshot(self) -> None:
+        source = A27_MIGRATION.read_text(encoding="utf-8")
+        self.assertIn("a27_001_attack_surface_snapshot", source)
+        self.assertIn("a26_001_sensor_obs_src", source)
+        self.assertIn("attack_surface_snapshot", source)
+        self.assertIn("graph_hash", source)
+        self.assertIn("node_count", source)
+        self.assertIn("edge_count", source)
+        self.assertNotIn("create_all", source)
+        a26 = A26_MIGRATION.read_text(encoding="utf-8")
+        self.assertNotIn("attack_surface_snapshot", a26)
 
 
 if __name__ == "__main__":

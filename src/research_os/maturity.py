@@ -83,6 +83,18 @@ target using real Browser/HTTP observations. It does not prove autonomous
 vulnerability discovery, bug-bounty capability, production readiness, generalized
 internet reconnaissance, or GATE 23.
 
+GATE 03 PENDING means the Attack Period SurfaceGraph v2 (SD-G3) is implemented
+locally but formal PASS requires Kali + real PostgreSQL validation. SD-G3
+upgrades the AttackSurfaceGraph so sensor-derived DiscoveryFact kinds (DOMAIN,
+HOSTNAME, CERT, SERVICE, TECH, JS_BUNDLE, API_SPEC) become first-class graph
+citizens with provenance, scope classification, and deterministic hash. It adds
+the attack_surface_snapshot table (hash + counts only; nodes/edges remain
+rebuildable from the ledger). SD-G3 is NOT the old infrastructure GATE 03
+(Learning Cycle, a9_001_learning_cycle, closed 2026-08-16); those are separate
+eras and must never be confused. GATE 03 does not prove autonomous vulnerability
+discovery, active probing, live internet reconnaissance, bug-bounty performance,
+or production readiness.
+
 PRODUCTION_READY must stay false until operational and live-research gates
 that this environment has not passed actually pass.
 """
@@ -97,6 +109,7 @@ PRODUCTION_READY = False
 
 GATE_01_STATUS = "PASS"
 GATE_02_STATUS = "PASS"
+GATE_03_STATUS = "PENDING"
 GATE_12_STATUS = "PASS"
 GATE_13_STATUS = "PASS"
 GATE_14_STATUS = "PASS"
@@ -121,6 +134,7 @@ def maturity_mapping() -> dict[str, object]:
         "PRODUCTION_READY": PRODUCTION_READY,
         "GATE_01": GATE_01_STATUS,
         "GATE_02": GATE_02_STATUS,
+        "GATE_03": GATE_03_STATUS,
         "GATE_04B": GATE_04B_STATUS,
         "GATE_12": GATE_12_STATUS,
         "GATE_13": GATE_13_STATUS,

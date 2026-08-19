@@ -6,6 +6,7 @@ from typing import Any, Mapping
 
 from research_os.data.records import (
     ApprovalRecord,
+    AttackSurfaceSnapshotRecord,
     AuditEventRecord,
     AuthorizationSourceRecord,
     BountyTableRecord,
@@ -947,4 +948,17 @@ def discovery_projection_receipt_from_row(
         created_at=data["created_at"],
         observation_id=data.get("observation_id"),
         control_event_id=data.get("control_event_id"),
+    )
+
+
+def attack_surface_snapshot_from_row(row: Mapping[str, Any]) -> AttackSurfaceSnapshotRecord:
+    data = _mapping(row)
+    return AttackSurfaceSnapshotRecord(
+        snapshot_id=data["snapshot_id"],
+        research_run_id=data["research_run_id"],
+        strategy_version=data["strategy_version"],
+        node_count=int(data["node_count"]),
+        edge_count=int(data["edge_count"]),
+        graph_hash=data["graph_hash"],
+        created_at=data["created_at"],
     )

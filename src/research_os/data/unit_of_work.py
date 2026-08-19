@@ -6,6 +6,7 @@ from typing import Protocol
 
 from research_os.data.ports import (
     ApprovalRepository,
+    AttackSurfaceSnapshotRepository,
     AuditEventRepository,
     AuthorizationSourceRepository,
     BudgetConsumptionRepository,
@@ -107,6 +108,7 @@ class UnitOfWork(Protocol):
     frontier_sources: FrontierSourceRepository
     frontier_events: FrontierEventRepository
     discovery_projection_receipts: DiscoveryProjectionReceiptRepository
+    attack_surface_snapshots: AttackSurfaceSnapshotRepository
 
     def commit(self) -> None: ...
     def rollback(self) -> None: ...

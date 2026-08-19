@@ -696,6 +696,78 @@ python scripts/clean_install_smoke.py
 
 If `RESEARCH_OS_TEST_DATABASE_URL` is unset, PostgreSQL-required suites must SKIP, never fabricate PASS.
 
+## GATE 03 — Attack Period (SurfaceGraph v2)
+
+**GATE 03 status: PENDING.** Local implementation exists; formal PASS requires
+Kali + real PostgreSQL validation. This is the Attack Period SurfaceGraph v2
+(SD-G3). It is **not** the old infrastructure GATE 03 (Learning Cycle,
+`a9_001_learning_cycle`, closed 2026-08-16); those are separate eras and must
+never be confused.
+
+Implementation scope:
+
+- `research_os.research.discovery.types`: `AttackSurfaceNodeKind` extended with
+  `DOMAIN`, `HOSTNAME`, `CERT`, `SERVICE`, `TECH`, `JS_BUNDLE`, `API_SPEC`;
+  `AttackSurfaceEdgeKind` extended with `RESOLVES_TO`, `HOSTED_ON`, `SECURED_BY`,
+  `RUNS`.
+- `research_os.research.discovery.graph`: `FACT_NODE_KIND` maps all seven
+  SD-G2 sensor fact kinds; unmapped kinds raise `ResearchInputError` instead of
+  being silently dropped. Sensor-sourced nodes preserve
+  `TargetEpistemicStatus.UNTRUSTED_EXTERNAL` and carry `ScopeClassification`.
+  Sensor-derived edges (HOSTNAME→ORIGIN, CERT→HOSTNAME, TECH→ORIGIN,
+  JS_BUNDLE/API_SPEC→EXACT_PATH) are produced with provenance.
+- `research_os.application.sensor.admit`: `scope_classification` is a required
+  keyword argument; no default UNKNOWN. It is stored in the admitted fact's
+  attributes for graph projection.
+- `research_os.application.discovery.snapshot_views`: deterministic
+  `summarize_attack_surface()` rebuilds the graph from the ledger and produces
+  `AttackSurfaceSummary` with kind counts, identity coverage, scope
+  classification counts, and `graph_hash`.
+- Alembic `a27_001_attack_surface_snapshot`: `attack_surface_snapshot` table
+  stores `research_run_id`, `strategy_version`, `node_count`, `edge_count`,
+  `graph_hash`, `created_at`. Node/edge data remains rebuildable from the
+  discovery ledger; the snapshot is a durable fingerprint, not a second copy.
+- `maturity.py`: `GATE_03_STATUS = "PENDING"` until authoritative validation.
+
+Formal claim (upon PASS):
+
+Research OS can rebuild a deterministic, scope-classified attack surface graph
+from the discovery ledger including sensor-derived external census facts, persist
+a hash/count snapshot, and query the graph by kind, identity, and scope
+classification without granting scope, session, budget, or capability.
+
+GATE 03 proves only: sensor-fact graph integration + deterministic snapshot
+plumbing against PostgreSQL.
+
+GATE 03 does **not** prove:
+
+- autonomous vulnerability discovery
+- active probing or live internet reconnaissance
+- real bug-bounty performance
+- production readiness
+- old infrastructure GATE 03 behavior
+
+Current limitations:
+
+- Sensor-derived edge wiring uses explicit attributes/origin references only.
+- Graph queries are read-only summaries; no planner consumes UNKNOWN nodes yet.
+- Live sensor execution remains restricted to the operator-triggered `census`
+  CLI command under Core scope control.
+
+Validation commands (to be run on authoritative Kali host with real PostgreSQL):
+
+```
+python -m compileall src tests scripts
+python -m unittest discover -s tests/unit -q
+python -m unittest discover -s tests/contract -q
+python -m unittest tests.unit.test_architecture_boundaries -q
+python -m unittest discover -s tests/integration -q
+python scripts/run_research_benchmark.py --baseline GOOD_BASELINE --single-run-legacy
+python scripts/clean_install_smoke.py
+```
+
+If `RESEARCH_OS_TEST_DATABASE_URL` is unset, PostgreSQL-required suites must SKIP, never fabricate PASS.
+
 ## Maturity
 
 - ARCHITECTURE_VALIDATED: architecture package complete
@@ -704,7 +776,8 @@ If `RESEARCH_OS_TEST_DATABASE_URL` is unset, PostgreSQL-required suites must SKI
 - SECURITY_RESEARCH_VALIDATED: no; GATE 14/15/16/17/18/19/20 PASS cover controlled local pipeline, ground-truth, cross-class, adaptive research-selection, capability/risk/scope substrate, bounded authorized HTTP transaction, and identity/session isolation validation, not broad or real-world security-research validation. GATE 22 PASS is not security-research validation.
 - PRODUCTION_READY: no until operational and live-research gates that have not passed actually pass
 - GATE 01: PASS (2026-08-19, Kali, isolated PostgreSQL, full suite 1225 passed / 9 skipped)
-- GATE 02: PENDING (Sensor/Acquisition Plane implemented locally; formal PASS requires Kali + real PostgreSQL validation; not the old infrastructure GATE 02 reasoning cycle)
+- GATE 02: PASS (Sensor/Acquisition Plane sealed at e2bf18b; independent architect audit: 977 unit+contract passed, boundary clean, admission per spec; not the old infrastructure GATE 02 reasoning cycle)
+- GATE 03: PENDING (Attack Period SurfaceGraph v2 implemented locally; formal PASS requires Kali + real PostgreSQL validation; not the old infrastructure GATE 03 learning cycle)
 - GATE 14: PASS (2026-08-17, Kali, dedicated PostgreSQL, 19 E2E OK / 0 skipped)
 - GATE 15: PASS (2026-08-17, Kali, dedicated PostgreSQL, GATE14 regression 19 OK / 0 skipped, GATE15 21 OK / 0 skipped)
 - GATE 16: PASS (2026-08-17, Kali, dedicated PostgreSQL, GATE14 19 OK / 0 skipped, GATE15 21 OK / 0 skipped, GATE16 34 OK / 0 skipped)
@@ -714,4 +787,4 @@ If `RESEARCH_OS_TEST_DATABASE_URL` is unset, PostgreSQL-required suites must SKI
 - GATE 20: PASS (2026-08-17, implementation e574306, authoritative tested HEAD b442a672a7df86482d0f5a60eb156483b691d44c, Kali, dedicated PostgreSQL, Alembic head a21_001_session_context, unit 676 OK, contract 2 OK, architecture 22 OK, integration 120 OK, GATE14 19 OK / 0 skipped, GATE15 21 OK / 0 skipped, GATE16 34 OK / 0 skipped, GATE17 57 OK / 0 skipped)
 - GATE 21: PENDING (implementation exists locally; formal PASS requires Kali + real PostgreSQL + real Chromium validation)
 - GATE 22: PASS (2026-08-18, authoritative tested implementation SHA ba24935d84245216011dc062fa12fbcccbefc9b5, Kali, isolated PostgreSQL research_os_test, Alembic head a22_001_discovery_surface, a22→a21→a22 PASS, G22 persistence 3 OK / 0 skipped, TX-B replay PASS with Worker redispatch 0, hidden-lab 2 OK / 0 skipped plus 3 additional successful repeats, unit 912 OK / 4 Windows Job Object skips, contract 2 OK, architecture 26 OK, integration 123 OK / 0 skipped, GATE14 19 OK, GATE15 21 OK, GATE16 34 OK, GATE17 57 OK, GATE21 browser 20 OK)
-- GATE 01: PENDING (Scope Compiler v2 + ProgramResearchContext + program-policy-derived loopback fixture; formal PASS requires Kali + real PostgreSQL validation)
+- GATE 01: PASS (Scope Compiler v2 + ProgramResearchContext + program-policy-derived loopback fixture; Kali + isolated PostgreSQL, full suite 1225 passed / 9 skipped)

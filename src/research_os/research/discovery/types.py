@@ -135,8 +135,17 @@ class AttackSurfaceNodeKind(Enum):
     IDENTITY_REF = "IDENTITY_REF"
     SESSION_REF = "SESSION_REF"
     WORKFLOW_STATE = "WORKFLOW_STATE"
+    WORKFLOW_TRANSITION = "WORKFLOW_TRANSITION"
     RESPONSE_SHAPE = "RESPONSE_SHAPE"
     SCOPE_BOUNDARY_CANDIDATE = "SCOPE_BOUNDARY_CANDIDATE"
+    # SD-G3: sensor-derived external census node families.
+    DOMAIN = "DOMAIN"
+    HOSTNAME = "HOSTNAME"
+    CERT = "CERT"
+    SERVICE = "SERVICE"
+    TECH = "TECH"
+    JS_BUNDLE = "JS_BUNDLE"
+    API_SPEC = "API_SPEC"
 
 
 class AttackSurfaceEdgeKind(Enum):
@@ -152,3 +161,8 @@ class AttackSurfaceEdgeKind(Enum):
     TRANSITIONS_TO = "TRANSITIONS_TO"
     BOUNDARY_OF = "BOUNDARY_OF"
     SAME_AS = "SAME_AS"
+    # SD-G3: sensor-derived edge families.
+    RESOLVES_TO = "RESOLVES_TO"  # HOSTNAME -> ORIGIN
+    HOSTED_ON = "HOSTED_ON"  # HOSTNAME/SERVICE -> HOSTNAME
+    SECURED_BY = "SECURED_BY"  # HOSTNAME/ORIGIN -> CERT
+    RUNS = "RUNS"  # ORIGIN/SERVICE -> TECH

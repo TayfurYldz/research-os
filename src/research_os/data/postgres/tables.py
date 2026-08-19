@@ -1456,6 +1456,21 @@ discovery_projection_receipt = Table(
     ),
 )
 
+attack_surface_snapshot = Table(
+    "attack_surface_snapshot",
+    metadata,
+    Column("snapshot_id", Text, primary_key=True),
+    Column("research_run_id", Text, ForeignKey("research_run.research_run_id"), nullable=False),
+    Column("strategy_version", Text, nullable=False),
+    Column("node_count", Integer, nullable=False),
+    Column("edge_count", Integer, nullable=False),
+    Column("graph_hash", Text, nullable=False),
+    Column("created_at", DateTime(timezone=True), nullable=False),
+    CheckConstraint("node_count >= 0", name="ck_attack_surface_snapshot_node_count"),
+    CheckConstraint("edge_count >= 0", name="ck_attack_surface_snapshot_edge_count"),
+    CheckConstraint("length(graph_hash) = 64", name="ck_attack_surface_snapshot_hash_length"),
+)
+
 SPINE_TABLES = (
     program,
     authorization_source,
@@ -1507,6 +1522,7 @@ SPINE_TABLES = (
     frontier_source,
     frontier_event,
     discovery_projection_receipt,
+    attack_surface_snapshot,
     scope_rule_v2,
     program_policy,
     rate_limit_profile,
