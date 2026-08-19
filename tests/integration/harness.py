@@ -81,7 +81,11 @@ def warn_destructive(url: str) -> None:
 
 def truncate_spine(engine: Engine) -> None:
     with engine.begin() as connection:
-        connection.execute(text("TRUNCATE TABLE program, audit_event CASCADE"))
+        connection.execute(
+            text(
+                "TRUNCATE TABLE program, audit_event, coverage_debt_snapshot CASCADE"
+            )
+        )
 
 
 def seed_authorized_spine(uow: PostgresUnitOfWork) -> None:

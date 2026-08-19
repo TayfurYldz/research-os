@@ -14,6 +14,7 @@ from research_os.data.postgres.repositories import _execute_write, _fetch_one
 from research_os.data.records import (
     AttackSurfaceSnapshotRecord,
     ControlEventRecord,
+    CoverageDebtSnapshotRecord,
     DiscoveryFactRecord,
     DiscoveryFactSourceRecord,
     DiscoveryInferenceRecord,
@@ -377,4 +378,34 @@ class PostgresAttackSurfaceSnapshotRepository:
             research_run_id,
             map_row.attack_surface_snapshot_from_row,
             tables.attack_surface_snapshot.c.created_at,
+        )
+
+
+class PostgresCoverageDebtSnapshotRepository:
+    def __init__(self, connection: Connection) -> None:
+        self._connection = connection
+
+    def insert(self, record: CoverageDebtSnapshotRecord) -> None:
+        _execute_write(
+            self._connection,
+            tables.coverage_debt_snapshot.insert().values(**asdict(record)),
+        )
+
+    def get(self, snapshot_id: str) -> CoverageDebtSnapshotRecord | None:
+        require_opaque_id(snapshot_id, "snapshot_id")
+        return _fetch_one(
+            self._connection,
+            tables.coverage_debt_snapshot,
+            tables.coverage_debt_snapshot.c.snapshot_id,
+            snapshot_id,
+            map_row.coverage_debt_snapshot_from_row,
+        )
+
+    def list_for_research_run(self, research_run_id: str) -> list[CoverageDebtSnapshotRecord]:
+        return _list_by_run(
+            self._connection,
+            tables.coverage_debt_snapshot,
+            research_run_id,
+            map_row.coverage_debt_snapshot_from_row,
+            tables.coverage_debt_snapshot.c.created_at,
         )

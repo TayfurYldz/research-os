@@ -37,6 +37,7 @@ A26_MIGRATION = ALEMBIC_VERSIONS / "a26_001_sensor_obs_src.py"
 A27_MIGRATION = ALEMBIC_VERSIONS / "a27_001_attack_surface_snapshot.py"
 A28_MIGRATION = ALEMBIC_VERSIONS / "a28_001_token_economy.py"
 A29_MIGRATION = ALEMBIC_VERSIONS / "a29_001_hunter_family_registry.py"
+A32_MIGRATION = ALEMBIC_VERSIONS / "a32_001_coverage_debt_snapshot.py"
 
 
 def _imported_modules(tree: ast.AST) -> set[str]:
@@ -115,6 +116,7 @@ class AlembicSmokeTests(unittest.TestCase):
                 "sensor_observation",
                 "hunter_family",
                 "hunt_v3_queue",
+                "coverage_debt_snapshot",
                 "impact_chain",
                 "impact_chain_node",
                 "impact_chain_edge",
@@ -430,6 +432,18 @@ class AlembicSmokeTests(unittest.TestCase):
         a27 = A27_MIGRATION.read_text(encoding="utf-8")
         self.assertNotIn("daily_llm_budget_microdollars", a27)
         self.assertNotIn("resource_metadata", a27)
+
+    def test_a32_migration_adds_coverage_debt_snapshot(self) -> None:
+        source = A32_MIGRATION.read_text(encoding="utf-8")
+        self.assertIn("a32_001_coverage_debt_snapshot", source)
+        self.assertIn("a31_001_impact_graph", source)
+        self.assertIn("coverage_debt_snapshot", source)
+        self.assertIn("matrix_hash", source)
+        self.assertIn("cell_counts", source)
+        self.assertIn("total_debt", source)
+        self.assertNotIn("create_all", source)
+        a31 = ALEMBIC_VERSIONS / "a31_001_impact_graph.py"
+        self.assertFalse(a31.exists() and "coverage_debt_snapshot" in a31.read_text(encoding="utf-8"))
 
 
 if __name__ == "__main__":

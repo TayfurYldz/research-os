@@ -54,6 +54,7 @@ from research_os.data.postgres.repositories import (
 from research_os.data.postgres.discovery_repositories import (
     PostgresAttackSurfaceSnapshotRepository,
     PostgresControlEventRepository,
+    PostgresCoverageDebtSnapshotRepository,
     PostgresDiscoveryFactRepository,
     PostgresDiscoveryFactSourceRepository,
     PostgresDiscoveryInferenceRepository,
@@ -124,6 +125,7 @@ class PostgresUnitOfWork:
         self.frontier_events: PostgresFrontierEventRepository
         self.discovery_projection_receipts: PostgresDiscoveryProjectionReceiptRepository
         self.attack_surface_snapshots: PostgresAttackSurfaceSnapshotRepository
+        self.coverage_debt_snapshots: PostgresCoverageDebtSnapshotRepository
         self.hunter_families: PostgresHunterFamilyRepository
         self.hunt_v3_queue: PostgresHuntV3QueueRepository
         self.impact_chains: PostgresImpactChainRepository
@@ -196,6 +198,9 @@ class PostgresUnitOfWork:
             self._connection
         )
         self.attack_surface_snapshots = PostgresAttackSurfaceSnapshotRepository(
+            self._connection
+        )
+        self.coverage_debt_snapshots = PostgresCoverageDebtSnapshotRepository(
             self._connection
         )
         self.hunter_families = PostgresHunterFamilyRepository(self._connection)

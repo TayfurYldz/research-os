@@ -141,6 +141,25 @@ separate eras and must never be confused. GATE 06 does not prove live OAST
 infrastructure, autonomous exploitation execution, live internet reconnaissance,
 bug-bounty performance, or production readiness.
 
+GATE 08 PENDING means the Attack Period Coverage Debt matrix (SD-G8) is under
+construction. SD-G8 builds a deterministic, LLM-free (node × identity ×
+HunterFamily) coverage-debt matrix from the AttackSurfaceGraph v2, the
+HunterFamily registry, and the hypothesis/audit ledger. Only IN_SCOPE nodes
+produce debt cells; UNKNOWN/OUT_OF_SCOPE nodes are marked NOT_APPLICABLE and do
+not enter the debt count. Identity-agnostic hypotheses (the SD-G8 boundary,
+because HypothesisRecord does not carry identity) are spread to all identity
+cells of the matching (node, family) pair; per-identity binding is scheduled for
+SD-G9. The matrix computes a SHA-256 hash over a canonical, sorted cell list so
+that identical inputs always yield identical hashes. A durable but rebuildable
+summary is persisted in coverage_debt_snapshot (matrix_hash + cell_counts +
+total_debt); the full matrix remains reconstructible from the ledger. The CLI
+exposes `research-os coverage --research-run-id <id>` for operator visibility.
+SD-G8 is NOT the old infrastructure GATE 08 (Invariant Chain benchmark,
+a14_001_invariant_chain, closed 2026-08-16); those are separate eras and must
+never be confused. GATE 08 does not prove autonomous vulnerability discovery,
+active probing execution, live internet reconnaissance, bug-bounty performance,
+or production readiness.
+
 GATE 07 PASS means the Attack Period ImpactGraph (SD-G7) is sealed at a1d8e39 +
 seal commit; independent architect audit: 1100 unit+contract passed;
 ImpactGraph chains proof-backed, cross-run locked, impact kinds bounded by
@@ -178,6 +197,7 @@ GATE_04_STATUS = "PASS"
 GATE_05_STATUS = "PASS"
 GATE_06_STATUS = "PASS"
 GATE_07_STATUS = "PASS"
+GATE_08_STATUS = "PENDING"
 GATE_12_STATUS = "PASS"
 GATE_13_STATUS = "PASS"
 GATE_14_STATUS = "PASS"
@@ -208,6 +228,7 @@ def maturity_mapping() -> dict[str, object]:
         "GATE_05": GATE_05_STATUS,
         "GATE_06": GATE_06_STATUS,
         "GATE_07": GATE_07_STATUS,
+        "GATE_08": GATE_08_STATUS,
         "GATE_12": GATE_12_STATUS,
         "GATE_13": GATE_13_STATUS,
         "GATE_14": GATE_14_STATUS,

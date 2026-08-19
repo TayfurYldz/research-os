@@ -1,5 +1,62 @@
 # Research OS Operations Notes
 
+## SD-G8 — Coverage Debt
+
+### Scope
+
+SD-G8 builds a deterministic, LLM-free coverage-debt matrix that tells the
+operator where the hunt is incomplete:
+
+- **Coverage Debt Core** (`research_os.research.coverage`): `CoverageCell`,
+  `CoverageMatrix`, and `compute_coverage_debt(graph, registry, hypotheses_view)`.
+  The matrix is indexed by `(node_canonical_key, identity_id, family_id)`.
+- **Identity-agnostic boundary**: `HypothesisRecord` does not carry identity, so
+  SD-G8 treats a hypothesis as covering all identity cells of its
+  `(node, family)` pair. Per-identity binding is scheduled for SD-G9.
+- **Scope partition**: only `IN_SCOPE` nodes produce debt cells.
+  `UNKNOWN`/`OUT_OF_SCOPE` nodes are emitted as `NOT_APPLICABLE` and do not
+  contribute to `total_debt`.
+- **Determinism**: the matrix hash is computed from a canonical, sorted JSON
+  serialization of all cells; permutations of the input produce the same hash.
+- **Persistence**: `coverage_debt_snapshot` stores only
+  `matrix_hash + cell_counts + total_debt`; the full matrix remains rebuildable
+  from the ledger.
+
+### Coverage States
+
+| State | Meaning |
+|-------|---------|
+| `NOT_APPLICABLE` | Node is not an active hunt target (`UNKNOWN`/`OUT_OF_SCOPE`). |
+| `UNTESTED` | No hypothesis exists for the cell. |
+| `HYPOTHESIZED` | Hypothesis exists but has not passed V1. |
+| `V1_PASSED` | Static scope/precondition/budget checks passed. |
+| `V2_PASSED` | Passive/yielded evidence confirmed the hypothesis. |
+| `V3_QUEUED` | Approved for active experiment (still pending execution). |
+| `COVERED` | Hypothesis fully validated; no debt for this cell. |
+
+### Registry Integration
+
+- `CoverageDebtView` loads the latest enabled version of each `hunter_family`
+  row (append-only versioning: higher `version` wins).
+- `families_for_node` evaluates node kind + edge preconditions against the
+  graph; only applicable families open cells.
+- Hypothesis progress is read from `hypothesis` + `audit_event` tier events
+  (`HYPOTHESIS_TIER_V1_PASSED`, `HYPOTHESIS_TIER_V2_PASSED`,
+  `HYPOTHESIS_TIER_V3_QUEUED`, and rejection events).
+
+### Operator Visibility
+
+- CLI: `research-os coverage --research-run-id <id>` prints total debt,
+  per-family debt, per-state counts, top-10 nodes, and the matrix hash.
+- Optional persistence: `CoverageDebtView.execute(..., persist=True)` writes a
+  `coverage_debt_snapshot` record and returns the generated `snapshot_id`.
+
+### Runbook
+
+- `GATE_08_STATUS` stays `PENDING` until the independent architect audit seals
+  the gate.
+- Full suite commands are the same as SD-G7.
+
 ## SD-G7 — ImpactGraph
 
 ### Scope

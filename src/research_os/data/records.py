@@ -2538,6 +2538,34 @@ class AttackSurfaceSnapshotRecord:
 
 
 @dataclass(frozen=True)
+class CoverageDebtSnapshotRecord:
+    """Immutable coverage-debt matrix summary. Full matrix rebuilds from ledger."""
+
+    snapshot_id: str
+    research_run_id: str
+    matrix_hash: str
+    cell_counts: Mapping[str, Any]
+    total_debt: int
+    created_at: datetime
+
+    def __post_init__(self) -> None:
+        require_opaque_id(self.snapshot_id, "snapshot_id")
+        require_opaque_id(self.research_run_id, "research_run_id")
+        require_aware_datetime(self.created_at, "created_at")
+        if not isinstance(self.matrix_hash, str) or len(self.matrix_hash) != 64:
+            raise PersistenceInputError("matrix_hash must be a SHA-256 hex digest")
+        object.__setattr__(
+            self, "cell_counts", _require_mapping(self.cell_counts, "cell_counts")
+        )
+        if (
+            not isinstance(self.total_debt, int)
+            or isinstance(self.total_debt, bool)
+            or self.total_debt < 0
+        ):
+            raise PersistenceInputError("total_debt must be a non-negative int")
+
+
+@dataclass(frozen=True)
 class HunterFamilyRecord:
     """Data-driven hypothesis family registry entry. Append-only versioning."""
 

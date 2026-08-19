@@ -1541,6 +1541,22 @@ hunt_v3_queue = Table(
     ),
 )
 
+coverage_debt_snapshot = Table(
+    "coverage_debt_snapshot",
+    metadata,
+    Column("snapshot_id", Text, primary_key=True),
+    Column("research_run_id", Text, ForeignKey("research_run.research_run_id"), nullable=False),
+    Column("matrix_hash", Text, nullable=False),
+    Column("cell_counts", JSONB, nullable=False),
+    Column("total_debt", Integer, nullable=False),
+    Column("created_at", DateTime(timezone=True), nullable=False),
+    UniqueConstraint("snapshot_id", "research_run_id", name="uq_coverage_debt_snapshot_id_run"),
+    CheckConstraint(
+        "length(matrix_hash) = 64", name="ck_coverage_debt_snapshot_hash_length"
+    ),
+    CheckConstraint("total_debt >= 0", name="ck_coverage_debt_snapshot_total_debt"),
+)
+
 impact_chain = Table(
     "impact_chain",
     metadata,
@@ -1646,6 +1662,7 @@ SPINE_TABLES = (
     hunter_family,
     hunt_v3_queue,
     oast_token,
+    coverage_debt_snapshot,
     impact_chain,
     impact_chain_node,
     impact_chain_edge,
@@ -1690,6 +1707,7 @@ APPEND_ONLY_TABLES = (
     "discovery_projection_receipt",
     "sensor_observation",
     "hunter_family",
+    "coverage_debt_snapshot",
     "impact_chain",
     "impact_chain_node",
     "impact_chain_edge",

@@ -1,0 +1,1 @@
+"""Coverage debt application views."""

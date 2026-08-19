@@ -287,9 +287,51 @@ def _cmd_budget(rest: list[str]) -> int:
     return 0
 
 
+def _cmd_coverage(rest: list[str]) -> int:
+    from research_os.application.coverage.debt_view import CoverageDebtView
+    from research_os.data.postgres.engine import create_sync_engine
+    from research_os.data.postgres.unit_of_work import PostgresUnitOfWork
+
+    coverage_parser = argparse.ArgumentParser(prog="research-os coverage")
+    coverage_parser.add_argument("--research-run-id", required=True)
+    coverage_args = coverage_parser.parse_args(rest)
+
+    db_url = os.environ.get("RESEARCH_OS_DATABASE_URL")
+    if not db_url:
+        sys.stderr.write("RESEARCH_OS_DATABASE_URL is not set\n")
+        return 1
+
+    engine = create_sync_engine(db_url)
+    uow_factory = PostgresUnitOfWork(engine)
+    view = CoverageDebtView(uow_factory)
+    try:
+        summary = view.execute(coverage_args.research_run_id)
+    except Exception as exc:
+        sys.stderr.write(f"coverage query failed: {exc}\n")
+        return 1
+
+    lines = [
+        f"research_run_id: {summary.research_run_id}",
+        f"strategy_version: {summary.strategy_version}",
+        f"matrix_hash: {summary.matrix_hash}",
+        f"total_debt: {summary.total_debt}",
+        "cell_counts:",
+    ]
+    for state, count in sorted(summary.cell_counts.items()):
+        lines.append(f"  {state}: {count}")
+    lines.append("family_debt:")
+    for family_id, count in sorted(summary.family_debt.items(), key=lambda item: item[1], reverse=True):
+        lines.append(f"  {family_id}: {count}")
+    lines.append("top_nodes:")
+    for item in summary.top_nodes:
+        lines.append(f"  {item['node_canonical_key']}: {item['debt']}")
+    sys.stdout.write("\n".join(lines) + "\n")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="research-os")
-    parser.add_argument("command", choices=("status", "export-source", "census", "budget"))
+    parser.add_argument("command", choices=("status", "export-source", "census", "budget", "coverage"))
     args, rest = parser.parse_known_args(argv)
     if args.command == "status":
         sys.stdout.write(render_operator_status(build_status_snapshot()) + "\n")
@@ -311,6 +353,8 @@ def main(argv: list[str] | None = None) -> int:
         return _cmd_census(rest)
     if args.command == "budget":
         return _cmd_budget(rest)
+    if args.command == "coverage":
+        return _cmd_coverage(rest)
     return 1
 
 

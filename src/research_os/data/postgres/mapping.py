@@ -13,6 +13,7 @@ from research_os.data.records import (
     CandidateAdmissionRecord,
     CandidateRecord,
     ChainHypothesisRecord,
+    CoverageDebtSnapshotRecord,
     DifferentialObservationRecord,
     EvidenceAdmissionRecord,
     EvidenceRecord,
@@ -981,6 +982,18 @@ def attack_surface_snapshot_from_row(row: Mapping[str, Any]) -> AttackSurfaceSna
         node_count=int(data["node_count"]),
         edge_count=int(data["edge_count"]),
         graph_hash=data["graph_hash"],
+        created_at=data["created_at"],
+    )
+
+
+def coverage_debt_snapshot_from_row(row: Mapping[str, Any]) -> CoverageDebtSnapshotRecord:
+    data = _mapping(row)
+    return CoverageDebtSnapshotRecord(
+        snapshot_id=data["snapshot_id"],
+        research_run_id=data["research_run_id"],
+        matrix_hash=data["matrix_hash"],
+        cell_counts=dict(data["cell_counts"] or {}),
+        total_debt=int(data["total_debt"]),
         created_at=data["created_at"],
     )
 
