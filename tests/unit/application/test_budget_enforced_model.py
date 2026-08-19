@@ -26,6 +26,12 @@ from research_os.application.autonomous_research_controller import (
     AutonomousResearchController,
     StartAutonomousResearchCommand,
 )
+from research_os.application.program_daily_budget import (
+    AllocateProgramDailyBudget,
+    AllocateProgramDailyBudgetCommand,
+    program_daily_budget_id,
+)
+from research_os.data.records import ProgramPolicyRecord
 from support.recording_worker import RecordingWorkerPort
 
 
@@ -190,6 +196,145 @@ class PreInvocationBudgetTests(unittest.TestCase):
         totals = ledger_totals(list(store.budget_consumptions.values()))
         self.assertEqual(totals.model_calls, 1)
         self.assertEqual(totals.worker_requests, 0)
+
+
+class TokenAccountingTests(unittest.TestCase):
+    def _seed_program_budget(self, store: _Store, limit_microdollars: int = 1_000_000) -> None:
+        store.program_policies["prog-1"] = ProgramPolicyRecord(
+            program_id="prog-1",
+            loopback_fixture=True,
+            max_response_bytes=4096,
+            timeout_ms=2000,
+            created_at=CREATED_AT,
+            updated_at=CREATED_AT,
+            daily_llm_budget_microdollars=limit_microdollars,
+        )
+        AllocateProgramDailyBudget(FakeUnitOfWorkFactory(store=store), clock=FixedClock()).execute(
+            AllocateProgramDailyBudgetCommand(
+                program_id="prog-1",
+                budget_date=CREATED_AT.date().isoformat(),
+                limit_microdollars=limit_microdollars,
+            )
+        )
+
+    def test_token_consumption_recorded_on_program_daily_budget(self) -> None:
+        store = _Store()
+        _seed(store, max_model_calls=1)
+        self._seed_program_budget(store)
+        inner = ScriptedModelPort(
+            model_id="local-fixture", prompt_tokens=10, completion_tokens=5
+        )
+        port = BudgetEnforcedModelPort(
+            inner,
+            FakeUnitOfWorkFactory(store=store),
+            budget_id="budget-1",
+            research_run_id="run-1",
+            cycle_id="cycle-1",
+            program_id="prog-1",
+            clock=FixedClock(),
+        )
+        port.complete(_request(ModelRole.GENERATOR))
+        daily_budget_id = program_daily_budget_id("prog-1", CREATED_AT.date().isoformat())
+        daily_records = [
+            item for item in store.budget_consumptions.values() if item.budget_id == daily_budget_id
+        ]
+        types = {item.resource_type for item in daily_records}
+        self.assertIn("MODEL_TOKENS_IN", types)
+        self.assertIn("MODEL_TOKENS_OUT", types)
+        self.assertEqual(
+            sum(item.amount for item in daily_records if item.resource_type == "MODEL_TOKENS_IN"),
+            10,
+        )
+        self.assertEqual(
+            sum(item.amount for item in daily_records if item.resource_type == "MODEL_TOKENS_OUT"),
+            5,
+        )
+        for item in daily_records:
+            self.assertEqual((item.resource_metadata or {}).get("model_id"), "local-fixture")
+
+    def test_replay_same_invocation_does_not_double_record_tokens(self) -> None:
+        store = _Store()
+        _seed(store, max_model_calls=2)
+        self._seed_program_budget(store)
+        inner = ScriptedModelPort(
+            model_id="local-fixture", prompt_tokens=10, completion_tokens=5
+        )
+        factory = FakeUnitOfWorkFactory(store=store)
+        port = BudgetEnforcedModelPort(
+            inner,
+            factory,
+            budget_id="budget-1",
+            research_run_id="run-1",
+            cycle_id="cycle-1",
+            program_id="prog-1",
+            clock=FixedClock(),
+        )
+        port.complete(_request())
+        port._attempts[ModelRole.GENERATOR] = 0
+        port.complete(_request())
+        daily_budget_id = program_daily_budget_id("prog-1", CREATED_AT.date().isoformat())
+        daily_records = [
+            item for item in store.budget_consumptions.values() if item.budget_id == daily_budget_id
+        ]
+        self.assertEqual(
+            sum(item.amount for item in daily_records if item.resource_type == "MODEL_TOKENS_IN"),
+            10,
+        )
+        self.assertEqual(
+            sum(item.amount for item in daily_records if item.resource_type == "MODEL_TOKENS_OUT"),
+            5,
+        )
+
+    def test_missing_program_daily_budget_denies_call(self) -> None:
+        store = _Store()
+        _seed(store, max_model_calls=1)
+        # Program policy exists but no daily envelope allocated.
+        store.program_policies["prog-1"] = ProgramPolicyRecord(
+            program_id="prog-1",
+            loopback_fixture=True,
+            max_response_bytes=4096,
+            timeout_ms=2000,
+            created_at=CREATED_AT,
+            updated_at=CREATED_AT,
+            daily_llm_budget_microdollars=1_000_000,
+        )
+        inner = ScriptedModelPort(model_id="local-fixture")
+        port = BudgetEnforcedModelPort(
+            inner,
+            FakeUnitOfWorkFactory(store=store),
+            budget_id="budget-1",
+            research_run_id="run-1",
+            cycle_id="cycle-1",
+            program_id="prog-1",
+            clock=FixedClock(),
+        )
+        with self.assertRaises(BudgetConsumptionRejected):
+            port.complete(_request())
+
+    def test_unset_daily_limit_denies_call(self) -> None:
+        store = _Store()
+        _seed(store, max_model_calls=1)
+        store.program_policies["prog-1"] = ProgramPolicyRecord(
+            program_id="prog-1",
+            loopback_fixture=True,
+            max_response_bytes=4096,
+            timeout_ms=2000,
+            created_at=CREATED_AT,
+            updated_at=CREATED_AT,
+            daily_llm_budget_microdollars=None,
+        )
+        inner = ScriptedModelPort(model_id="local-fixture")
+        port = BudgetEnforcedModelPort(
+            inner,
+            FakeUnitOfWorkFactory(store=store),
+            budget_id="budget-1",
+            research_run_id="run-1",
+            cycle_id="cycle-1",
+            program_id="prog-1",
+            clock=FixedClock(),
+        )
+        with self.assertRaises(BudgetConsumptionRejected):
+            port.complete(_request())
 
 
 if __name__ == "__main__":

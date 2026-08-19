@@ -9,8 +9,18 @@ Replay of the same invocation identity does not double-charge.
 
 from __future__ import annotations
 
-from research_os.application.budget_consumption import RecordBudgetConsumption, RecordBudgetConsumptionCommand
+from datetime import date, timezone
+
+from research_os.application.budget_consumption import (
+    BudgetConsumptionRejected,
+    RecordBudgetConsumption,
+    RecordBudgetConsumptionCommand,
+)
 from research_os.application.ports import Clock, SystemClock, UnitOfWorkFactory
+from research_os.application.program_daily_budget import (
+    CheckProgramDailyBudget,
+    program_daily_budget_id,
+)
 from research_os.research.model_port import ModelCallRequest, ModelCallResult, ModelPort, ModelRole
 
 
@@ -29,13 +39,18 @@ class BudgetEnforcedModelPort:
         budget_id: str,
         research_run_id: str,
         cycle_id: str,
+        program_id: str | None = None,
         clock: Clock | None = None,
     ) -> None:
         self._inner = inner
-        self._consume = RecordBudgetConsumption(uow_factory, clock=clock or SystemClock())
+        self._uow_factory = uow_factory
+        self._clock = clock or SystemClock()
+        self._consume = RecordBudgetConsumption(uow_factory, clock=self._clock)
+        self._check_program_budget = CheckProgramDailyBudget(uow_factory, clock=self._clock)
         self._budget_id = budget_id
         self._research_run_id = research_run_id
         self._cycle_id = cycle_id
+        self._program_id = program_id
         self._attempts = {ModelRole.GENERATOR: 0, ModelRole.FALSIFIER: 0}
         self.reserved_invocations: list[str] = []
 
@@ -46,6 +61,12 @@ class BudgetEnforcedModelPort:
             role=request.role,
             attempt_no=self._attempts[request.role],
         )
+        if self._program_id is not None:
+            program_check = self._check_program_budget.execute(self._program_id)
+            if not program_check.allowed_to_continue:
+                raise BudgetConsumptionRejected(
+                    f"program daily LLM budget denied: {program_check.reason_code.value}"
+                )
         self._consume.execute(
             RecordBudgetConsumptionCommand(
                 budget_id=self._budget_id,
@@ -58,4 +79,48 @@ class BudgetEnforcedModelPort:
             )
         )
         self.reserved_invocations.append(invocation_id)
-        return self._inner.complete(request)
+        result = self._inner.complete(request)
+        self._record_tokens(invocation_id, result)
+        return result
+
+    def _record_tokens(self, invocation_id: str, result: ModelCallResult) -> None:
+        if self._program_id is None or result.model_id is None:
+            return
+        # Only record tokens when a program policy exists (legacy runs without a
+        # configured policy keep the pre-SD-G4 behavior).
+        with self._uow_factory.open() as uow:
+            policy = uow.program_policies.get(self._program_id)
+            has_policy = policy is not None
+            uow.rollback()
+        if not has_policy:
+            return
+        daily_budget_id = program_daily_budget_id(
+            self._program_id, self._clock.now().date().isoformat()
+        )
+        metadata = {"model_id": result.model_id}
+        if result.prompt_tokens is not None:
+            self._consume.execute(
+                RecordBudgetConsumptionCommand(
+                    budget_id=daily_budget_id,
+                    research_run_id=None,
+                    resource_type="MODEL_TOKENS_IN",
+                    amount=result.prompt_tokens,
+                    unit="count",
+                    provenance="budget_enforced_model_port.tokens",
+                    request_id=invocation_id,
+                    resource_metadata=metadata,
+                )
+            )
+        if result.completion_tokens is not None:
+            self._consume.execute(
+                RecordBudgetConsumptionCommand(
+                    budget_id=daily_budget_id,
+                    research_run_id=None,
+                    resource_type="MODEL_TOKENS_OUT",
+                    amount=result.completion_tokens,
+                    unit="count",
+                    provenance="budget_enforced_model_port.tokens",
+                    request_id=invocation_id,
+                    resource_metadata=metadata,
+                )
+            )

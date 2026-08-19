@@ -415,12 +415,18 @@ class AutonomousResearchController:
                 active_cycle_id=cycle_id,
             )
 
+        with self._uow_factory.open() as uow:
+            run = uow.research_runs.get(config.research_run_id)
+            program_id = run.program_id if run is not None else None
+            uow.rollback()
+
         bound_model = BudgetEnforcedModelPort(
             self._model,
             self._uow_factory,
             budget_id=config.budget_id,
             research_run_id=config.research_run_id,
             cycle_id=cycle_id,
+            program_id=program_id,
             clock=self._clock,
         )
         proposer = ProposeResearchHypothesis(

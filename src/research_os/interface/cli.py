@@ -227,9 +227,69 @@ def _cmd_census(rest: list[str]) -> int:
     return 0
 
 
+def _microdollars_to_usd_display(microdollars: int) -> str:
+    return f"{microdollars / 1_000_000:.6f} USD"
+
+
+def _cmd_budget(rest: list[str]) -> int:
+    from datetime import date, timezone
+
+    from research_os.application.program_daily_budget import ProgramDailyBudgetUsage
+    from research_os.data.postgres.engine import create_sync_engine
+    from research_os.data.postgres.unit_of_work import PostgresUnitOfWork
+
+    budget_parser = argparse.ArgumentParser(prog="research-os budget")
+    budget_parser.add_argument("--program-id", required=True)
+    budget_parser.add_argument("--date", default=date.today(timezone.utc).isoformat())
+    budget_args = budget_parser.parse_args(rest)
+
+    db_url = os.environ.get("RESEARCH_OS_DATABASE_URL")
+    if not db_url:
+        sys.stderr.write("RESEARCH_OS_DATABASE_URL is not set\n")
+        return 1
+
+    engine = create_sync_engine(db_url)
+    uow_factory = PostgresUnitOfWork(engine)
+    usage = ProgramDailyBudgetUsage(uow_factory)
+    try:
+        view = usage.execute(budget_args.program_id, budget_args.date)
+    except Exception as exc:
+        sys.stderr.write(f"budget query failed: {exc}\n")
+        return 1
+
+    class_counts: dict[str, int] = {}
+    for call in view.last_calls:
+        model_class = "unknown"
+        if call.resource_type == "MODEL_CALL":
+            model_class = "call"
+        elif call.resource_type in {"MODEL_TOKENS_IN", "MODEL_TOKENS_OUT"}:
+            model_class = call.resource_type.split("_")[-1].lower()
+        class_counts[model_class] = class_counts.get(model_class, 0) + 1
+
+    lines = [
+        f"program_id: {view.program_id}",
+        f"date: {view.budget_date}",
+        f"limit: {_microdollars_to_usd_display(view.limit_microdollars)}",
+        f"spent: {_microdollars_to_usd_display(view.spent_microdollars)}",
+        f"remaining: {_microdollars_to_usd_display(view.remaining_microdollars)}",
+        f"tokens_in: {view.tokens_in}",
+        f"tokens_out: {view.tokens_out}",
+        f"model_call_count: {view.model_call_count}",
+        "last_calls:",
+    ]
+    for call in view.last_calls:
+        lines.append(
+            f"  - {call.occurred_at.isoformat()} {call.resource_type} "
+            f"model={call.model_id or 'unknown'} request={call.request_id or '-'}"
+        )
+    lines.append(f"class_distribution: {class_counts}")
+    sys.stdout.write("\n".join(lines) + "\n")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="research-os")
-    parser.add_argument("command", choices=("status", "export-source", "census"))
+    parser.add_argument("command", choices=("status", "export-source", "census", "budget"))
     args, rest = parser.parse_known_args(argv)
     if args.command == "status":
         sys.stdout.write(render_operator_status(build_status_snapshot()) + "\n")
@@ -249,6 +309,8 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     if args.command == "census":
         return _cmd_census(rest)
+    if args.command == "budget":
+        return _cmd_budget(rest)
     return 1
 
 

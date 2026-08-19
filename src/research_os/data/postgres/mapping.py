@@ -103,6 +103,7 @@ def program_policy_from_row(row: Mapping[str, Any]) -> ProgramPolicyRecord:
         created_at=data["created_at"],
         updated_at=data["updated_at"],
         action_policy=dict(data["action_policy"] or {}),
+        daily_llm_budget_microdollars=data.get("daily_llm_budget_microdollars"),
     )
 
 
@@ -751,6 +752,7 @@ def budget_consumption_from_row(row: Mapping[str, Any]) -> BudgetConsumptionReco
         unit=data["unit"],
         occurred_at=data["occurred_at"],
         provenance=data["provenance"],
+        resource_metadata=dict(data["resource_metadata"]) if data.get("resource_metadata") is not None else None,
     )
 
 

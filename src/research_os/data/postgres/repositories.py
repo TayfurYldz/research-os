@@ -197,6 +197,7 @@ class PostgresProgramPolicyRepository:
                 max_response_bytes=record.max_response_bytes,
                 timeout_ms=record.timeout_ms,
                 action_policy=dict(record.action_policy) if record.action_policy is not None else {},
+                daily_llm_budget_microdollars=record.daily_llm_budget_microdollars,
                 created_at=record.created_at,
                 updated_at=record.updated_at,
             ),
@@ -2202,6 +2203,7 @@ def _consumption_values(record: BudgetConsumptionRecord) -> dict[str, object]:
         "unit": record.unit,
         "occurred_at": record.occurred_at,
         "provenance": record.provenance,
+        "resource_metadata": dict(record.resource_metadata) if record.resource_metadata is not None else None,
     }
 
 

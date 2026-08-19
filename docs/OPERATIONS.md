@@ -698,11 +698,12 @@ If `RESEARCH_OS_TEST_DATABASE_URL` is unset, PostgreSQL-required suites must SKI
 
 ## GATE 03 — Attack Period (SurfaceGraph v2)
 
-**GATE 03 status: PENDING.** Local implementation exists; formal PASS requires
-Kali + real PostgreSQL validation. This is the Attack Period SurfaceGraph v2
-(SD-G3). It is **not** the old infrastructure GATE 03 (Learning Cycle,
-`a9_001_learning_cycle`, closed 2026-08-16); those are separate eras and must
-never be confused.
+**GATE 03 status: PASS.** Sealed at `05ce3c0` + seal commit `f74677d`;
+independent architect audit: 991 unit+contract passed; silent-drop eliminated;
+`UNTRUSTED_EXTERNAL` preserved in graph; scope provenance mandatory. This is the
+Attack Period SurfaceGraph v2 (SD-G3). It is **not** the old infrastructure
+GATE 03 (Learning Cycle, `a9_001_learning_cycle`, closed 2026-08-16); those are
+separate eras and must never be confused.
 
 Implementation scope:
 
@@ -727,7 +728,7 @@ Implementation scope:
   stores `research_run_id`, `strategy_version`, `node_count`, `edge_count`,
   `graph_hash`, `created_at`. Node/edge data remains rebuildable from the
   discovery ledger; the snapshot is a durable fingerprint, not a second copy.
-- `maturity.py`: `GATE_03_STATUS = "PENDING"` until authoritative validation.
+- `maturity.py`: `GATE_03_STATUS = "PASS"` sealed by architect audit.
 
 Formal claim (upon PASS):
 
@@ -768,6 +769,94 @@ python scripts/clean_install_smoke.py
 
 If `RESEARCH_OS_TEST_DATABASE_URL` is unset, PostgreSQL-required suites must SKIP, never fabricate PASS.
 
+## GATE 04 — Attack Period (Token Economy Policy)
+
+**GATE 04 status: PENDING.** Local implementation exists; formal PASS requires
+Kali + real PostgreSQL validation. This is the Attack Period Token Economy
+Policy (SD-G4). It is **not** the old infrastructure GATE 04/04B (Benchmark
+Compatible policy); those are separate eras and must never be confused.
+
+Implementation scope:
+
+- `research_os.core.pricing`: `MODEL_PRICE_TABLE` maps `model_id` to input/output
+  microdollars per 1M tokens. `estimate_cost(model_id, tokens_in, tokens_out)`
+  returns an `int` in microdollars. Unknown `model_id` raises
+  `UnknownModelPriceError` (fail-closed: no money is spent on unpriced models).
+- `research_os.research.model_port.ModelCallResult`: carries
+  `prompt_tokens`/`completion_tokens` (None if the provider does not report).
+- `research_os.data.records`: `BudgetConsumptionRecord` gains `resource_metadata`
+  JSONB; `ALLOWED_BUDGET_RESOURCE_TYPES` gains `MODEL_TOKENS_IN`,
+  `MODEL_TOKENS_OUT`, `MODEL_ESCALATION_DECISION`.
+- `research_os.application.budget_enforced_model`: reserves `MODEL_CALL` on the
+  research-run budget **before** invocation (existing K1 pattern), then records
+  `MODEL_TOKENS_IN`/`MODEL_TOKENS_OUT` on the program-daily budget after the
+  call. Replay with the same `request_id` is idempotent.
+- `program_policy.daily_llm_budget_microdollars`: nullable integer in
+  microdollars. `NULL` does **not** mean unlimited; it means the operator has
+  not set a daily limit and live model calls are denied (fail-closed).
+- `research_os.application.program_daily_budget`:
+  `AllocateProgramDailyBudget` creates the daily envelope;
+  `ProgramDailyBudgetUsage` reads the append-only ledger and sums costs via
+  `estimate_cost`; `CheckProgramDailyBudget` denies calls when the limit is
+  reached or unset.
+- `research_os.research.routing`: `ModelPriceClass` (`cheap`/`expensive`);
+  `TASK_PRICE_CLASS_POLICY`; default route is `cheap`; `expensive` is allowed
+  only when the task class policy marks it or the previous cheap call returned
+  `ESCALATION_NEEDED`. `monitoring` task class maps to `none` and produces zero
+  model calls.
+- `research-os budget --program-id <id> [--date <iso>]`: read-only operator view
+  of limit, spent, remaining, token counts, and recent call class distribution.
+- Alembic `a28_001_token_economy`: adds
+  `program_policy.daily_llm_budget_microdollars` and
+  `budget_consumption.resource_metadata`; makes `issued_budget.research_run_id`
+  nullable so program-daily cost envelopes do not require a research run.
+- `maturity.py`: `GATE_04_STATUS = "PENDING"` until authoritative validation.
+
+Cost unit note: 1 USD = 1_000_000 microdollars. The `daily_llm_budget_usd`
+semantic from the policy is stored as `daily_llm_budget_microdollars` to keep
+Core arithmetic integer-only and deterministic.
+
+Formal claim (upon PASS):
+
+Research OS can enforce a per-program daily LLM cost ceiling, default to cheap
+models, escalate to expensive models only on proven evidence, guarantee zero LLM
+calls in monitoring tasks, and expose a read-only operator budget view sourced
+entirely from the append-only consumption ledger.
+
+GATE 04 proves only: cost accounting, daily budget enforcement, and routing
+escalation plumbing against PostgreSQL.
+
+GATE 04 does **not** prove:
+
+- autonomous vulnerability discovery
+- active probing or live internet reconnaissance
+- real bug-bounty performance
+- production readiness
+- old infrastructure GATE 04/04B behavior
+
+Current limitations:
+
+- `MODEL_PRICE_TABLE` contains placeholder prices; live operational prices are
+  set by operator configuration outside Core.
+- `estimate_cost` uses integer microdollar arithmetic; sub-microdollar rounding
+  is downward, so reported spend is a conservative lower bound.
+- Program-daily budgets are independent of research-run model-call budgets;
+  both must be satisfied for a call to proceed.
+
+Validation commands (to be run on authoritative Kali host with real PostgreSQL):
+
+```
+python -m compileall src tests scripts
+python -m unittest discover -s tests/unit -q
+python -m unittest discover -s tests/contract -q
+python -m unittest tests.unit.test_architecture_boundaries -q
+python -m unittest discover -s tests/integration -q
+python scripts/run_research_benchmark.py --baseline GOOD_BASELINE --single-run-legacy
+python scripts/clean_install_smoke.py
+```
+
+If `RESEARCH_OS_TEST_DATABASE_URL` is unset, PostgreSQL-required suites must SKIP, never fabricate PASS.
+
 ## Maturity
 
 - ARCHITECTURE_VALIDATED: architecture package complete
@@ -777,7 +866,8 @@ If `RESEARCH_OS_TEST_DATABASE_URL` is unset, PostgreSQL-required suites must SKI
 - PRODUCTION_READY: no until operational and live-research gates that have not passed actually pass
 - GATE 01: PASS (2026-08-19, Kali, isolated PostgreSQL, full suite 1225 passed / 9 skipped)
 - GATE 02: PASS (Sensor/Acquisition Plane sealed at e2bf18b; independent architect audit: 977 unit+contract passed, boundary clean, admission per spec; not the old infrastructure GATE 02 reasoning cycle)
-- GATE 03: PENDING (Attack Period SurfaceGraph v2 implemented locally; formal PASS requires Kali + real PostgreSQL validation; not the old infrastructure GATE 03 learning cycle)
+- GATE 03: PASS (Attack Period SurfaceGraph v2 sealed at 05ce3c0 + f74677d; independent architect audit: 991 unit+contract passed; not the old infrastructure GATE 03 learning cycle)
+- GATE 04: PENDING (Attack Period Token Economy Policy implemented locally; formal PASS requires Kali + real PostgreSQL validation; not the old infrastructure GATE 04/04B benchmark policy)
 - GATE 14: PASS (2026-08-17, Kali, dedicated PostgreSQL, 19 E2E OK / 0 skipped)
 - GATE 15: PASS (2026-08-17, Kali, dedicated PostgreSQL, GATE14 regression 19 OK / 0 skipped, GATE15 21 OK / 0 skipped)
 - GATE 16: PASS (2026-08-17, Kali, dedicated PostgreSQL, GATE14 19 OK / 0 skipped, GATE15 21 OK / 0 skipped, GATE16 34 OK / 0 skipped)

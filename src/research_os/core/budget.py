@@ -55,6 +55,37 @@ class BudgetCheck:
     budget_id: str
 
 
+@dataclass(frozen=True)
+class ProgramDailyBudget:
+    """Immutable program daily LLM cost envelope. 0 is no allowance, never unlimited."""
+
+    program_id: str
+    date: str
+    limit_microdollars: int
+    spent_microdollars: int
+
+    def __post_init__(self) -> None:
+        require_opaque_id(self.program_id, "program_id")
+        if not isinstance(self.date, str) or not self.date.strip():
+            raise InvalidBudgetError("date must be a non-empty string")
+        _require_non_negative("limit_microdollars", self.limit_microdollars)
+        _require_non_negative("spent_microdollars", self.spent_microdollars)
+
+
+def check_program_daily_budget(
+    budget: ProgramDailyBudget,
+    requested_program_id: str,
+) -> BudgetCheck:
+    if not isinstance(budget, ProgramDailyBudget):
+        raise CoreInputError("program_daily_budget is required")
+    require_opaque_id(requested_program_id, "requested_program_id")
+    if requested_program_id != budget.program_id:
+        return BudgetCheck(False, ReasonCode.BUDGET_MISMATCH, budget.program_id)
+    if budget.spent_microdollars >= budget.limit_microdollars:
+        return BudgetCheck(False, ReasonCode.BUDGET_EXHAUSTED, budget.program_id)
+    return BudgetCheck(True, ReasonCode.ALLOWED, budget.program_id)
+
+
 def allocate_experiment_budget(
     parent: IssuedBudget,
     budget_id: str,

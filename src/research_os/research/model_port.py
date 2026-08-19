@@ -119,6 +119,8 @@ class ModelCallResult:
     structured_output: Mapping[str, object]
     model_id: str | None = None
     model_version: str | None = None
+    prompt_tokens: int | None = None
+    completion_tokens: int | None = None
     telemetry: ModelCallTelemetry | None = None
     runtime_identity: ModelRuntimeIdentity | None = None
 
@@ -143,6 +145,18 @@ class ModelCallResult:
             not isinstance(self.model_version, str) or not self.model_version.strip()
         ):
             raise ModelPortError("model_version must be a non-empty string when set")
+        if self.prompt_tokens is not None and (
+            not isinstance(self.prompt_tokens, int)
+            or isinstance(self.prompt_tokens, bool)
+            or self.prompt_tokens <= 0
+        ):
+            raise ModelPortError("prompt_tokens must be a positive int when set")
+        if self.completion_tokens is not None and (
+            not isinstance(self.completion_tokens, int)
+            or isinstance(self.completion_tokens, bool)
+            or self.completion_tokens <= 0
+        ):
+            raise ModelPortError("completion_tokens must be a positive int when set")
         if self.telemetry is not None and not isinstance(self.telemetry, ModelCallTelemetry):
             raise ModelPortError("telemetry must be ModelCallTelemetry when set")
         if self.runtime_identity is not None and not isinstance(

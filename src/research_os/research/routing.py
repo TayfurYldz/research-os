@@ -13,6 +13,7 @@ from typing import Any
 
 from research_os.research.model_port import ModelRole
 from research_os.research.model_runtime import (
+    ModelPriceClass,
     ModelRuntimeIdentity,
     RuntimeClass,
     RuntimeOutcome,
@@ -37,6 +38,14 @@ FORBIDDEN_ROUTING_KEYS = frozenset(
         "secret",
     }
 )
+
+# SD-G4: task class → price class.  "none" means no model call (monitoring mode).
+TASK_PRICE_CLASS_POLICY: dict[str, ModelPriceClass | str] = {
+    "monitoring": "none",
+    "generator": ModelPriceClass.CHEAP,
+    "falsifier": ModelPriceClass.CHEAP,
+    "finding_proposal_qa": ModelPriceClass.EXPENSIVE,
+}
 
 
 class LocalityConstraint(Enum):
@@ -80,6 +89,10 @@ class RoutingReasonCode(Enum):
     FALLBACK_EXHAUSTED = "FALLBACK_EXHAUSTED"
     ATTEMPT_BUDGET_EXHAUSTED = "ATTEMPT_BUDGET_EXHAUSTED"
     ALREADY_ATTEMPTED = "ALREADY_ATTEMPTED"
+    CHEAP_CLASS_SELECTED = "CHEAP_CLASS_SELECTED"
+    EXPENSIVE_CLASS_SELECTED = "EXPENSIVE_CLASS_SELECTED"
+    ESCALATION_REQUIRED = "ESCALATION_REQUIRED"
+    MONITORING_CLASS_DISABLED = "MONITORING_CLASS_DISABLED"
 
 
 def _require_non_negative(name: str, value: int) -> int:
@@ -198,6 +211,8 @@ class RoutingRequest:
     attempted_adapter_ids: tuple[str, ...] = ()
     runtime_attempts_used: int = 0
     fallback_attempts_used: int = 0
+    task_class: str | None = None
+    escalation_reason: str | None = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.role, ModelRole):
@@ -212,6 +227,14 @@ class RoutingRequest:
             raise ResearchInputError("locality must be a LocalityConstraint")
         if self.runtime_attempts_used < 0 or self.fallback_attempts_used < 0:
             raise ResearchInputError("attempt counters must be non-negative")
+        if self.task_class is not None and (
+            not isinstance(self.task_class, str) or not self.task_class.strip()
+        ):
+            raise ResearchInputError("task_class must be a non-empty string when set")
+        if self.escalation_reason is not None and (
+            not isinstance(self.escalation_reason, str) or not self.escalation_reason.strip()
+        ):
+            raise ResearchInputError("escalation_reason must be a non-empty string when set")
 
 
 @dataclass(frozen=True)
@@ -371,6 +394,16 @@ def _decision(
     )
 
 
+def _desired_price_class(request: RoutingRequest) -> ModelPriceClass:
+    if request.escalation_reason is not None:
+        return ModelPriceClass.EXPENSIVE
+    if request.task_class is not None and request.task_class in TASK_PRICE_CLASS_POLICY:
+        policy_class = TASK_PRICE_CLASS_POLICY[request.task_class]
+        if isinstance(policy_class, ModelPriceClass):
+            return policy_class
+    return ModelPriceClass.CHEAP
+
+
 def select_runtime(request: RoutingRequest) -> RuntimeSelectionDecision:
     """Hard filters first, then ordered preference. The model does not vote."""
 
@@ -396,6 +429,16 @@ def select_runtime(request: RoutingRequest) -> RuntimeSelectionDecision:
             reason_codes=(RoutingReasonCode.NO_CANDIDATES.value,),
         )
 
+    if request.task_class is not None and request.task_class in TASK_PRICE_CLASS_POLICY:
+        policy_class = TASK_PRICE_CLASS_POLICY[request.task_class]
+        if policy_class == "none":
+            return _decision(
+                outcome=RoutingOutcome.BLOCKED_POLICY,
+                request=request,
+                reason_codes=(RoutingReasonCode.MONITORING_CLASS_DISABLED.value,),
+                considered=considered,
+            )
+
     survivors: list[RuntimeCandidate] = []
     filtered: list[FilterRecord] = []
     for candidate in request.candidates:
@@ -405,12 +448,27 @@ def select_runtime(request: RoutingRequest) -> RuntimeSelectionDecision:
             continue
         survivors.append(candidate)
 
-    if not survivors:
-        unavailable_only = filtered and all(
-            item.reason_code is RoutingReasonCode.UNAVAILABLE for item in filtered
+    desired_class = _desired_price_class(request)
+    price_filtered: list[FilterRecord] = []
+    price_survivors: list[RuntimeCandidate] = []
+    for candidate in survivors:
+        if candidate.identity.price_class is not desired_class:
+            price_filtered.append(
+                FilterRecord(candidate.identity.adapter_id, RoutingReasonCode.WRONG_RUNTIME_CLASS)
+            )
+            continue
+        price_survivors.append(candidate)
+
+    if not price_survivors:
+        all_blocked = price_filtered and all(
+            item.reason_code is RoutingReasonCode.WRONG_RUNTIME_CLASS for item in price_filtered
         )
-        outcome = RoutingOutcome.UNAVAILABLE if unavailable_only else RoutingOutcome.NO_COMPATIBLE_RUNTIME
-        codes = tuple(dict.fromkeys(item.reason_code.value for item in filtered)) or (
+        outcome = (
+            RoutingOutcome.BLOCKED_POLICY
+            if all_blocked and desired_class is ModelPriceClass.EXPENSIVE
+            else RoutingOutcome.NO_COMPATIBLE_RUNTIME
+        )
+        codes = tuple(dict.fromkeys(item.reason_code.value for item in price_filtered)) or (
             RoutingReasonCode.NO_CANDIDATES.value,
         )
         return _decision(
@@ -418,20 +476,30 @@ def select_runtime(request: RoutingRequest) -> RuntimeSelectionDecision:
             request=request,
             reason_codes=codes,
             considered=considered,
-            filtered=tuple(filtered),
+            filtered=tuple(filtered + price_filtered),
         )
+
+    survivors = price_survivors
+    filtered.extend(price_filtered)
 
     if request.operator_preference_order:
         order = {adapter_id: index for index, adapter_id in enumerate(request.operator_preference_order)}
         preferred = [item for item in survivors if item.identity.adapter_id in order]
         if preferred:
             chosen = sorted(preferred, key=lambda item: order[item.identity.adapter_id])[0]
+            if request.escalation_reason is not None:
+                price_reason = RoutingReasonCode.ESCALATION_REQUIRED
+            elif desired_class is ModelPriceClass.EXPENSIVE:
+                price_reason = RoutingReasonCode.EXPENSIVE_CLASS_SELECTED
+            else:
+                price_reason = RoutingReasonCode.CHEAP_CLASS_SELECTED
             return _decision(
                 outcome=RoutingOutcome.SELECT,
                 request=request,
                 reason_codes=(
                     RoutingReasonCode.SELECTED_AFTER_HARD_FILTERS.value,
                     RoutingReasonCode.SELECTED_BY_OPERATOR_ORDER.value,
+                    price_reason.value,
                 ),
                 selected=chosen.identity,
                 considered=considered,
@@ -455,12 +523,19 @@ def select_runtime(request: RoutingRequest) -> RuntimeSelectionDecision:
             considered=tuple(item.identity for item in ranked),
             filtered=tuple(filtered),
         )
+    if request.escalation_reason is not None:
+        price_reason = RoutingReasonCode.ESCALATION_REQUIRED
+    elif desired_class is ModelPriceClass.EXPENSIVE:
+        price_reason = RoutingReasonCode.EXPENSIVE_CLASS_SELECTED
+    else:
+        price_reason = RoutingReasonCode.CHEAP_CLASS_SELECTED
     return _decision(
         outcome=RoutingOutcome.SELECT,
         request=request,
         reason_codes=(
             RoutingReasonCode.SELECTED_AFTER_HARD_FILTERS.value,
             RoutingReasonCode.SELECTED_BY_QUALITY_ORDER.value,
+            price_reason.value,
         ),
         selected=best.identity,
         considered=considered,
@@ -508,6 +583,25 @@ def reconsider_runtime(
             fallback_attempts_used=previous.fallback_attempts_used,
             attempted_adapter_ids=attempted,
         )
+    if outcome is RuntimeOutcome.ESCALATION_NEEDED:
+        escalation_retry = RoutingRequest(
+            role=request.role,
+            candidates=request.candidates,
+            budget=request.budget,
+            required_runtime_class=request.required_runtime_class,
+            structured_output_required=request.structured_output_required,
+            locality=request.locality,
+            allow_agent_runtime=request.allow_agent_runtime,
+            operator_prohibited_adapter_ids=request.operator_prohibited_adapter_ids,
+            operator_preference_order=request.operator_preference_order,
+            require_operator_on_tie=request.require_operator_on_tie,
+            attempted_adapter_ids=attempted,
+            runtime_attempts_used=previous.runtime_attempts_used,
+            fallback_attempts_used=previous.fallback_attempts_used,
+            task_class=request.task_class,
+            escalation_reason="cheap_model_returned_escalation_needed",
+        )
+        return select_runtime(escalation_retry)
     if request.budget.max_fallback_attempts == 0:
         return _decision(
             outcome=RoutingOutcome.UNAVAILABLE,
@@ -542,5 +636,7 @@ def reconsider_runtime(
         attempted_adapter_ids=attempted,
         runtime_attempts_used=previous.runtime_attempts_used,
         fallback_attempts_used=previous.fallback_attempts_used + 1,
+        task_class=request.task_class,
+        escalation_reason=request.escalation_reason,
     )
     return select_runtime(retry)

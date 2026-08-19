@@ -403,6 +403,7 @@ class ProgramPolicyRecord:
     created_at: datetime
     updated_at: datetime
     action_policy: Mapping[str, Any] | None = None
+    daily_llm_budget_microdollars: int | None = None
 
     def __post_init__(self) -> None:
         require_opaque_id(self.program_id, "program_id")
@@ -413,6 +414,10 @@ class ProgramPolicyRecord:
         require_non_negative_int(self.max_response_bytes, "max_response_bytes")
         require_non_negative_int(self.timeout_ms, "timeout_ms")
         _optional_mapping(self.action_policy, "action_policy")
+        if self.daily_llm_budget_microdollars is not None:
+            require_non_negative_int(
+                self.daily_llm_budget_microdollars, "daily_llm_budget_microdollars"
+            )
 
 
 @dataclass(frozen=True)
@@ -530,7 +535,7 @@ class IssuedBudgetRecord:
     """Immutable Core-issued envelope. 0 is no allowance, never unlimited."""
 
     budget_id: str
-    research_run_id: str
+    research_run_id: str | None
     max_requests: int
     max_tool_calls: int
     max_runtime_ms: int
@@ -539,7 +544,7 @@ class IssuedBudgetRecord:
 
     def __post_init__(self) -> None:
         require_opaque_id(self.budget_id, "budget_id")
-        require_opaque_id(self.research_run_id, "research_run_id")
+        require_optional_opaque_id(self.research_run_id, "research_run_id")
         require_non_negative_int(self.max_requests, "max_requests")
         require_non_negative_int(self.max_tool_calls, "max_tool_calls")
         require_non_negative_int(self.max_runtime_ms, "max_runtime_ms")
@@ -1854,6 +1859,9 @@ ALLOWED_CYCLE_OUTCOMES = frozenset(
 ALLOWED_BUDGET_RESOURCE_TYPES = frozenset(
     {
         "MODEL_CALL",
+        "MODEL_TOKENS_IN",
+        "MODEL_TOKENS_OUT",
+        "MODEL_ESCALATION_DECISION",
         "WORKER_INVOCATION",
         "REQUEST",
         "EXECUTION_TIME",
@@ -2014,7 +2022,7 @@ class BudgetConsumptionRecord:
 
     consumption_id: str
     budget_id: str
-    research_run_id: str
+    research_run_id: str | None
     resource_type: str
     amount: int
     unit: str
@@ -2022,11 +2030,12 @@ class BudgetConsumptionRecord:
     provenance: str
     experiment_id: str | None = None
     request_id: str | None = None
+    resource_metadata: Mapping[str, Any] | None = None
 
     def __post_init__(self) -> None:
         require_opaque_id(self.consumption_id, "consumption_id")
         require_opaque_id(self.budget_id, "budget_id")
-        require_opaque_id(self.research_run_id, "research_run_id")
+        require_optional_opaque_id(self.research_run_id, "research_run_id")
         if self.resource_type not in ALLOWED_BUDGET_RESOURCE_TYPES:
             raise PersistenceInputError("resource_type is not a budget resource type")
         if self.unit not in ALLOWED_BUDGET_UNITS:
@@ -2038,7 +2047,8 @@ class BudgetConsumptionRecord:
             raise PersistenceInputError("provenance must be a non-empty string")
         require_optional_opaque_id(self.experiment_id, "experiment_id")
         require_optional_opaque_id(self.request_id, "request_id")
-        if self.resource_type in {"REQUEST", "MODEL_CALL", "WORKER_INVOCATION"} and self.unit != "count":
+        _optional_mapping(self.resource_metadata, "resource_metadata")
+        if self.resource_type in {"REQUEST", "MODEL_CALL", "WORKER_INVOCATION", "MODEL_TOKENS_IN", "MODEL_TOKENS_OUT", "MODEL_ESCALATION_DECISION"} and self.unit != "count":
             raise PersistenceInputError("count resources must use unit count")
         if self.resource_type == "EXECUTION_TIME" and self.unit != "milliseconds":
             raise PersistenceInputError("EXECUTION_TIME must use milliseconds")

@@ -27,6 +27,7 @@ class RecordBudgetConsumptionCommand:
     provenance: str
     experiment_id: str | None = None
     request_id: str | None = None
+    resource_metadata: Mapping[str, Any] | None = None
 
 
 @dataclass(frozen=True)
@@ -52,7 +53,9 @@ class RecordBudgetConsumption:
         consumption_id = new_opaque_id()
         with self._uow_factory.open() as uow:
             issued = uow.issued_budgets.get(command.budget_id)
-            if issued is None or issued.research_run_id != command.research_run_id:
+            if issued is None:
+                raise ApplicationError("issued budget not found")
+            if command.research_run_id is not None and issued.research_run_id != command.research_run_id:
                 raise ApplicationError("issued budget not found for research run")
             record = BudgetConsumptionRecord(
                 consumption_id=consumption_id,
@@ -65,6 +68,7 @@ class RecordBudgetConsumption:
                 provenance=command.provenance,
                 experiment_id=command.experiment_id,
                 request_id=command.request_id,
+                resource_metadata=command.resource_metadata,
             )
             before = uow.budget_consumptions.list_for_budget(command.budget_id)
             duplicate = any(
@@ -73,15 +77,25 @@ class RecordBudgetConsumption:
                 and command.request_id is not None
                 for item in before
             )
-            try:
-                uow.budget_consumptions.insert_within_allowance(record, issued)
-            except BudgetOverspendError as exc:
+            if duplicate:
                 uow.rollback()
-                raise BudgetConsumptionRejected(str(exc)) from exc
-            except PersistenceConflictError:
-                duplicate = True
-            after = uow.budget_consumptions.list_for_budget(command.budget_id)
-            uow.commit()
+                after = before
+            elif command.resource_type in {"MODEL_TOKENS_IN", "MODEL_TOKENS_OUT", "MODEL_ESCALATION_DECISION"}:
+                # Token/escalation records are tracked against the program daily
+                # budget; allowance was already checked before the model call.
+                uow.budget_consumptions.insert(record)
+                after = uow.budget_consumptions.list_for_budget(command.budget_id)
+                uow.commit()
+            else:
+                try:
+                    uow.budget_consumptions.insert_within_allowance(record, issued)
+                except BudgetOverspendError as exc:
+                    uow.rollback()
+                    raise BudgetConsumptionRejected(str(exc)) from exc
+                except PersistenceConflictError:
+                    duplicate = True
+                after = uow.budget_consumptions.list_for_budget(command.budget_id)
+                uow.commit()
         return RecordBudgetConsumptionResult(
             consumption_id=None if duplicate else consumption_id,
             already_recorded=duplicate,

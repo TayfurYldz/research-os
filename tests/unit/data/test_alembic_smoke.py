@@ -35,6 +35,7 @@ A24_MIGRATION = ALEMBIC_VERSIONS / "a24_001_sensor_plane.py"
 A25_MIGRATION = ALEMBIC_VERSIONS / "a25_001_discovery_fact_kinds.py"
 A26_MIGRATION = ALEMBIC_VERSIONS / "a26_001_sensor_obs_src.py"
 A27_MIGRATION = ALEMBIC_VERSIONS / "a27_001_attack_surface_snapshot.py"
+A28_MIGRATION = ALEMBIC_VERSIONS / "a28_001_token_economy.py"
 
 
 def _imported_modules(tree: ast.AST) -> set[str]:
@@ -409,6 +410,19 @@ class AlembicSmokeTests(unittest.TestCase):
         self.assertNotIn("create_all", source)
         a26 = A26_MIGRATION.read_text(encoding="utf-8")
         self.assertNotIn("attack_surface_snapshot", a26)
+
+    def test_a28_migration_adds_token_economy(self) -> None:
+        source = A28_MIGRATION.read_text(encoding="utf-8")
+        self.assertIn("a28_001_token_economy", source)
+        self.assertIn("a27_001_attack_surface_snapshot", source)
+        self.assertIn("daily_llm_budget_microdollars", source)
+        self.assertIn("resource_metadata", source)
+        self.assertIn("MODEL_TOKENS_IN", source)
+        self.assertIn("MODEL_TOKENS_OUT", source)
+        self.assertNotIn("create_all", source)
+        a27 = A27_MIGRATION.read_text(encoding="utf-8")
+        self.assertNotIn("daily_llm_budget_microdollars", a27)
+        self.assertNotIn("resource_metadata", a27)
 
 
 if __name__ == "__main__":

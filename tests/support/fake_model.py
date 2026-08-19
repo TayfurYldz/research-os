@@ -73,11 +73,17 @@ class ScriptedModelPort:
         falsifier: FalsifierScript | Mapping[str, Any] | None = None,
         error: Exception | None = None,
         fail_role: ModelRole | None = None,
+        model_id: str | None = None,
+        prompt_tokens: int | None = None,
+        completion_tokens: int | None = None,
     ) -> None:
         self._generator = generator
         self._falsifier = falsifier
         self._error = error
         self._fail_role = fail_role
+        self._model_id = model_id
+        self._prompt_tokens = prompt_tokens
+        self._completion_tokens = completion_tokens
         self.calls: list[ModelCallRequest] = []
 
     def complete(self, request: ModelCallRequest) -> ModelCallResult:
@@ -97,8 +103,10 @@ class ScriptedModelPort:
             adapter_identity=FAKE_ADAPTER_IDENTITY,
             provider_adapter_identity=FAKE_ADAPTER_IDENTITY,
             structured_output=dict(output),
-            model_id=None,
+            model_id=self._model_id,
             model_version=None,
+            prompt_tokens=self._prompt_tokens,
+            completion_tokens=self._completion_tokens,
         )
 
     def _resolve(

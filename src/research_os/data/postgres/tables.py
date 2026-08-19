@@ -73,10 +73,15 @@ program_policy = Table(
     Column("max_response_bytes", Integer, nullable=False, server_default=text("4096")),
     Column("timeout_ms", Integer, nullable=False, server_default=text("2000")),
     Column("action_policy", JSONB, nullable=False, server_default=text("'{}'")),
+    Column("daily_llm_budget_microdollars", Integer, nullable=True),
     Column("created_at", DateTime(timezone=True), nullable=False),
     Column("updated_at", DateTime(timezone=True), nullable=False),
     CheckConstraint("max_response_bytes >= 0", name="ck_program_policy_max_response_bytes"),
     CheckConstraint("timeout_ms >= 0", name="ck_program_policy_timeout_ms"),
+    CheckConstraint(
+        "daily_llm_budget_microdollars IS NULL OR daily_llm_budget_microdollars >= 0",
+        name="ck_program_policy_daily_budget_non_negative",
+    ),
 )
 
 sensor_observation = Table(
@@ -173,7 +178,7 @@ issued_budget = Table(
     "issued_budget",
     metadata,
     Column("budget_id", Text, primary_key=True),
-    Column("research_run_id", Text, ForeignKey("research_run.research_run_id"), nullable=False),
+    Column("research_run_id", Text, ForeignKey("research_run.research_run_id"), nullable=True),
     Column("max_requests", Integer, nullable=False),
     Column("max_tool_calls", Integer, nullable=False),
     Column("max_runtime_ms", Integer, nullable=False),
@@ -1088,7 +1093,7 @@ budget_consumption = Table(
     metadata,
     Column("consumption_id", Text, primary_key=True),
     Column("budget_id", Text, nullable=False),
-    Column("research_run_id", Text, nullable=False),
+    Column("research_run_id", Text, nullable=True),
     Column("experiment_id", Text, nullable=True),
     Column("request_id", Text, nullable=True),
     Column("resource_type", Text, nullable=False),
@@ -1096,6 +1101,7 @@ budget_consumption = Table(
     Column("unit", Text, nullable=False),
     Column("occurred_at", DateTime(timezone=True), nullable=False),
     Column("provenance", Text, nullable=False),
+    Column("resource_metadata", JSONB, nullable=True),
     ForeignKeyConstraint(
         ["budget_id", "research_run_id"],
         ["issued_budget.budget_id", "issued_budget.research_run_id"],
@@ -1110,9 +1116,9 @@ budget_consumption = Table(
     CheckConstraint("amount > 0", name="ck_budget_consumption_amount_positive"),
     CheckConstraint(
         "resource_type IN ("
-        "'MODEL_CALL', 'WORKER_INVOCATION', 'REQUEST', "
-        "'EXECUTION_TIME', 'ARTIFACT_BYTES', 'COST')",
-        name="ck_budget_consumption_resource_type",
+        "'MODEL_CALL', 'MODEL_TOKENS_IN', 'MODEL_TOKENS_OUT', 'MODEL_ESCALATION_DECISION', "
+        "'WORKER_INVOCATION', 'REQUEST', 'EXECUTION_TIME', 'ARTIFACT_BYTES', 'COST')",
+        name="ck_budget_consumption_resource_type_v2",
     ),
     CheckConstraint(
         "unit IN ('count', 'milliseconds', 'bytes')",

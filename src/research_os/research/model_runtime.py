@@ -48,6 +48,13 @@ class RuntimeClass(Enum):
     AGENT_RUNTIME = "AGENT_RUNTIME"
 
 
+class ModelPriceClass(Enum):
+    """Cost class used by the routing policy. Not a vendor tier."""
+
+    CHEAP = "cheap"
+    EXPENSIVE = "expensive"
+
+
 class AuthMode(Enum):
     API_KEY = "API_KEY"
     SUBSCRIPTION_OAUTH = "SUBSCRIPTION_OAUTH"
@@ -68,6 +75,7 @@ class RuntimeOutcome(Enum):
     PROTOCOL_ERROR = "PROTOCOL_ERROR"
     STRUCTURED_OUTPUT_INVALID = "STRUCTURED_OUTPUT_INVALID"
     CONTENT_POLICY_BLOCKED = "CONTENT_POLICY_BLOCKED"
+    ESCALATION_NEEDED = "ESCALATION_NEEDED"
     CANCELLED = "CANCELLED"
 
 
@@ -106,12 +114,15 @@ class ModelRuntimeIdentity:
     configuration_fingerprint: str
     runtime_version: str | None = None
     session_reference: str | None = None
+    price_class: ModelPriceClass = ModelPriceClass.CHEAP
 
     def __post_init__(self) -> None:
         if not isinstance(self.runtime_kind, RuntimeKind):
             raise ResearchInputError("runtime_kind must be a RuntimeKind")
         if not isinstance(self.runtime_class, RuntimeClass):
             raise ResearchInputError("runtime_class must be a RuntimeClass")
+        if not isinstance(self.price_class, ModelPriceClass):
+            raise ResearchInputError("price_class must be a ModelPriceClass")
         if not isinstance(self.auth_mode, AuthMode):
             raise ResearchInputError("auth_mode must be an AuthMode")
         object.__setattr__(self, "adapter_id", _require_text(self.adapter_id, "adapter_id"))
