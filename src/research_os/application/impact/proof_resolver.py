@@ -26,15 +26,21 @@ class UnitOfWorkProofResolver(ProofResolver):
     def __init__(self, uow: UnitOfWork) -> None:
         self._uow = uow
 
-    def resolve(self, proof_id: str) -> ProofRecord | None:
+    def resolve(self, proof_id: str, expected_run_id: str) -> ProofRecord | None:
         evidence = self._uow.evidence.get(proof_id)
         if evidence is not None:
+            # Evidence carries its own run. The validator compares against the
+            # chain's expected run and emits CROSS_RUN_PROOF if they differ.
             return self._resolve_evidence(evidence)
         observation = self._uow.observations.get(proof_id)
         if observation is not None:
+            worker_result = self._uow.worker_results.get(observation.worker_result_id)
+            if worker_result is None:
+                # Run cannot be determined: fail-closed.
+                return None
             return ProofRecord(
                 proof_id=proof_id,
-                research_run_id="unknown",
+                research_run_id=worker_result.research_run_id,
                 target_reference=observation.observation_kind,
                 demonstrated_capabilities=frozenset(),
             )

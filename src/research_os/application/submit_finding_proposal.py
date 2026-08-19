@@ -97,7 +97,9 @@ class SubmitFindingProposal:
             proposal_id = draft.proposal_id if decision.creates_proposal else None
             if proposal_id is not None:
                 assert decision.initial_state is FindingProposalState.PROPOSED
-                impact_chain_ids = _validate_impact_claims(uow, draft)
+                impact_chain_ids = _validate_impact_claims(
+                    uow, draft, draft.research_run_id
+                )
                 uow.finding_proposals.insert(
                     FindingProposalRecord(
                         proposal_id=proposal_id,
@@ -138,7 +140,11 @@ class SubmitFindingProposal:
         )
 
 
-def _validate_impact_claims(uow: UnitOfWork, draft: FindingProposalDraft) -> tuple[str, ...]:
+def _validate_impact_claims(
+    uow: UnitOfWork,
+    draft: FindingProposalDraft,
+    expected_run_id: str,
+) -> tuple[str, ...]:
     if not draft.impact_claims:
         return ()
     resolver = UnitOfWorkProofResolver(uow)
@@ -147,13 +153,17 @@ def _validate_impact_claims(uow: UnitOfWork, draft: FindingProposalDraft) -> tup
         record = uow.impact_chains.get(claim.chain_id)
         if record is None:
             raise ApplicationError(f"impact chain not found: {claim.chain_id}")
+        if record.research_run_id != expected_run_id:
+            raise ApplicationError(
+                f"impact chain cross-run: {claim.chain_id}"
+            )
         chain = rebuild_impact_chain(uow, record)
-        structural = validate_chain(chain, resolver)
+        structural = validate_chain(chain, resolver, expected_run_id)
         if not structural.valid:
             raise ApplicationError(
                 f"impact chain validation failed for {claim.chain_id}: {structural.reason_codes}"
             )
-        scope = validate_chain_impact_scope(chain, resolver)
+        scope = validate_chain_impact_scope(chain, resolver, expected_run_id)
         if not scope.valid:
             raise ApplicationError(
                 f"impact scope validation failed for {claim.chain_id}: {scope.reason_codes}"

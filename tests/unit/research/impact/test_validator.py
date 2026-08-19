@@ -13,12 +13,12 @@ class _FakeResolver(ProofResolver):
     def __init__(self, existing: set[str]) -> None:
         self.existing = existing
 
-    def resolve(self, proof_id: str) -> ProofRecord | None:
+    def resolve(self, proof_id: str, expected_run_id: str) -> ProofRecord | None:
         if proof_id not in self.existing:
             return None
         return ProofRecord(
             proof_id=proof_id,
-            research_run_id="run-1",
+            research_run_id=expected_run_id,
             target_reference="https://example.com",
             demonstrated_capabilities=frozenset(),
         )
@@ -47,7 +47,7 @@ class ValidateChainTests(unittest.TestCase):
             nodes=(_node("n1", ("proof-a",)),),
             edges=(),
         )
-        result = validate_chain(chain, resolver)
+        result = validate_chain(chain, resolver, "run-1")
         self.assertTrue(result.valid)
         self.assertIn("IMPACT_CHAIN_PROOFS_RESOLVED", result.reason_codes)
 
@@ -58,7 +58,7 @@ class ValidateChainTests(unittest.TestCase):
             nodes=(_node("n1", ("missing-proof",)),),
             edges=(),
         )
-        result = validate_chain(chain, resolver)
+        result = validate_chain(chain, resolver, "run-1")
         self.assertFalse(result.valid)
         self.assertIn("HALLUCINATED_OR_ABSENT_PROOF", result.reason_codes)
 
@@ -72,6 +72,26 @@ class ValidateChainTests(unittest.TestCase):
             ),
             edges=(),
         )
-        result = validate_chain(chain, resolver)
+        result = validate_chain(chain, resolver, "run-1")
         self.assertFalse(result.valid)
         self.assertIn("HALLUCINATED_OR_ABSENT_PROOF", result.reason_codes)
+
+    def test_cross_run_proof_rejected(self) -> None:
+        class _CrossRunResolver(ProofResolver):
+            def resolve(self, proof_id: str, expected_run_id: str) -> ProofRecord | None:
+                return ProofRecord(
+                    proof_id=proof_id,
+                    research_run_id="other-run",
+                    target_reference="https://example.com",
+                    demonstrated_capabilities=frozenset(),
+                )
+
+        resolver = _CrossRunResolver()
+        chain = ImpactChain(
+            chain_id="c1",
+            nodes=(_node("n1", ("proof-a",)),),
+            edges=(),
+        )
+        result = validate_chain(chain, resolver, "run-1")
+        self.assertFalse(result.valid)
+        self.assertIn("CROSS_RUN_PROOF", result.reason_codes)

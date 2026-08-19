@@ -19,15 +19,22 @@ proof artifacts from the ledger. A chain without proofs cannot be admitted.
 
 ### Impact Kinds and Demonstrated Capabilities
 
+Simple (union) mapping:
+
 | Demonstrated capability | Allowed impact kinds |
 |-------------------------|----------------------|
 | `READ_OTHER_OBJECT` | `DATA_READ`, `AUTH_BYPASS` |
 | `WRITE_OTHER_OBJECT` | `DATA_WRITE`, `STATE_CORRUPTION` |
 | `WORKFLOW_TRANSITION_WITHOUT_AUTH` | `STATE_CORRUPTION`, `AUTH_BYPASS` |
 | `AUTHENTICATED_AS_USER` | `AUTH_BYPASS` |
-| `PRIVILEGE_ESCALATION_EVIDENCE` | `AUTH_BYPASS`, `ACCOUNT_TAKEOVER_PATH` |
-| `CROSS_ACCOUNT_SESSION_ASSUMPTION` | `ACCOUNT_TAKEOVER_PATH` |
+| `PRIVILEGE_ESCALATION_EVIDENCE` | `AUTH_BYPASS` |
 | `OAST_CALLBACK_RECEIVED` | `EXTERNAL_CALLBACK` |
+
+Composite (AND) requirements:
+
+| Impact kind | Required capability sets |
+|-------------|--------------------------|
+| `ACCOUNT_TAKEOVER_PATH` | `{AUTHENTICATED_AS_USER, PRIVILEGE_ESCALATION_EVIDENCE}` OR `{AUTHENTICATED_AS_USER, CROSS_ACCOUNT_SESSION_ASSUMPTION}` |
 
 Unknown capabilities contribute nothing (fail-closed empty set).
 
@@ -35,19 +42,22 @@ Unknown capabilities contribute nothing (fail-closed empty set).
 
 1. Every `ImpactNode` must reference at least one resolvable `proof_id`.
 2. Every `proof_id` must exist in the ledger (`evidence`, `observation`, or
-   `experiment`).
+   `experiment`) and belong to the same `research_run_id` as the chain.
 3. The chain must be acyclic and every edge must connect nodes inside the chain.
 4. The node's `impact_kind` must be in the allowed set derived from its proofs'
-   demonstrated capabilities.
+   demonstrated capabilities (simple union + composite AND rules).
 5. All node `scope_ref`s must stay within the same program/run boundary.
+6. `SubmitFindingProposal` rejects any `impact_claims` whose registered chain
+   belongs to a different research run than the proposal (cross-run provenance
+   is not allowed).
 
 ### Use Cases
 
 - `RegisterImpactChain`: persists a validated chain; performs structural
-  validation only (scope validation happens at proposal admission time).
-- `SubmitFindingProposal`: resolves each impact claim's chain, re-validates it
-  structurally and against demonstrated capabilities, then persists the proposal
-  with `impact_chain_ids`.
+  validation + run-binding check (proofs must resolve within the chain's run).
+- `SubmitFindingProposal`: rejects chains registered under a different run,
+  re-validates the chain structurally and against demonstrated capabilities,
+  then persists the proposal with `impact_chain_ids`.
 
 ### Runbook
 

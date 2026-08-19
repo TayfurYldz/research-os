@@ -29,6 +29,7 @@ from integration.harness import (
 )
 from research_os.application.errors import ApplicationError
 from research_os.application.impact.proof_resolver import UnitOfWorkProofResolver
+from sqlalchemy import text
 from research_os.application.impact.register_impact_chain import (
     RegisterImpactChain,
     RegisterImpactChainCommand,
@@ -214,11 +215,11 @@ def _impact_chain(kind: ImpactKind = ImpactKind.DATA_READ) -> ImpactChain:
     )
 
 
-def _draft_with_chain() -> FindingProposalDraft:
+def _draft_with_chain(research_run_id: str = "run-1") -> FindingProposalDraft:
     return FindingProposalDraft(
         proposal_id="fp-1",
         candidate_id="cand-1",
-        research_run_id="run-1",
+        research_run_id=research_run_id,
         title=HTTP_AUTHORIZATION_DIFFERENTIAL_FINDING_TITLE,
         claim=HTTP_AUTHORIZATION_DIFFERENTIAL_CANDIDATE_CLAIM,
         evidence_ids=("ev-1",),
@@ -357,3 +358,64 @@ class SDG7ImpactGraphIntegrationTests(unittest.TestCase):
                 )
             )
         self.assertIn("impact scope validation failed", str(ctx.exception))
+
+    def test_register_impact_chain_rejects_cross_run_proof(self) -> None:
+        uow_factory = PostgresUnitOfWorkFactory(self.engine)
+        register = RegisterImpactChain(uow_factory, clock=FixedClock())
+
+        with self.assertRaises(ApplicationError) as ctx:
+            with uow_factory.open() as uow:
+                resolver = UnitOfWorkProofResolver(uow)
+                register.execute(
+                    RegisterImpactChainCommand(
+                        chain_id="chain-1",
+                        research_run_id="run-2",
+                        program_id="prog-1",
+                        chain=_impact_chain(),
+                    ),
+                    resolver,
+                )
+        self.assertIn("CROSS_RUN_PROOF", str(ctx.exception))
+
+    def test_submit_finding_proposal_rejects_cross_run_chain(self) -> None:
+        uow_factory = PostgresUnitOfWorkFactory(self.engine)
+        register = RegisterImpactChain(uow_factory, clock=FixedClock())
+        submit = SubmitFindingProposal(uow_factory, clock=FixedClock())
+
+        with uow_factory.open() as uow:
+            resolver = UnitOfWorkProofResolver(uow)
+            register.execute(
+                RegisterImpactChainCommand(
+                    chain_id="chain-1",
+                    research_run_id="run-1",
+                    program_id="prog-1",
+                    chain=_impact_chain(),
+                ),
+                resolver,
+            )
+            uow.commit()
+
+        # Simulate a chain record that was persisted under a different run.
+        with self.engine.begin() as connection:
+            connection.execute(
+                text(
+                    "INSERT INTO research_run (research_run_id, program_id, authorization_source_id, "
+                    "initiated_by_actor_id, initiated_by_actor_type, started_at) "
+                    "VALUES ('run-2', 'prog-1', 'as-1', 'operator-1', 'HUMAN_OPERATOR', :started_at)"
+                ),
+                {"started_at": NOW},
+            )
+            connection.execute(
+                text(
+                    "UPDATE impact_chain SET research_run_id = 'run-2' WHERE chain_id = 'chain-1'"
+                )
+            )
+
+        with self.assertRaises(ApplicationError) as ctx:
+            submit.execute(
+                SubmitFindingProposalCommand(
+                    candidate_id="cand-1",
+                    draft=_draft_with_chain(),
+                )
+            )
+        self.assertIn("impact chain cross-run", str(ctx.exception))

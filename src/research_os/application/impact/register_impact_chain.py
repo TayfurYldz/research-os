@@ -49,7 +49,7 @@ class RegisterImpactChain:
         command: RegisterImpactChainCommand,
         resolver: ProofResolver,
     ) -> RegisterImpactChainResult:
-        structural = validate_chain(command.chain, resolver)
+        structural = validate_chain(command.chain, resolver, command.research_run_id)
         if not structural.valid:
             raise ApplicationError(
                 f"impact chain validation failed: {structural.reason_codes}"

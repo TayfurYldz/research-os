@@ -73,9 +73,14 @@ class ProofRecord:
 
 @runtime_checkable
 class ProofResolver(Protocol):
-    """Port: resolve a proof_id to metadata. Research layer does not implement this."""
+    """Port: resolve a proof_id to metadata for a specific research run.
 
-    def resolve(self, proof_id: str) -> ProofRecord | None: ...
+    Research layer does not implement this. The expected_run_id parameter lets
+    the validator reject proofs that belong to a different run (cross-run
+    provenance is not allowed).
+    """
+
+    def resolve(self, proof_id: str, expected_run_id: str) -> ProofRecord | None: ...
 
 
 class ImpactGraphError(ValueError):
