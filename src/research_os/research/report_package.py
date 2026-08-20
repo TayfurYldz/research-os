@@ -86,6 +86,7 @@ class ExternalDuplicateSignal:
     signal_type: str
     reference: str
     relation: str = "POTENTIAL_MATCH"
+    signal_fingerprint: str | None = None
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "source", _require_text(self.source, "source"))
@@ -94,6 +95,8 @@ class ExternalDuplicateSignal:
         )
         object.__setattr__(self, "reference", _require_text(self.reference, "reference"))
         object.__setattr__(self, "relation", _require_text(self.relation, "relation"))
+        if self.signal_fingerprint is not None and len(self.signal_fingerprint) != 64:
+            raise ResearchInputError("signal_fingerprint must be a SHA-256 hex digest")
 
     def to_dict(self) -> dict[str, str]:
         payload = {
@@ -102,6 +105,8 @@ class ExternalDuplicateSignal:
             "reference": self.reference,
             "relation": self.relation,
         }
+        if self.signal_fingerprint is not None:
+            payload["signal_fingerprint"] = self.signal_fingerprint
         _reject_forbidden(payload, "external_duplicate_signal")
         return payload
 

@@ -1,6 +1,6 @@
 # SD-G14 Plan — Report, Duplicate Economics, and n-day Lane
 
-**Status:** PENDING — P1 implemented; seal pending
+**Status:** PENDING — P1/P2 implemented; seal pending
 **Previous gate:** SD-G13 PASS (`2bb0c23`)
 
 ## Purpose
@@ -48,3 +48,29 @@ Evidence:
 - Focused checks (2026-08-20): `7 passed`.
 - Affected checks (2026-08-20): `53 passed`.
 - Full suite (2026-08-20): `1514 passed, 9 skipped, 53 subtests passed`.
+
+## P2 — External Duplicate Signal Normalization
+
+Files:
+
+- `src/research_os/research/report_duplicate.py`
+- `src/research_os/research/report_package.py`
+- `tests/unit/research/test_sd_g14_duplicate_signals.py`
+
+Behavior:
+
+- normalizes disclosed-report or program-page signals into advisory duplicate
+  metadata;
+- creates SHA-256 signal fingerprints for external duplicate signals;
+- emits `POTENTIAL_MATCH` only as advisory metadata, never as a duplicate
+  verdict;
+- emits `NO_MATCH` for unrelated disclosed reports without changing Finding
+  truth;
+- rejects provider metadata containing secret/raw request keys;
+- preserves external signal fingerprints inside report packages.
+
+Evidence:
+
+- Focused checks (2026-08-20): `11 passed`.
+- Affected checks (2026-08-20): `57 passed`.
+- Full suite (2026-08-20): `1518 passed, 9 skipped, 53 subtests passed`.

@@ -346,13 +346,24 @@ Current P1 slice:
 - `PackageFindingReport` loads an approved Finding, builds the package, and
   records an audit event.
 
+Current P2 slice:
+
+- `evaluate_disclosed_report_duplicate_signal` normalizes external disclosed
+  report or program-page duplicate signals.
+- External signals get SHA-256 fingerprints and remain advisory
+  `POTENTIAL_MATCH` metadata, not duplicate verdicts.
+- Unrelated external signals return `NO_MATCH` without changing Finding truth.
+- Provider metadata containing secret/raw request keys fails closed.
+
 ### Runbook
 
 - SD-G14 status remains `PENDING`.
 - P1 evidence (2026-08-20): `7 passed` focused, `53 passed` affected, and
   `1514 passed, 9 skipped, 53 subtests passed` full suite.
-- Seal blockers: external duplicate signal provider, n-day version-to-CVE lane,
-  PostgreSQL package vertical slice, and full-suite seal.
+- P2 evidence (2026-08-20): `11 passed` focused, `57 passed` affected, and
+  `1518 passed, 9 skipped, 53 subtests passed` full suite.
+- Seal blockers: n-day version-to-CVE lane, PostgreSQL package vertical slice,
+  and full-suite seal.
 
 ## SD-G7 — ImpactGraph
 
