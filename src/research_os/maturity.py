@@ -161,8 +161,9 @@ closed 2026-08-16); those are separate eras and must never be confused. GATE 08
 does not prove autonomous vulnerability discovery, active probing execution,
 live internet reconnaissance, bug-bounty performance, or production readiness.
 
-GATE 09 PENDING means the Attack Period HunterScore Scheduler + Identity Binding
-(SD-G9) is under construction. SD-G9 closes the SD-G8 D7 boundary by adding
+GATE 09 PASS means the Attack Period HunterScore Scheduler + Identity Binding
+(SD-G9) is sealed with HunterScore v2 starvation/lock-in corrections. SD-G9
+closes the SD-G8 D7 boundary by adding
 identity_id to HypothesisRecord and HuntV3QueueRecord, so that each hypothesis
 is bound to a specific identity (or ANONYMOUS) rather than spreading
 identity-agnostic state across all identity cells. GenerateHuntHypotheses now
@@ -170,12 +171,15 @@ expands node.identity_ids per family up to MAX_IDENTITIES_PER_NODE (8), emits
 an IDENTITY_EXPANSION_CAPPED audit event when the cap is hit, and renders the
 identity into the claim template. The RunHuntScheduler use case computes a
 deterministic, LLM-free HunterScore for every (node, identity, family) debt cell
-using state weight, family success history (supported/falsified counts from the
-append-only ledger), surface freshness (earliest sensor observation timestamp),
-and daily LLM budget suitability (cheap-path preference when budget is
-exhausted). It emits a HUNT_SCHEDULE_RECOMMENDED audit event with the ranked top
-N cells. RunHuntCycle can consume this schedule and still enforces the V1/V2/V3
-tier gates and the IN_SCOPE V3 enqueue lock. SD-G9 is NOT the old
+using state weight, a bounded family-success prior (supported/falsified counts
+from the append-only ledger), a low-history exploration bonus, latest-activity
+freshness that is distinct from first-seen audit context, and daily LLM budget
+suitability (cheap-path preference when budget is exhausted). It emits a
+HUNT_SCHEDULE_RECOMMENDED audit event with the ranked top N cells. RunHuntCycle
+can consume this schedule and still enforces the V1/V2/V3 tier gates and the
+IN_SCOPE V3 enqueue lock. Seal validation: 1450 pytest tests passed, 9 skipped,
+44 warnings, 53 subtests passed on real PostgreSQL integration/e2e coverage.
+SD-G9 is NOT the old
 infrastructure GATE 09; those are separate eras and must never be confused.
 GATE 09 does not prove autonomous vulnerability discovery, active probing
 execution, live internet reconnaissance, bug-bounty performance, or production
@@ -219,7 +223,7 @@ GATE_05_STATUS = "PASS"
 GATE_06_STATUS = "PASS"
 GATE_07_STATUS = "PASS"
 GATE_08_STATUS = "PASS"
-GATE_09_STATUS = "PENDING"
+GATE_09_STATUS = "PASS"
 GATE_12_STATUS = "PASS"
 GATE_13_STATUS = "PASS"
 GATE_14_STATUS = "PASS"

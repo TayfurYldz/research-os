@@ -27,6 +27,7 @@ from research_os.research.scheduler.types import (
     BudgetView,
     FamilyStats,
     HunterScoreInput,
+    NodeFreshness,
     ScoredCell,
 )
 from research_os.research.selection import HunterFamilyView
@@ -167,17 +168,18 @@ def _build_family_stats(
 
 def _build_freshness_by_node(
     uow: UnitOfWork, graph: AttackSurfaceGraph
-) -> Mapping[str, datetime | None]:
-    """Map node canonical key to earliest sensor observation collected_at."""
+) -> Mapping[str, NodeFreshness]:
+    """Map node canonical key to first-seen and latest-activity timestamps."""
 
     observations = uow.sensor_observations.list_for_research_run(graph.research_run_id)
     collected_at_by_id: dict[str, datetime] = {
         item.observation_id: item.collected_at for item in observations
     }
 
-    result: dict[str, datetime | None] = {}
+    result: dict[str, NodeFreshness] = {}
     for node in graph.nodes:
         earliest: datetime | None = None
+        latest: datetime | None = None
         for ref in node.provenance_refs:
             prefix = "sensor_observation:"
             if ref.startswith(prefix):
@@ -187,7 +189,13 @@ def _build_freshness_by_node(
                     earliest is None or collected_at < earliest
                 ):
                     earliest = collected_at
-        result[node.canonical_key] = earliest
+                if collected_at is not None and (latest is None or collected_at > latest):
+                    latest = collected_at
+        result[node.canonical_key] = NodeFreshness(
+            node_canonical_key=node.canonical_key,
+            first_seen_at=earliest,
+            latest_activity_at=latest,
+        )
     return result
 
 

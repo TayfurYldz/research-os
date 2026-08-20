@@ -57,16 +57,24 @@ class BudgetView:
 
 @dataclass(frozen=True)
 class NodeFreshness:
-    """When a node was first observed. None means freshness is unknown."""
+    """Observation timestamps for one node.
+
+    first_seen_at is identity/history context. latest_activity_at drives hunt
+    freshness because an old asset can become high-value again after a new
+    observation or deployment change.
+    """
 
     node_canonical_key: str
     first_seen_at: datetime | None
+    latest_activity_at: datetime | None = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.node_canonical_key, str) or not self.node_canonical_key.strip():
             raise ResearchInputError("node_canonical_key must be a non-empty string")
         if self.first_seen_at is not None and not isinstance(self.first_seen_at, datetime):
             raise ResearchInputError("first_seen_at must be a datetime or None")
+        if self.latest_activity_at is not None and not isinstance(self.latest_activity_at, datetime):
+            raise ResearchInputError("latest_activity_at must be a datetime or None")
 
 
 @dataclass(frozen=True)
@@ -80,6 +88,7 @@ class HunterScore:
     total_score: int
     state_weight: int
     family_success_bonus: int
+    family_exploration_bonus: int
     freshness_bonus: int
     budget_suitability_bonus: int
     explanation: tuple[str, ...]
@@ -91,6 +100,8 @@ class HunterScore:
             raise ResearchInputError("state_weight must be an int")
         if not isinstance(self.family_success_bonus, int):
             raise ResearchInputError("family_success_bonus must be an int")
+        if not isinstance(self.family_exploration_bonus, int):
+            raise ResearchInputError("family_exploration_bonus must be an int")
         if not isinstance(self.freshness_bonus, int):
             raise ResearchInputError("freshness_bonus must be an int")
         if not isinstance(self.budget_suitability_bonus, int):
@@ -119,7 +130,7 @@ class HunterScoreInput:
 
     cells: tuple[CoverageCell, ...]
     family_stats: tuple[FamilyStats, ...]
-    freshness_by_node: Mapping[str, datetime | None]
+    freshness_by_node: Mapping[str, NodeFreshness | datetime | None]
     budget_view: BudgetView
     reference_time: datetime
 

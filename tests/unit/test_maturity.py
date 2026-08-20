@@ -10,6 +10,7 @@ from research_os.application.operator_status import OperatorStatusSnapshot, rend
 from research_os.maturity import (
     GATE_01_STATUS,
     GATE_04B_STATUS,
+    GATE_09_STATUS,
     GATE_12_STATUS,
     GATE_13_STATUS,
     GATE_14_STATUS,
@@ -40,6 +41,7 @@ class Gate14MaturityTests(unittest.TestCase):
         self.assertEqual(GATE_21_STATUS, "PENDING")
         self.assertEqual(GATE_22_STATUS, "PASS")
         self.assertEqual(GATE_01_STATUS, "PASS")
+        self.assertEqual(GATE_09_STATUS, "PASS")
         self.assertEqual(GATE_12_STATUS, "PASS")
         self.assertEqual(GATE_13_STATUS, "PASS")
         self.assertEqual(GATE_04B_STATUS, "PENDING")
@@ -57,6 +59,7 @@ class Gate14MaturityTests(unittest.TestCase):
         self.assertEqual(mapping["GATE_20"], "PASS")
         self.assertEqual(mapping["GATE_21"], "PENDING")
         self.assertEqual(mapping["GATE_22"], "PASS")
+        self.assertEqual(mapping["GATE_09"], "PASS")
         self.assertEqual(mapping["GATE_04B"], "PENDING")
         self.assertIs(mapping["LIVE_MODEL_VALIDATED"], False)
         self.assertIs(mapping["SECURITY_RESEARCH_VALIDATED"], False)
@@ -109,6 +112,7 @@ class Gate14MaturityTests(unittest.TestCase):
         self.assertEqual(GATE_21_STATUS, "PENDING")
         self.assertEqual(GATE_22_STATUS, "PASS")
         self.assertEqual(GATE_01_STATUS, "PASS")
+        self.assertEqual(GATE_09_STATUS, "PASS")
         self.assertFalse(SECURITY_RESEARCH_VALIDATED)
         self.assertFalse(PRODUCTION_READY)
         self.assertFalse(LIVE_MODEL_VALIDATED)

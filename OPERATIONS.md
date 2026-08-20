@@ -75,10 +75,14 @@ priority queue so the operator can see what the system would hunt next:
 - **HunterScore core** (`research_os.research.scheduler`): deterministic score
   for every debt cell. Score components:
   - `state_weight`: `UNTESTED > HYPOTHESIZED > V1_PASSED > V2_PASSED > V3_QUEUED > COVERED`.
-  - `family_success_bonus`: `10 * (supported_count - falsified_count)` per family
-    from the latest hypothesis assessment in the ledger.
-  - `freshness_bonus`: newer nodes (earlier `sensor_observation.collected_at`)
-    score higher, capped at 24 hours.
+  - `family_success_bonus`: a bounded historical prior from supported/falsified
+    hypothesis assessments. The prior is capped so one historically successful
+    family cannot dominate the whole coverage matrix.
+  - `family_exploration_bonus`: low-history or missing-history families receive
+    a small deterministic exploration bump so novel families are not starved.
+  - `freshness_bonus`: latest node activity, not first-seen age, drives hunt
+    freshness. `first_seen_at` remains audit context; `latest_activity_at`
+    handles old assets that changed recently.
   - `budget_suitability_bonus`: when the daily LLM budget is exhausted,
     V3-bound cells (`V2_PASSED`, `V3_QUEUED`) are penalized and cheap-path cells
     receive a small bonus.
@@ -104,17 +108,23 @@ priority queue so the operator can see what the system would hunt next:
   state.
 - The schedule can be consumed by `RunHuntCycle` for automated execution or kept
   as a recommendation only.
+- SD-G9 seal includes starvation/lock-in regression tests proving bounded family
+  prior, low-history exploration, and latest-activity freshness.
 
 ### Runbook
 
-- `GATE_09_STATUS` stays `PENDING` until the independent architect audit seals
-  the gate.
-- Full suite commands are the same as SD-G8:
+- `GATE_09_STATUS = "PASS"`.
+- Seal evidence (2026-08-20): `1450 passed, 9 skipped, 44 warnings, 53 subtests
+  passed` via full `pytest` against the local PostgreSQL integration database.
+- Required commands:
   ```bash
   source .venv/bin/activate
+  bash scripts/start_wsl_test_postgres.sh
+  python -m pytest tests/integration/test_sd_g9_hunterscore_scheduler.py -q
   python -m pytest tests/unit tests/contract -q
   python -m pytest tests/integration -q
   python -m pytest tests/e2e -q
+  python -m pytest -q
   ```
 
 ## SD-G7 — ImpactGraph

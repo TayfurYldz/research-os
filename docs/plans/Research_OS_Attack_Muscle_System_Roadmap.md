@@ -267,15 +267,15 @@ The competitive intelligence report identified two concrete SD-G9 risks:
 1. unbounded family-success bonus can dominate coverage-state and novelty;
 2. freshness currently uses earliest sensor observation, which misses recent change on old assets.
 
-We should not seal SD-G9 until HunterScore v2 addresses those risks. This is not a new gate and not scope creep; it is a correction to the gate's own quality claim.
+SD-G9 is now sealed after HunterScore v2 addressed those risks. This was not a new gate and not scope creep; it was a correction to the gate's own quality claim.
 
-Minimum SD-G9 seal adjustments:
+Completed SD-G9 seal adjustments:
 
-- cap or saturate family success bonus;
-- add novelty/exploration floor so low-history families are not starved;
-- separate `first_seen_at` from `latest_changed_at` or equivalent change freshness;
-- add starvation and lock-in regression tests;
-- keep deterministic tie-break and explanation output.
+- bounded family-success prior;
+- low-history exploration bonus so novel families are not starved;
+- separate `first_seen_at` from latest activity freshness;
+- starvation and lock-in regression tests;
+- deterministic tie-break and explanation output retained.
 
 ## Recommended Gate Placement
 

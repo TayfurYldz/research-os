@@ -114,8 +114,8 @@ Tüm integration/e2e testlerdeki `a32_001_coverage_debt_snapshot` head assertion
 
 | Dosya | Değişiklik |
 |-------|-----------|
-| `src/research_os/maturity.py` | `GATE_09_STATUS = "PENDING"` + SD-G9 docstring (eski GATE 09 değildir notu). |
-| `OPERATIONS.md` | SD-G9 bölümü: identity binding, HunterScore formülü, scheduler/cycle ayrımı, onay duvarı. |
+| `src/research_os/maturity.py` | `GATE_09_STATUS = "PASS"` + SD-G9 docstring (eski GATE 09 değildir notu). |
+| `OPERATIONS.md` | SD-G9 bölümü: identity binding, HunterScore v2 formülü, scheduler/cycle ayrımı, test kanıtı. |
 
 ## Başlangıç Sırası
 

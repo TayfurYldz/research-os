@@ -29,6 +29,8 @@ from research_os.data.postgres.engine import (
     redacted_database_url,
     validate_test_database_url,
 )
+from research_os.data.postgres.hunter_family_seed import SEED_FAMILIES
+from research_os.data.postgres.tables import hunter_family, metadata
 from research_os.data.postgres.unit_of_work import PostgresUnitOfWork
 from research_os.data.records import (
     AuthorizationSourceRecord,
@@ -80,11 +82,12 @@ def warn_destructive(url: str) -> None:
 
 
 def truncate_spine(engine: Engine) -> None:
+    table_names = ", ".join(f'"{table.name}"' for table in metadata.sorted_tables)
     with engine.begin() as connection:
+        connection.execute(text(f"TRUNCATE TABLE {table_names} CASCADE"))
         connection.execute(
-            text(
-                "TRUNCATE TABLE program, audit_event, coverage_debt_snapshot CASCADE"
-            )
+            hunter_family.insert(),
+            [{**family, "created_at": NOW} for family in SEED_FAMILIES],
         )
 
 

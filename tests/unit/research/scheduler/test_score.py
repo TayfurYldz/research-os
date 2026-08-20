@@ -76,27 +76,93 @@ class ScoreCellTests(unittest.TestCase):
             budget_view=BudgetView(daily_llm_budget_microdollars=None, consumed_microdollars=0),
             reference_time=reference,
         )
-        self.assertEqual(result.family_success_bonus, 10)
+        self.assertEqual(result.family_success_bonus, 5)
+        self.assertEqual(result.family_exploration_bonus, 0)
         self.assertIn("family_supported=2 family_falsified=1", result.explanation[1])
+        self.assertIn("bounded_success_bonus=5", result.explanation[1])
+
+    def test_family_success_bonus_is_bounded(self) -> None:
+        reference = datetime(2026, 8, 19, 12, 0, 0, tzinfo=timezone.utc)
+        stats = {
+            "hf-hot": FamilyStats(
+                family_id="hf-hot",
+                supported_count=100,
+                falsified_count=0,
+            )
+        }
+        result = score_cell(
+            self._cell(family="hf-hot", state=CoverageState.UNTESTED),
+            family_stats=stats,
+            freshness_by_node={},
+            budget_view=BudgetView(daily_llm_budget_microdollars=None, consumed_microdollars=0),
+            reference_time=reference,
+        )
+        self.assertEqual(result.family_success_bonus, 20)
+        self.assertIn("raw_success_bonus=500", result.explanation[1])
+        self.assertIn("bounded_success_bonus=20", result.explanation[1])
+
+    def test_missing_family_stats_get_exploration_bonus(self) -> None:
+        reference = datetime(2026, 8, 19, 12, 0, 0, tzinfo=timezone.utc)
+        result = score_cell(
+            self._cell(family="hf-new", state=CoverageState.UNTESTED),
+            family_stats={},
+            freshness_by_node={},
+            budget_view=BudgetView(daily_llm_budget_microdollars=None, consumed_microdollars=0),
+            reference_time=reference,
+        )
+        self.assertEqual(result.family_success_bonus, 0)
+        self.assertEqual(result.family_exploration_bonus, 5)
+        self.assertIn("family_stats_missing", result.explanation[1])
 
     def test_freshness_bonus_decreases_with_age(self) -> None:
         reference = datetime(2026, 8, 19, 12, 0, 0, tzinfo=timezone.utc)
         fresh = score_cell(
             self._cell(node="fresh-node"),
             family_stats={},
-            freshness_by_node={"fresh-node": reference - timedelta(hours=1)},
+            freshness_by_node={
+                "fresh-node": NodeFreshness(
+                    node_canonical_key="fresh-node",
+                    first_seen_at=reference - timedelta(hours=1),
+                    latest_activity_at=reference - timedelta(hours=1),
+                )
+            },
             budget_view=BudgetView(daily_llm_budget_microdollars=None, consumed_microdollars=0),
             reference_time=reference,
         )
         stale = score_cell(
             self._cell(node="stale-node"),
             family_stats={},
-            freshness_by_node={"stale-node": reference - timedelta(hours=48)},
+            freshness_by_node={
+                "stale-node": NodeFreshness(
+                    node_canonical_key="stale-node",
+                    first_seen_at=reference - timedelta(hours=48),
+                    latest_activity_at=reference - timedelta(hours=48),
+                )
+            },
             budget_view=BudgetView(daily_llm_budget_microdollars=None, consumed_microdollars=0),
             reference_time=reference,
         )
         self.assertGreater(fresh.freshness_bonus, stale.freshness_bonus)
         self.assertEqual(stale.freshness_bonus, 0)
+
+    def test_freshness_uses_latest_activity_not_first_seen(self) -> None:
+        reference = datetime(2026, 8, 19, 12, 0, 0, tzinfo=timezone.utc)
+        result = score_cell(
+            self._cell(node="old-but-changed"),
+            family_stats={},
+            freshness_by_node={
+                "old-but-changed": NodeFreshness(
+                    node_canonical_key="old-but-changed",
+                    first_seen_at=reference - timedelta(days=30),
+                    latest_activity_at=reference - timedelta(hours=2),
+                )
+            },
+            budget_view=BudgetView(daily_llm_budget_microdollars=None, consumed_microdollars=0),
+            reference_time=reference,
+        )
+        self.assertGreater(result.freshness_bonus, 0)
+        self.assertIn("first_seen_age_hours=720.00", result.explanation[2])
+        self.assertIn("latest_activity_age_hours=2.00", result.explanation[2])
 
     def test_budget_exhausted_prefers_cheap_path(self) -> None:
         reference = datetime(2026, 8, 19, 12, 0, 0, tzinfo=timezone.utc)
@@ -217,7 +283,7 @@ class ScheduleTests(unittest.TestCase):
         keys = [item.cell.node_canonical_key for item in result]
         self.assertEqual(keys, ["node-a", "node-m", "node-z"])
 
-    def test_family_success_can_reorder(self) -> None:
+    def test_family_success_can_reorder_without_unbounded_dominance(self) -> None:
         reference = datetime(2026, 8, 19, 12, 0, 0, tzinfo=timezone.utc)
         cells = (
             self._cell("node-1", "alice", "hf-loser", CoverageState.HYPOTHESIZED),
@@ -238,6 +304,30 @@ class ScheduleTests(unittest.TestCase):
         )
         self.assertEqual(result[0].cell.family_id, "hf-winner")
         self.assertEqual(result[1].cell.family_id, "hf-loser")
+        self.assertEqual(result[0].score.family_success_bonus, 20)
+        self.assertEqual(result[1].score.family_success_bonus, -20)
+
+    def test_high_history_family_does_not_starve_untested_new_family(self) -> None:
+        reference = datetime(2026, 8, 19, 12, 0, 0, tzinfo=timezone.utc)
+        cells = (
+            self._cell("node-1", "alice", "hf-hot", CoverageState.V3_QUEUED),
+            self._cell("node-2", "alice", "hf-new", CoverageState.UNTESTED),
+        )
+        family_stats = (
+            FamilyStats(family_id="hf-hot", supported_count=100, falsified_count=0),
+        )
+        result = schedule(
+            HunterScoreInput(
+                cells=cells,
+                family_stats=family_stats,
+                freshness_by_node={},
+                budget_view=BudgetView(daily_llm_budget_microdollars=None, consumed_microdollars=0),
+                reference_time=reference,
+            )
+        )
+        self.assertEqual(result[0].cell.family_id, "hf-new")
+        self.assertEqual(result[0].score.family_exploration_bonus, 5)
+        self.assertEqual(result[1].score.family_success_bonus, 20)
 
     def test_budget_exhausted_prefers_cheap_path(self) -> None:
         reference = datetime(2026, 8, 19, 12, 0, 0, tzinfo=timezone.utc)

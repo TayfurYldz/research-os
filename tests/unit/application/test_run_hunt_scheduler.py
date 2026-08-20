@@ -26,6 +26,11 @@ from support.fake_unit_of_work import FakeUnitOfWorkFactory, _Store
 from support.spine import CREATED_AT, seed_authorization_run
 
 
+class _FixedClock:
+    def now(self) -> datetime:
+        return datetime(2026, 8, 19, 12, 0, 0, tzinfo=timezone.utc)
+
+
 def _node(
     *,
     node_id: str,
@@ -82,7 +87,7 @@ class RunHuntSchedulerTests(unittest.TestCase):
         store = _Store()
         seed_authorization_run(store)
         factory = FakeUnitOfWorkFactory(store)
-        scheduler = RunHuntScheduler(factory)
+        scheduler = RunHuntScheduler(factory, clock=_FixedClock())
         graph = _graph(_node(node_id="op-1", canonical_key="ck-1"))
 
         result = scheduler.execute(
@@ -107,7 +112,7 @@ class RunHuntSchedulerTests(unittest.TestCase):
         store = _Store()
         seed_authorization_run(store)
         factory = FakeUnitOfWorkFactory(store)
-        scheduler = RunHuntScheduler(factory)
+        scheduler = RunHuntScheduler(factory, clock=_FixedClock())
         out_of_scope_node = AttackSurfaceNode(
             node_id="op-1",
             kind=AttackSurfaceNodeKind.HTTP_OPERATION,
@@ -135,7 +140,7 @@ class RunHuntSchedulerTests(unittest.TestCase):
         store = _Store()
         seed_authorization_run(store)
         factory = FakeUnitOfWorkFactory(store)
-        scheduler = RunHuntScheduler(factory)
+        scheduler = RunHuntScheduler(factory, clock=_FixedClock())
         node = _node(node_id="op-1", canonical_key="ck-1", identity_ids=("alice", "bob"))
         graph = _graph(node)
 
@@ -179,7 +184,7 @@ class RunHuntSchedulerTests(unittest.TestCase):
             created_at=CREATED_AT,
         )
         factory = FakeUnitOfWorkFactory(store)
-        scheduler = RunHuntScheduler(factory)
+        scheduler = RunHuntScheduler(factory, clock=_FixedClock())
         graph = _graph(_node(node_id="op-1", canonical_key="ck-1"))
 
         result = scheduler.execute(
@@ -191,7 +196,8 @@ class RunHuntSchedulerTests(unittest.TestCase):
         )
 
         self.assertEqual(result.recommended_count, 1)
-        self.assertEqual(result.recommended[0].score.family_success_bonus, 10)
+        self.assertEqual(result.recommended[0].score.family_success_bonus, 5)
+        self.assertEqual(result.recommended[0].score.family_exploration_bonus, 5)
 
     def test_freshness_from_sensor_observation(self) -> None:
         store = _Store()
@@ -210,7 +216,7 @@ class RunHuntSchedulerTests(unittest.TestCase):
             created_at=CREATED_AT,
         )
         factory = FakeUnitOfWorkFactory(store)
-        scheduler = RunHuntScheduler(factory)
+        scheduler = RunHuntScheduler(factory, clock=_FixedClock())
         graph = _graph(_node(node_id="op-1", canonical_key="ck-1"))
 
         result = scheduler.execute(
@@ -223,12 +229,69 @@ class RunHuntSchedulerTests(unittest.TestCase):
 
         self.assertEqual(result.recommended_count, 1)
         self.assertGreater(result.recommended[0].score.freshness_bonus, 0)
+        self.assertIn("latest_activity_age_hours", result.recommended[0].score.explanation[2])
+
+    def test_freshness_uses_latest_sensor_observation_for_changed_node(self) -> None:
+        store = _Store()
+        seed_authorization_run(store)
+        old_observation = datetime(2026, 8, 1, 10, 0, 0, tzinfo=timezone.utc)
+        new_observation = datetime(2026, 8, 19, 10, 0, 0, tzinfo=timezone.utc)
+        store.sensor_observations["so-old"] = SensorObservationRecord(
+            observation_id="so-old",
+            research_run_id="run-1",
+            sensor_id="sensor.archive",
+            target_reference="http://example.com",
+            collected_at=old_observation,
+            payload_digest="digest-old",
+            epistemic_status="UNTRUSTED_EXTERNAL",
+            source_metadata={},
+            payload={},
+            created_at=CREATED_AT,
+        )
+        store.sensor_observations["so-new"] = SensorObservationRecord(
+            observation_id="so-new",
+            research_run_id="run-1",
+            sensor_id="sensor.archive",
+            target_reference="http://example.com",
+            collected_at=new_observation,
+            payload_digest="digest-new",
+            epistemic_status="UNTRUSTED_EXTERNAL",
+            source_metadata={},
+            payload={},
+            created_at=CREATED_AT,
+        )
+        factory = FakeUnitOfWorkFactory(store)
+        scheduler = RunHuntScheduler(factory, clock=_FixedClock())
+        graph = _graph(
+            _node(
+                node_id="op-1",
+                canonical_key="ck-1",
+                provenance_refs=(
+                    "sensor_observation:so-old",
+                    "sensor_observation:so-new",
+                ),
+            )
+        )
+
+        result = scheduler.execute(
+            RunHuntSchedulerCommand(
+                research_run_id="run-1",
+                graph=graph,
+                registry=(_family(),),
+            )
+        )
+
+        self.assertEqual(result.recommended_count, 1)
+        explanation = result.recommended[0].score.explanation[2]
+        self.assertIn("first_seen_age_hours", explanation)
+        self.assertIn("latest_activity_age_hours", explanation)
+        self.assertGreater(result.recommended[0].score.freshness_bonus, 0)
 
     def test_top_n_caps_recommendations(self) -> None:
         store = _Store()
         seed_authorization_run(store)
         factory = FakeUnitOfWorkFactory(store)
-        scheduler = RunHuntScheduler(factory)
+        scheduler = RunHuntScheduler(factory, clock=_FixedClock())
         node = _node(node_id="op-1", canonical_key="ck-1", identity_ids=("alice", "bob", "carol"))
         graph = _graph(node)
 
