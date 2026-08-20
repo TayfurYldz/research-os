@@ -252,6 +252,8 @@ def _binding_from_request(request: Mapping[str, Any], origin: str) -> dict[str, 
         arguments = {}
     identity = arguments.get("identity_id")
     session_ref = arguments.get("session_context_reference")
+    headers = arguments.get("headers")
+    required_user_agent = headers.get("User-Agent") if isinstance(headers, Mapping) else None
     return {
         "research_run_id": correlation.get("research_run_id"),
         "identity_id": identity if isinstance(identity, str) else None,
@@ -260,6 +262,7 @@ def _binding_from_request(request: Mapping[str, Any], origin: str) -> dict[str, 
         "target_reference": request.get("target_reference"),
         "capability_version": request.get("capability_version"),
         "fingerprint": request.get("capability_definition_fingerprint"),
+        "required_user_agent": required_user_agent,
     }
 
 
@@ -318,6 +321,14 @@ def _reject_caller_headers(arguments: Mapping[str, Any]) -> str | None:
             return "header names must be strings"
         if name.lower() in FORBIDDEN_HEADERS:
             return f"header {name} is not allowed"
+        value = headers[name]
+        if name.lower() == "user-agent" and (
+            not isinstance(value, str)
+            or not value.strip()
+            or any(marker in value for marker in CRLF_MARKERS)
+            or len(value) > 128
+        ):
+            return "User-Agent is invalid"
     return None
 
 

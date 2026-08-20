@@ -61,6 +61,25 @@ class AllocateProgramDailyBudgetTests(unittest.TestCase):
                 )
             )
 
+    def test_allocation_is_idempotent(self) -> None:
+        store = _Store()
+        _seed_policy(store, 1_000_000)
+        allocator = AllocateProgramDailyBudget(
+            FakeUnitOfWorkFactory(store=store), clock=_FixedClock()
+        )
+        command = AllocateProgramDailyBudgetCommand(
+            program_id="prog-1", budget_date=TODAY, limit_microdollars=1_000_000
+        )
+
+        first = allocator.execute(command)
+        second = allocator.execute(command)
+
+        self.assertEqual(first.budget_id, second.budget_id)
+        self.assertEqual(
+            list(store.issued_budgets).count(program_daily_budget_id("prog-1", TODAY)),
+            1,
+        )
+
 
 class ProgramDailyBudgetUsageTests(unittest.TestCase):
     def test_no_allocation_returns_zero_spent(self) -> None:

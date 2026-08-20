@@ -61,6 +61,10 @@ class _Gate19Handler(BaseHTTPRequestHandler):
         if parsed.path == "/ok":
             self._send(200, {"ok": True, "marker": "gate19"})
             return
+        if parsed.path == "/ua":
+            status = 200 if self.headers.get("User-Agent") == "-BugBounty-example-123" else 400
+            self._send(status, {"user_agent_received": status == 200})
+            return
         self._send(404, {"error": "not found"})
 
     def do_HEAD(self) -> None:

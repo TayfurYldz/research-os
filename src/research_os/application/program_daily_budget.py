@@ -53,7 +53,11 @@ class AllocateProgramDailyBudget:
                 raise ApplicationError("program not found")
             existing = uow.issued_budgets.get(budget_id)
             if existing is not None:
-                raise ApplicationError("program daily budget already allocated for this date")
+                uow.rollback()
+                return AllocateProgramDailyBudgetResult(
+                    budget_id=budget_id,
+                    limit_microdollars=command.limit_microdollars,
+                )
             record = IssuedBudgetRecord(
                 budget_id=budget_id,
                 research_run_id=None,

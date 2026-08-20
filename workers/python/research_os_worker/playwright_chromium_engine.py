@@ -310,11 +310,16 @@ class PlaywrightChromiumEngine:
             )
         context_ref = f"ctx-{uuid.uuid4().hex}"
         page_ref = f"page-{uuid.uuid4().hex}"
+        context_options = {"service_workers": "block", "accept_downloads": False}
+        required_user_agent = binding.get("required_user_agent")
+        if isinstance(required_user_agent, str) and required_user_agent:
+            context_options["user_agent"] = required_user_agent
         try:
-            context = self._browser.new_context(service_workers="block", accept_downloads=False)
+            context = self._browser.new_context(**context_options)
         except TypeError:
             try:
-                context = self._browser.new_context(service_workers="block")
+                context_options.pop("accept_downloads", None)
+                context = self._browser.new_context(**context_options)
             except TypeError:
                 return None, BrowserActionResult(
                     status="EXECUTION_FAILED",

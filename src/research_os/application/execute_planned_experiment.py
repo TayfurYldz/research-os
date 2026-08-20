@@ -428,6 +428,7 @@ class ExecutePlannedExperiment:
                     )
                     else None
                 ),
+                required_user_agent=_required_user_agent(uow, experiment.research_run_id),
             )
             self._validator.validate_worker_request(worker_request)
             if (
@@ -998,10 +999,15 @@ def _build_worker_request(
     authorization_decision_reference: str,
     network_envelope: AuthorizedNetworkEnvelope | None = None,
     identity_id: str | None = None,
+    required_user_agent: str | None = None,
 ) -> dict[str, Any]:
     arguments = dict(plan.arguments)
     if identity_id is not None:
         arguments["identity_id"] = identity_id
+    if required_user_agent is not None:
+        headers = dict(arguments.get("headers") or {})
+        headers["User-Agent"] = required_user_agent
+        arguments["headers"] = headers
     payload: dict[str, Any] = {
         "contract_version": WORKER_CONTRACT_VERSION,
         "correlation": {
@@ -1030,6 +1036,26 @@ def _build_worker_request(
     if network_envelope is not None:
         payload["network_envelope"] = network_envelope.to_mapping()
     return payload
+
+
+def _required_user_agent(uow, research_run_id: str) -> str | None:
+    run = uow.research_runs.get(research_run_id)
+    if run is None:
+        raise ValueError("research run not found while resolving execution policy")
+    policy = uow.program_policies.get(run.program_id)
+    if policy is None or not policy.action_policy:
+        return None
+    value = policy.action_policy.get("required_user_agent")
+    if value is None:
+        return None
+    if (
+        not isinstance(value, str)
+        or not value.strip()
+        or any(marker in value for marker in ("\r", "\n", "\x00"))
+        or len(value) > 128
+    ):
+        raise ValueError("required_user_agent policy is invalid")
+    return value.strip()
 
 
 def _classify_invocation(

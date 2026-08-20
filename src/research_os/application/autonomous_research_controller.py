@@ -732,6 +732,13 @@ class AutonomousResearchController:
             experiment = uow.experiments.get(attempt.experiment_id)
             plan_record = uow.experiment_plans.get(attempt.experiment_id)
             issued = uow.issued_budgets.get(attempt.budget_id)
+            run = uow.research_runs.get(command.research_run_id)
+            policy = uow.program_policies.get(run.program_id) if run is not None else None
+            required_user_agent = (
+                policy.action_policy.get("required_user_agent")
+                if policy is not None and policy.action_policy
+                else None
+            )
             uow.rollback()
         if experiment is None or plan_record is None or issued is None:
             return self._stop(current, StopReason.OPERATIONAL_FAILURE, "resume_missing")
@@ -747,15 +754,16 @@ class AutonomousResearchController:
             attempt_id=attempt.attempt_id,
             correlation_id=attempt.correlation_id,
             authorization_decision_reference=attempt.authorization_decision_reference,
-            worker_request=_build_worker_request(
+                worker_request=_build_worker_request(
                 experiment=experiment,
                 plan=plan,
                 capability_view=capability_view,
                 issued=issued,
                 request_id=attempt.request_id,
                 correlation_id=attempt.correlation_id,
-                authorization_decision_reference=attempt.authorization_decision_reference,
-            ),
+                    authorization_decision_reference=attempt.authorization_decision_reference,
+                    required_user_agent=required_user_agent,
+                ),
             timeout_ms=issued.max_runtime_ms,
             core_decision=ExecutionDecisionKind.ALLOW,
             core_reason_code=ReasonCode.ALLOWED,

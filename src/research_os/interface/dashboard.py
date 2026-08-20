@@ -7,12 +7,13 @@ import hashlib
 import json
 import os
 import subprocess
+from dataclasses import dataclass
 from dataclasses import asdict
 from datetime import date, datetime, timezone
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any, Callable, Mapping
 from urllib.parse import urlparse
 
 from sqlalchemy import text
@@ -23,6 +24,37 @@ from research_os.data.postgres.engine import (
     redacted_database_url,
 )
 from research_os.application.identity import new_opaque_id
+from research_os.application.autonomous_research_controller import (
+    AutonomousResearchController,
+    OrchestrationTickResult,
+    StartAutonomousResearchCommand,
+)
+from research_os.application.http_transaction_authorization import (
+    scope_evaluation_from_compiled_check,
+)
+from research_os.application.program_research_context import load_program_research_context
+from research_os.application.program_daily_budget import (
+    AllocateProgramDailyBudget,
+    AllocateProgramDailyBudgetCommand,
+)
+from research_os.application.finalize_finding import FinalizeFinding, FinalizeFindingCommand
+from research_os.application.record_human_review import RecordHumanReview, RecordHumanReviewCommand
+from research_os.application.start_human_review import StartHumanReview, StartHumanReviewCommand
+from research_os.application.research_run_control import ResearchRunControl
+from research_os.core.scope_compiler import evaluate_scope_candidate
+from research_os.core.enums import ActorType
+from research_os.data.postgres.unit_of_work import PostgresUnitOfWork
+from research_os.integrations.models.cli_session import (
+    CODEX_DIAGNOSTIC_STRUCTURED_OUTPUT_CAPABILITY,
+    CodexCliSessionAdapter,
+    load_codex_model_configurations,
+    probe_codex_cli,
+)
+from research_os.platform.local_process_worker import LocalProcessWorkerAdapter
+from research_os.platform.url_normalize import normalize_url
+from research_os.research.orchestration import OrchestrationBounds
+from research_os.research.finding_proposal import HumanReviewDecision
+from research_os.application.local_run_supervisor import LocalRunSupervisorRegistry
 from research_os.core.enums import ActorType, ScopeRuleEffect
 from research_os.data.records import (
     AuditEventRecord,
@@ -31,7 +63,6 @@ from research_os.data.records import (
     ProgramPolicyRecord,
     ProgramRecord,
     RateLimitProfileRecord,
-    ResearchOrchestrationRecord,
     ResearchRunRecord,
     ScopeRuleV2Record,
 )
@@ -42,6 +73,239 @@ from research_os.safe_data import redact_secret_keys
 ALLOWED_PLATFORMS = frozenset(
     {"manual", "yeswehack", "hackerone", "bugcrowd", "intigriti", "other"}
 )
+
+
+@dataclass(frozen=True)
+class DashboardRunControlRuntime:
+    """Injected application boundary; dashboard never constructs Worker/ModelPort."""
+
+    control: ResearchRunControl
+    command_factory: Callable[[str, Mapping[str, Any]], StartAutonomousResearchCommand]
+    close: Callable[[], None] | None = None
+    approval: "DashboardApprovalRuntime | None" = None
+
+
+@dataclass(frozen=True)
+class DashboardApprovalRuntime:
+    start_review: StartHumanReview
+    record_review: RecordHumanReview
+    finalize: FinalizeFinding
+
+
+def _operator_finding_action(
+    action: str, proposal_id: str, payload: Mapping[str, Any]
+) -> dict[str, Any]:
+    runtime = _RUN_CONTROL_RUNTIME
+    if runtime is None or runtime.approval is None:
+        raise RuntimeError("approval runtime is not configured")
+    operator_id = _optional_text(payload, "operator_id")
+    if not operator_id:
+        raise ValueError("operator_id is required")
+    if action == "review":
+        decision_value = _optional_text(payload, "decision")
+        if decision_value not in {item.value for item in HumanReviewDecision}:
+            raise ValueError("decision must be APPROVE or REJECT")
+        runtime.approval.start_review.execute(
+            StartHumanReviewCommand(proposal_id=proposal_id)
+        )
+        result = runtime.approval.record_review.execute(
+            RecordHumanReviewCommand(
+                proposal_id=proposal_id,
+                reviewer_id=operator_id,
+                actor_type=ActorType.HUMAN_OPERATOR,
+                decision=HumanReviewDecision(decision_value),
+            )
+        )
+        return {
+            "proposal_id": result.proposal_id,
+            "review_id": result.review_id,
+            "decision": result.decision.value,
+        }
+    if action == "finalize":
+        result = runtime.approval.finalize.execute(
+            FinalizeFindingCommand(
+                proposal_id=proposal_id,
+                decided_by=operator_id,
+                actor_type=ActorType.HUMAN_OPERATOR,
+            )
+        )
+        return {
+            "proposal_id": result.proposal_id,
+            "outcome": result.outcome.value,
+            "proposal_state": result.proposal_state.value,
+            "finding_id": result.finding_id,
+            "approval_id": result.approval_id,
+            "reason_codes": list(result.reason_codes),
+        }
+    raise ValueError("unsupported finding action")
+
+
+_RUN_CONTROL_RUNTIME: DashboardRunControlRuntime | None = None
+
+
+def configure_dashboard_run_control(runtime: DashboardRunControlRuntime | None) -> None:
+    global _RUN_CONTROL_RUNTIME
+    _RUN_CONTROL_RUNTIME = runtime
+
+
+def build_dashboard_run_control_runtime(
+    *, env: Mapping[str, str] | None = None
+) -> DashboardRunControlRuntime:
+    source = dict(os.environ if env is None else env)
+    url = source.get(DATABASE_URL_ENV)
+    if not url:
+        raise ValueError(f"{DATABASE_URL_ENV} is required for run control")
+    engine = create_sync_engine(url)
+    factory = PostgresUnitOfWork(engine)
+    configurations = load_codex_model_configurations(source)
+    configuration = configurations[0]
+    availability = probe_codex_cli(configuration=configuration)
+    if not availability.readiness or not availability.readiness.auth_ready:
+        engine.dispose()
+        raise RuntimeError(f"Codex runtime is not ready: {availability.detail}")
+    model = CodexCliSessionAdapter(
+        allowed_capabilities=(CODEX_DIAGNOSTIC_STRUCTURED_OUTPUT_CAPABILITY,),
+        executable=configuration.executable,
+        version=availability.version,
+        model=configuration.model,
+        configuration_id=configuration.configuration_id,
+    )
+    worker = LocalProcessWorkerAdapter()
+    controller = AutonomousResearchController(factory, worker, model)
+
+    def prepare_start(research_run_id: str) -> None:
+        with factory.open() as uow:
+            run = uow.research_runs.get(research_run_id)
+            if run is None:
+                uow.rollback()
+                raise ValueError("research run not found")
+            policy = uow.program_policies.get(run.program_id)
+            uow.rollback()
+        if policy is None or policy.daily_llm_budget_microdollars is None:
+            raise ValueError("daily LLM budget policy is required")
+        AllocateProgramDailyBudget(factory).execute(
+            AllocateProgramDailyBudgetCommand(
+                program_id=run.program_id,
+                budget_date=datetime.now(timezone.utc).date().isoformat(),
+                limit_microdollars=policy.daily_llm_budget_microdollars,
+            )
+        )
+
+    control = ResearchRunControl(
+        controller,
+        LocalRunSupervisorRegistry(),
+        factory,
+        prepare_start=prepare_start,
+    )
+
+    def command_factory(
+        research_run_id: str, _payload: Mapping[str, Any]
+    ) -> StartAutonomousResearchCommand:
+        with factory.open() as uow:
+            run = uow.research_runs.get(research_run_id)
+            if run is None:
+                uow.rollback()
+                raise ValueError("research run not found")
+            context = load_program_research_context(uow, run.program_id)
+            policy = context.policy if context is not None else None
+            run_config = dict(policy.action_policy.get("run", {})) if policy else {}
+            orchestration = dict(
+                policy.action_policy.get("orchestration", {}) if policy else {}
+            )
+            uow.rollback()
+        if context is None or policy is None:
+            raise ValueError("program research context is unavailable")
+        target_reference = str(run_config.get("target_reference", "")).strip()
+        research_question = str(run_config.get("research_question", "")).strip()
+        if not target_reference or not research_question:
+            raise ValueError("persisted run configuration is incomplete")
+        candidate = normalize_url(target_reference)
+        check = evaluate_scope_candidate(candidate, context.compiled_scope)
+        scope = scope_evaluation_from_compiled_check(check, context.compiled_scope)
+        try:
+            bounds = OrchestrationBounds(
+                max_cycles=int(orchestration["max_cycles"]),
+                max_experiments=int(orchestration["max_experiments"]),
+                max_model_calls=int(orchestration["max_model_calls"]),
+                max_worker_invocations=int(orchestration["max_worker_invocations"]),
+                max_elapsed_ms=int(orchestration["max_elapsed_ms"]),
+                max_selected_opportunities=int(orchestration["max_selected_opportunities"]),
+                max_runtime_fallback=int(orchestration["max_runtime_fallback"]),
+                side_effect_ceiling=int(orchestration["side_effect_ceiling"]),
+                allow_repeated_control_experiments=bool(
+                    orchestration["allow_repeated_control_experiments"]
+                ),
+            )
+        except (KeyError, TypeError, ValueError) as exc:
+            raise ValueError("persisted orchestration configuration is invalid") from exc
+        budget = _budget_for_run(factory, research_run_id)
+        return StartAutonomousResearchCommand(
+            research_run_id=research_run_id,
+            budget_id=budget,
+            target_reference=target_reference,
+            scope=scope,
+            bounds=bounds,
+            research_question=research_question,
+        )
+
+    return DashboardRunControlRuntime(
+        control=control,
+        command_factory=command_factory,
+        close=engine.dispose,
+        approval=DashboardApprovalRuntime(
+            start_review=StartHumanReview(factory),
+            record_review=RecordHumanReview(factory),
+            finalize=FinalizeFinding(factory),
+        ),
+    )
+
+
+def _budget_for_run(factory: PostgresUnitOfWork, research_run_id: str) -> str:
+    with factory.open() as uow:
+        orchestration = uow.research_orchestrations.get(research_run_id)
+        if orchestration is not None:
+            uow.rollback()
+            return orchestration.budget_id
+        run = uow.research_runs.get(research_run_id)
+        if run is None:
+            uow.rollback()
+            raise ValueError("research run not found")
+        budgets = uow.issued_budgets.list_for_research_run(research_run_id)
+        uow.rollback()
+    if len(budgets) != 1:
+        raise ValueError("research run must have exactly one issued budget")
+    return budgets[0].budget_id
+
+
+def _operator_run_action(
+    action: str,
+    research_run_id: str,
+    payload: Mapping[str, Any],
+) -> dict[str, Any]:
+    runtime = _RUN_CONTROL_RUNTIME
+    if runtime is None:
+        raise RuntimeError("run control runtime is not configured")
+    if action in {"start", "resume"}:
+        command = runtime.command_factory(research_run_id, payload)
+        if not isinstance(command, StartAutonomousResearchCommand):
+            raise TypeError("command_factory must return StartAutonomousResearchCommand")
+        result = getattr(runtime.control, action)(command)
+    elif action in {"pause", "cancel"}:
+        result = getattr(runtime.control, action)(research_run_id)
+    else:
+        raise ValueError("unsupported run action")
+    if not isinstance(result, OrchestrationTickResult):
+        raise TypeError("run control must return OrchestrationTickResult")
+    return {
+        "research_run_id": result.research_run_id,
+        "state": result.state,
+        "cycle_number": result.cycle_number,
+        "outcome": result.outcome,
+        "stop_reason": result.stop_reason,
+        "last_phase": result.last_phase,
+        "hypothesis_id": result.hypothesis_id,
+        "experiment_id": result.experiment_id,
+    }
 
 
 def collect_dashboard_payload(*, env: Mapping[str, str] | None = None) -> dict[str, Any]:
@@ -98,6 +362,27 @@ def bootstrap_program(
                     action_policy={
                         "forbidden_actions": cleaned["forbidden_actions"],
                         "dashboard_bootstrap": True,
+                        "required_user_agent": cleaned["required_user_agent"],
+                        "run": {
+                            "target_reference": cleaned["target_reference"],
+                            "research_question": cleaned["research_question"],
+                        },
+                        "orchestration": {
+                            "max_cycles": cleaned["max_cycles"],
+                            "max_experiments": cleaned["max_experiments"],
+                            "max_model_calls": cleaned["max_model_calls"],
+                            "max_worker_invocations": cleaned[
+                                "max_worker_invocations"
+                            ],
+                            "max_elapsed_ms": cleaned["max_elapsed_ms"],
+                            "max_selected_opportunities": cleaned[
+                                "max_selected_opportunities"
+                            ],
+                            "max_runtime_fallback": cleaned["max_runtime_fallback"],
+                            "side_effect_ceiling": cleaned["side_effect_ceiling"],
+                            "allow_repeated_control_experiments": False,
+                            "policy_version": "dashboard.bootstrap.v1",
+                        },
                     },
                     daily_llm_budget_microdollars=cleaned[
                         "daily_llm_budget_microdollars"
@@ -146,34 +431,6 @@ def bootstrap_program(
                     issued_at=now,
                 )
             )
-            uow.research_orchestrations.insert(
-                ResearchOrchestrationRecord(
-                    research_run_id=run_id,
-                    state="READY",
-                    cycle_number=0,
-                    last_phase="CYCLE_READY",
-                    policy_version="dashboard.bootstrap.v1",
-                    max_cycles=cleaned["max_cycles"],
-                    max_experiments=cleaned["max_experiments"],
-                    max_model_calls=cleaned["max_model_calls"],
-                    max_worker_invocations=cleaned["max_worker_invocations"],
-                    max_elapsed_ms=cleaned["max_elapsed_ms"],
-                    max_selected_opportunities=cleaned["max_selected_opportunities"],
-                    max_runtime_fallback=cleaned["max_runtime_fallback"],
-                    side_effect_ceiling=cleaned["side_effect_ceiling"],
-                    allow_repeated_control_experiments=False,
-                    created_at=now,
-                    updated_at=now,
-                    checkpoint_at=now,
-                    budget_id=budget_id,
-                    target_reference=cleaned["target_reference"],
-                    research_question=cleaned["research_question"],
-                    configuration_fingerprint=fingerprint,
-                    current_phase="CYCLE_READY",
-                    routing_policy_version="dashboard.bootstrap.v1",
-                    scope_fingerprint=fingerprint,
-                )
-            )
             uow.audit_events.insert(
                 AuditEventRecord(
                     audit_event_id=audit_id,
@@ -208,7 +465,7 @@ def bootstrap_program(
         "rate_limit_profile_id": rate_limit_id,
         "audit_event_id": audit_id,
         "configuration_fingerprint": fingerprint,
-        "state": "READY",
+        "state": "STARTABLE",
     }
 
 
@@ -237,6 +494,7 @@ def _bootstrap_payload(payload: Mapping[str, Any]) -> dict[str, Any]:
         "in_scope": in_scope,
         "out_of_scope": _lines(payload.get("out_of_scope")),
         "forbidden_actions": _lines(payload.get("forbidden_actions")),
+        "required_user_agent": _optional_text(payload, "required_user_agent"),
         "max_response_bytes": _positive_int(payload, "max_response_bytes", 1_048_576),
         "timeout_ms": _positive_int(payload, "timeout_ms", 10_000),
         "max_requests_per_window": _positive_int(
@@ -393,6 +651,7 @@ def _database_payload(env: Mapping[str, str]) -> dict[str, Any]:
             "summary": {},
             "programs": [],
             "runs": [],
+            "run_details": [],
             "audit_events": [],
             "coverage": [],
             "queue": {},
@@ -462,6 +721,80 @@ def _database_payload(env: Mapping[str, str]) -> dict[str, Any]:
                     )
                 ).mappings()
             ]
+            run_details = [
+                _json_row(row, redact_payload=True)
+                for row in connection.execute(
+                    text(
+                        """
+                        SELECT r.research_run_id, r.program_id, p.name AS program_name,
+                               p.platform, r.started_at,
+                               a.authorization_source_id, a.state AS authorization_state,
+                               o.state, o.current_phase, o.cycle_number, o.max_cycles,
+                               o.stop_reason, o.pause_reason, o.last_phase,
+                               o.last_hypothesis_id, o.last_experiment_id,
+                               o.last_attempt_id, o.last_observation_id,
+                               o.last_assessment_id, o.last_worker_result_id,
+                               pp.daily_llm_budget_microdollars, pp.action_policy,
+                               ib.max_requests, ib.max_tool_calls,
+                               ib.max_runtime_ms, ib.max_concurrency,
+                               COALESCE(bu.request_count, 0) AS request_count,
+                               COALESCE(bu.worker_count, 0) AS worker_count,
+                               COALESCE(bu.model_count, 0) AS model_count,
+                               COALESCE(h.hypothesis_count, 0) AS hypothesis_count,
+                               COALESCE(e.experiment_count, 0) AS experiment_count,
+                               COALESCE(obs.observation_count, 0) AS observation_count,
+                               COALESCE(ev.evidence_count, 0) AS evidence_count,
+                               COALESCE(c.candidate_count, 0) AS candidate_count,
+                               COALESCE(v.verification_count, 0) AS verification_count,
+                               COALESCE(fp.finding_proposal_count, 0) AS finding_proposal_count,
+                               COALESCE(f.finding_count, 0) AS finding_count,
+                               COALESCE(ap.pending_approval_count, 0) AS pending_approval_count
+                        FROM research_run r
+                        JOIN program p ON p.program_id = r.program_id
+                        LEFT JOIN authorization_source a
+                          ON a.authorization_source_id = r.authorization_source_id
+                        LEFT JOIN program_policy pp ON pp.program_id = r.program_id
+                        LEFT JOIN research_orchestration o
+                          ON o.research_run_id = r.research_run_id
+                        LEFT JOIN issued_budget ib ON ib.budget_id = o.budget_id
+                        LEFT JOIN (
+                          SELECT research_run_id,
+                                 SUM(amount) FILTER (WHERE resource_type = 'REQUEST') AS request_count,
+                                 SUM(amount) FILTER (WHERE resource_type = 'WORKER_INVOCATION') AS worker_count,
+                                 SUM(amount) FILTER (WHERE resource_type = 'MODEL_CALL') AS model_count
+                          FROM budget_consumption GROUP BY research_run_id
+                        ) bu ON bu.research_run_id = r.research_run_id
+                        LEFT JOIN (SELECT research_run_id, COUNT(*) AS hypothesis_count FROM hypothesis GROUP BY research_run_id) h
+                          ON h.research_run_id = r.research_run_id
+                        LEFT JOIN (SELECT research_run_id, COUNT(*) AS experiment_count FROM experiment GROUP BY research_run_id) e
+                          ON e.research_run_id = r.research_run_id
+                        LEFT JOIN (
+                          SELECT wr.research_run_id, COUNT(*) AS observation_count
+                          FROM observation ob
+                          JOIN worker_result wr ON wr.worker_result_id = ob.worker_result_id
+                          GROUP BY wr.research_run_id
+                        ) obs
+                          ON obs.research_run_id = r.research_run_id
+                        LEFT JOIN (SELECT research_run_id, COUNT(*) AS evidence_count FROM evidence GROUP BY research_run_id) ev
+                          ON ev.research_run_id = r.research_run_id
+                        LEFT JOIN (SELECT research_run_id, COUNT(*) AS candidate_count FROM candidate GROUP BY research_run_id) c
+                          ON c.research_run_id = r.research_run_id
+                        LEFT JOIN (SELECT research_run_id, COUNT(*) AS verification_count FROM verification GROUP BY research_run_id) v
+                          ON v.research_run_id = r.research_run_id
+                        LEFT JOIN (SELECT research_run_id, COUNT(*) AS finding_proposal_count FROM finding_proposal GROUP BY research_run_id) fp
+                          ON fp.research_run_id = r.research_run_id
+                        LEFT JOIN (SELECT research_run_id, COUNT(*) AS finding_count FROM finding GROUP BY research_run_id) f
+                          ON f.research_run_id = r.research_run_id
+                        LEFT JOIN (
+                          SELECT research_run_id, COUNT(*) AS pending_approval_count
+                          FROM approval WHERE decision = 'PENDING' GROUP BY research_run_id
+                        ) ap ON ap.research_run_id = r.research_run_id
+                        ORDER BY COALESCE(o.updated_at, r.started_at) DESC
+                        LIMIT 8
+                        """
+                    )
+                ).mappings()
+            ]
             audit_events = [
                 _json_row(row, redact_payload=True)
                 for row in connection.execute(
@@ -509,6 +842,7 @@ def _database_payload(env: Mapping[str, str]) -> dict[str, Any]:
             "summary": summary,
             "programs": programs,
             "runs": runs,
+            "run_details": run_details,
             "audit_events": audit_events,
             "coverage": coverage,
             "queue": queue,
@@ -521,6 +855,7 @@ def _database_payload(env: Mapping[str, str]) -> dict[str, Any]:
             "summary": {},
             "programs": [],
             "runs": [],
+            "run_details": [],
             "audit_events": [],
             "coverage": [],
             "queue": {},
@@ -569,8 +904,8 @@ def _scalar(connection: Any, statement: str) -> int:
 def _json_row(row: Mapping[str, Any], *, redact_payload: bool = False) -> dict[str, Any]:
     result: dict[str, Any] = {}
     for key, value in row.items():
-        if key == "payload" and redact_payload:
-            value = redact_secret_keys(value, "payload")
+        if key in {"payload", "action_policy"} and redact_payload:
+            value = redact_secret_keys(value, key)
         result[str(key)] = _json_value(value)
     return result
 
@@ -605,6 +940,65 @@ class DashboardHandler(BaseHTTPRequestHandler):
 
     def do_POST(self) -> None:
         path = urlparse(self.path).path
+        parts = path.strip("/").split("/")
+        if (
+            len(parts) == 4
+            and parts[0] == "api"
+            and parts[1] == "finding-proposals"
+            and parts[2]
+            and parts[3] in {"review", "finalize"}
+        ):
+            try:
+                result = _operator_finding_action(
+                    parts[3], parts[2], self._read_json_body()
+                )
+            except ValueError as exc:
+                self._send_json(
+                    {"ok": False, "error": str(exc)}, status=HTTPStatus.BAD_REQUEST
+                )
+                return
+            except RuntimeError as exc:
+                self._send_json(
+                    {"ok": False, "error": str(exc)}, status=HTTPStatus.SERVICE_UNAVAILABLE
+                )
+                return
+            except Exception as exc:
+                self._send_json(
+                    {"ok": False, "error": exc.__class__.__name__},
+                    status=HTTPStatus.INTERNAL_SERVER_ERROR,
+                )
+                return
+            self._send_json({"ok": True, "result": result})
+            return
+        if (
+            len(parts) == 4
+            and parts[0] == "api"
+            and parts[1] == "runs"
+            and parts[2]
+            and parts[3] in {"start", "pause", "resume", "cancel"}
+        ):
+            try:
+                result = _operator_run_action(
+                    parts[3], parts[2], self._read_json_body() if parts[3] in {"start", "resume"} else {}
+                )
+            except ValueError as exc:
+                self._send_json(
+                    {"ok": False, "error": str(exc)}, status=HTTPStatus.BAD_REQUEST
+                )
+                return
+            except RuntimeError as exc:
+                self._send_json(
+                    {"ok": False, "error": str(exc)}, status=HTTPStatus.SERVICE_UNAVAILABLE
+                )
+                return
+            except Exception as exc:
+                self._send_json(
+                    {"ok": False, "error": exc.__class__.__name__},
+                    status=HTTPStatus.INTERNAL_SERVER_ERROR,
+                )
+                return
+            self._send_json({"ok": True, "result": result})
+            return
         if path == "/api/programs/bootstrap":
             try:
                 result = bootstrap_program(self._read_json_body())
@@ -667,6 +1061,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8765)
     args = parser.parse_args(argv)
+    try:
+        configure_dashboard_run_control(build_dashboard_run_control_runtime())
+    except (RuntimeError, ValueError):
+        configure_dashboard_run_control(None)
     server = ThreadingHTTPServer((args.host, args.port), DashboardHandler)
     print(f"Research OS dashboard listening on http://{args.host}:{args.port}", flush=True)
     try:
@@ -675,6 +1073,10 @@ def main(argv: list[str] | None = None) -> int:
         return 130
     finally:
         server.server_close()
+        runtime = _RUN_CONTROL_RUNTIME
+        if runtime is not None and runtime.close is not None:
+            runtime.close()
+        configure_dashboard_run_control(None)
     return 0
 
 
@@ -1105,6 +1507,15 @@ HTML = r"""<!doctype html>
             </div>
           </div>
           <div class="panel">
+            <div class="panelHead"><span>Authoritative Run Detail</span><span class="pill" id="runDetailCount">0</span></div>
+            <div class="panelBody">
+              <table>
+                <thead><tr><th>Run</th><th>Authorization</th><th>Cycle</th><th>Budget</th><th>Research Progress</th><th>Approval</th></tr></thead>
+                <tbody id="runDetails"></tbody>
+              </table>
+            </div>
+          </div>
+          <div class="panel">
             <div class="panelHead"><span>Coverage</span><span class="pill" id="coverageCount">0</span></div>
             <div class="panelBody">
               <table>
@@ -1311,6 +1722,18 @@ out-of-scope probing</textarea></div>
           <td title="${escapeHtml(row.target_reference)}">${escapeHtml(short(row.target_reference, 28))}</td>
         </tr>`).join('') : `<tr><td colspan="4" class="empty">No research runs</td></tr>`;
 
+      const runDetails = db.run_details || [];
+      $('runDetailCount').textContent = runDetails.length;
+      $('runDetails').innerHTML = runDetails.length ? runDetails.map(row => `
+        <tr>
+          <td class="mono" title="${escapeHtml(row.research_run_id)}">${escapeHtml(short(row.research_run_id, 14))}</td>
+          <td>${escapeHtml(row.authorization_state || 'unknown')}</td>
+          <td>${escapeHtml(row.cycle_number ?? 'unknown')} / ${escapeHtml(row.max_cycles ?? 'unknown')}</td>
+          <td>${escapeHtml(row.model_count ?? 0)} model · ${escapeHtml(row.worker_count ?? 0)} worker</td>
+          <td>${escapeHtml(row.hypothesis_count ?? 0)} H · ${escapeHtml(row.experiment_count ?? 0)} E · ${escapeHtml(row.observation_count ?? 0)} O · ${escapeHtml(row.evidence_count ?? 0)} Ev · ${escapeHtml(row.candidate_count ?? 0)} C · ${escapeHtml(row.finding_proposal_count ?? 0)} FP · ${escapeHtml(row.finding_count ?? 0)} F</td>
+          <td>${escapeHtml(row.pending_approval_count ?? 0)}</td>
+        </tr>`).join('') : `<tr><td colspan="6" class="empty">No authoritative run detail</td></tr>`;
+
       const coverage = db.coverage || [];
       $('coverageCount').textContent = coverage.length;
       $('coverage').innerHTML = coverage.length ? coverage.map(row => `
@@ -1337,10 +1760,12 @@ out-of-scope probing</textarea></div>
 
     $('setupForm').addEventListener('submit', async (event) => {
       event.preventDefault();
+      const form = event.currentTarget;
       const submit = $('createRun');
       const status = $('formStatus');
+      if (submit.disabled) return;
       const payload = {};
-      for (const [key, value] of new FormData(event.currentTarget).entries()) {
+      for (const [key, value] of new FormData(form).entries()) {
         const textValue = String(value);
         if (numericFields.has(key)) {
           payload[key] = Number(textValue);
@@ -1359,7 +1784,7 @@ out-of-scope probing</textarea></div>
         const result = await response.json();
         if (!response.ok || !result.ok) throw new Error(result.error || 'request failed');
         status.textContent = `ready: ${short(result.result.research_run_id, 14)}`;
-        event.currentTarget.reset();
+        form.reset();
         await load();
       } catch (err) {
         status.textContent = `error: ${err.message}`;

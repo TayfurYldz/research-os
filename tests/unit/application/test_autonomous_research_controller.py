@@ -150,6 +150,18 @@ class AutonomousResearchControllerTests(unittest.TestCase):
             "CANCELLED",
         )
 
+    def test_start_is_idempotent_and_creates_one_orchestration(self) -> None:
+        store = _Store()
+        _seed_large_budget(store)
+        controller, _, _ = _controller(store)
+
+        first = controller.start(_command())
+        second = controller.start(_command())
+
+        self.assertEqual(first.research_run_id, second.research_run_id)
+        self.assertEqual(first.state, second.state)
+        self.assertEqual(len(store.research_orchestrations), 1)
+
     def test_restart_reloads_durable_state(self) -> None:
         store = _Store()
         _seed_large_budget(store)

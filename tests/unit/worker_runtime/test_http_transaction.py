@@ -44,6 +44,14 @@ class HttpTransactionWorkerTests(unittest.TestCase):
         self.assertNotIn("cookie", str(raw).lower())
         self.assertFalse(raw["self_authorized"])
 
+    def test_required_user_agent_reaches_local_fixture(self) -> None:
+        status, raw, diagnostics = execute(
+            _request(self.origin, path="/ua", headers={"User-Agent": "-BugBounty-example-123"})
+        )
+        self.assertEqual(status, "SUCCEEDED")
+        self.assertIsNone(diagnostics)
+        self.assertEqual(raw["json_value_kind"], "object")
+
     def test_authorized_https_get_succeeds(self) -> None:
         lab = HttpsTransactionLab()
         origin = lab.start()
