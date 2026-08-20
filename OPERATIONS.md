@@ -326,6 +326,34 @@ Current P2 slice:
 - Seal evidence (2026-08-20): `74 passed` affected and
   `1507 passed, 9 skipped, 53 subtests passed` full suite.
 
+## SD-G14 — Report, Duplicate Economics, and n-day Lane
+
+### Scope
+
+SD-G14 starts the report/duplicate/n-day operations lane after protocol/parser
+specialists. This gate packages approved Findings for human review and platform
+submission workflows; it does not submit reports automatically.
+
+Current P1 slice:
+
+- `build_finding_report_package` creates deterministic `report.package.v1`
+  packages from approved Finding content.
+- Packages include proof anchors, reproduction anchors, duplicate metadata, and
+  safety metadata, but no raw payload/body content.
+- Internal duplicate fingerprints normalize title, claim, and classification.
+- External duplicate signals are advisory metadata only and do not change
+  Finding truth.
+- `PackageFindingReport` loads an approved Finding, builds the package, and
+  records an audit event.
+
+### Runbook
+
+- SD-G14 status remains `PENDING`.
+- P1 evidence (2026-08-20): `7 passed` focused, `53 passed` affected, and
+  `1514 passed, 9 skipped, 53 subtests passed` full suite.
+- Seal blockers: external duplicate signal provider, n-day version-to-CVE lane,
+  PostgreSQL package vertical slice, and full-suite seal.
+
 ## SD-G7 — ImpactGraph
 
 ### Scope
