@@ -94,7 +94,7 @@ class SDG12HunterFamilySeedTests(unittest.TestCase):
         records = [_record(row) for row in rows]
 
         self.assertTrue(all(record.enabled for record in records))
-        self.assertTrue(all(record.validation_tier == "V2" for record in records))
+        self.assertTrue(all(record.validation_tier == "V3" for record in records))
         self.assertTrue(
             all(record.preconditions["scope_classification"] == "IN_SCOPE" for record in records)
         )

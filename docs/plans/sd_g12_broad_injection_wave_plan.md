@@ -1,6 +1,6 @@
 # SD-G12 Plan — Broad Injection Wave
 
-**Status:** PENDING — P1/P2 implemented; seal pending
+**Status:** PASS
 **Previous gate:** SD-G11 PASS (`39313ac`)
 **Do not confuse with:** old infrastructure `GATE 12` or old `GATE 13`.
 
@@ -16,10 +16,10 @@ active mutation lane can claim coverage.
 - HunterFamily rows are hypotheses, not findings.
 - Seed rows must not carry severity, confidence, vulnerability, finding, ground
   truth, or benchmark truth keys.
-- Every family remains IN_SCOPE-gated. P1 rows stop at V2 coverage readiness;
-  active V3 execution/admission mapping is a later SD-G12 slice.
-- Active payload execution remains a later slice and must re-enter Core per
-  experiment.
+- Every family remains IN_SCOPE-gated. SD-G12 families are V3 only after matrix
+  planning is available.
+- V3 admission queues a plan artifact only. Active payload execution remains a
+  later slice and must re-enter Core per experiment.
 
 ## P1 — Injection HunterFamily Registry
 
@@ -45,8 +45,8 @@ Behavior:
 - seeds append-only HunterFamily rows for SD-G12 families;
 - targets existing AttackSurfaceGraph node kinds (`HTTP_OPERATION`, `FORM`,
   `API_SPEC`, `ORIGIN`, `TECH`, `JS_BUNDLE`, `PAGE_STATE`);
-- requires IN_SCOPE preconditions and V2 validation tier for P1 coverage
-  readiness;
+- requires IN_SCOPE preconditions and creates coverage readiness before active
+  admission;
 - expresses negative controls, metamorphic controls, read-back controls, or
   matrix dimensions as evidence requirements;
 - creates coverage-debt cells for input-bearing surfaces without creating
@@ -81,4 +81,35 @@ Evidence:
 
 - Focused checks (2026-08-20): `4 passed`.
 - Affected checks (2026-08-20): `46 passed`.
+- Full suite (2026-08-20): `1492 passed, 9 skipped, 53 subtests passed`.
+
+## P3 — V3 Matrix Admission
+
+Files:
+
+- `src/research_os/application/hunt_validation.py`
+- `src/research_os/data/postgres/hunter_family_seed.py`
+- `src/research_os/research/mutation/matrix.py`
+- `tests/integration/test_sd_g5_hunt_cycle.py`
+- `tests/unit/data/test_sd_g12_hunter_family_seed.py`
+- `tests/unit/research/test_sd_g12_mutation_matrix.py`
+
+Behavior:
+
+- promotes the nine SD-G12 broad-injection HunterFamily rows to V3;
+- maps those families to `mutation.matrix` / `plan` queue records;
+- preserves old baseline V3 authorization/workflow behavior and keeps exposed
+  API spec, unprotected hostname, and known-CVE surface at V2;
+- stores only safe matrix metadata in V3 queue arguments: hash, version, cell
+  count, dimension count, and control count;
+- forbids Worker dispatch until explicit operator/Core approval;
+- keeps mutation-matrix plans side-effect level 0 and free of payload/body
+  content;
+- expands SSTI and CORS matrix dimensions so every SD-G12 family can meet the
+  30-cell minimum.
+
+Evidence:
+
+- Focused checks (2026-08-20): `11 passed`.
+- Affected checks (2026-08-20): `29 passed`.
 - Full suite (2026-08-20): `1492 passed, 9 skipped, 53 subtests passed`.

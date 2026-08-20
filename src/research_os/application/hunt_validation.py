@@ -16,6 +16,7 @@ from research_os.core.enums import ActorType, ScopeClassification
 from research_os.data.records import AuditEventRecord, HuntV3QueueRecord
 from research_os.data.unit_of_work import UnitOfWork
 from research_os.research.discovery.graph import AttackSurfaceGraph
+from research_os.research.mutation.matrix import build_mutation_matrix
 from research_os.research.selection import HunterFamilyView, claim_from_template
 from research_os.research.types import ResearchInputError
 
@@ -26,15 +27,24 @@ HYPOTHESIS_TIER_V2_PASSED = "HUNT_TIER_V2_PASSED"
 HYPOTHESIS_TIER_V2_REJECTED = "HUNT_TIER_V2_REJECTED"
 HYPOTHESIS_TIER_V3_QUEUED = "HUNT_TIER_V3_QUEUED"
 
-# Mirrors the two historical authorization capabilities; new families stay V2.
 V3_CAPABILITY_FOR_FAMILY = {
     "OBJECT_AUTHORIZATION": "http.authorization_differential",
     "WORKFLOW_STATE_TRANSITION": "http.state_transition_authorization",
+    "SQL_INJECTION": "mutation.matrix",
+    "SERVER_SIDE_TEMPLATE_INJECTION": "mutation.matrix",
+    "FILE_INCLUDE_AND_PATH_TRAVERSAL": "mutation.matrix",
+    "MASS_ASSIGNMENT": "mutation.matrix",
+    "JWT_CRYPTO_AND_CLAIM_CONFUSION": "mutation.matrix",
+    "CORS_CREDENTIAL_EXFILTRATION_CHAIN": "mutation.matrix",
+    "GRAPHQL_AUTHORIZATION_AND_INJECTION": "mutation.matrix",
+    "DOM_TAINT_AND_CLIENT_SIDE_EXECUTION": "mutation.matrix",
+    "AI_LLM_PROMPT_INJECTION_AND_TOOL_ABUSE": "mutation.matrix",
 }
 
 V3_ACTION_FOR_CAPABILITY = {
     "http.authorization_differential": "probe",
     "http.state_transition_authorization": "probe",
+    "mutation.matrix": "plan",
 }
 
 
@@ -210,6 +220,12 @@ class ValidateHuntTiers:
         claim = claim_from_template(
             node, command.family, extra_context={"identity_id": identity_id or "ANONYMOUS"}
         )
+        capability_arguments = _v3_arguments_for_family(
+            command.family,
+            node_id=node.node_id,
+            claim=claim,
+            identity_id=identity_id,
+        )
         uow.hunt_v3_queue.insert(
             HuntV3QueueRecord(
                 queue_id=queue_id,
@@ -220,12 +236,7 @@ class ValidateHuntTiers:
                 identity_id=identity_id,
                 capability=capability,
                 action=action,
-                arguments={
-                    "claim": claim,
-                    "node_id": node.node_id,
-                    "family_name": command.family.name,
-                    "identity_id": identity_id or "ANONYMOUS",
-                },
+                arguments=capability_arguments,
                 side_effect_level=_side_effect_for_family(command.family.name),
                 state="PENDING",
                 created_at=now,
@@ -238,6 +249,35 @@ def _side_effect_for_family(family_name: str) -> int:
     if family_name == "WORKFLOW_STATE_TRANSITION":
         return 1
     return 0
+
+
+def _v3_arguments_for_family(
+    family: HunterFamilyView,
+    *,
+    node_id: str,
+    claim: str,
+    identity_id: str | None,
+) -> dict[str, Any]:
+    if V3_CAPABILITY_FOR_FAMILY.get(family.name) == "mutation.matrix":
+        matrix = build_mutation_matrix(family)
+        return {
+            "claim": claim,
+            "node_id": node_id,
+            "family_name": family.name,
+            "identity_id": identity_id or "ANONYMOUS",
+            "matrix_hash": matrix.matrix_hash,
+            "matrix_version": matrix.matrix_version,
+            "cell_count": len(matrix.cells),
+            "dimension_count": len(matrix.dimensions),
+            "control_count": len(matrix.controls),
+            "worker_dispatch": "forbidden_until_operator_approval",
+        }
+    return {
+        "claim": claim,
+        "node_id": node_id,
+        "family_name": family.name,
+        "identity_id": identity_id or "ANONYMOUS",
+    }
 
 
 def _result(

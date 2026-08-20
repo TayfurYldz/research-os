@@ -190,6 +190,21 @@ class SDG5HuntCycleIntegrationTests(unittest.TestCase):
             for item in queue_items:
                 self.assertEqual(item.state, "PENDING")
                 self.assertEqual(item.research_run_id, "run-1")
+            matrix_items = [
+                item for item in queue_items if item.capability == "mutation.matrix"
+            ]
+            self.assertTrue(matrix_items)
+            for item in matrix_items:
+                self.assertEqual(item.action, "plan")
+                self.assertEqual(item.side_effect_level, 0)
+                self.assertGreaterEqual(item.arguments["cell_count"], 30)
+                self.assertEqual(len(item.arguments["matrix_hash"]), 64)
+                self.assertEqual(
+                    item.arguments["worker_dispatch"],
+                    "forbidden_until_operator_approval",
+                )
+                self.assertNotIn("payload", item.arguments)
+                self.assertNotIn("body", item.arguments)
         else:
             self.assertEqual(len(queue_items), 0)
 

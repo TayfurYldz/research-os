@@ -254,9 +254,8 @@ Current P1 slice:
 - These rows create coverage debt for input-bearing AttackSurfaceGraph nodes.
 - They do not create Evidence, Candidates, Findings, Worker dispatches, severity,
   confidence, or vulnerability truth.
-- Every SD-G12 P1 seed remains IN_SCOPE-gated and stops at V2 coverage
-  readiness; active V3 execution/admission mapping is scheduled for a later
-  SD-G12 slice.
+- Every SD-G12 seed remains IN_SCOPE-gated; P3 now promotes the broad-injection
+  families to V3 plan admission.
 
 Current P2 slice:
 
@@ -267,12 +266,26 @@ Current P2 slice:
 - Matrix planning does not create payload bodies, WorkerRequests, Evidence,
   Candidates, or Findings.
 
+Current P3 slice:
+
+- SD-G12 broad-injection families enqueue `mutation.matrix` / `plan` V3 records
+  after V1+V2 pass.
+- Queue arguments contain matrix metadata only: hash, version, cell count,
+  dimension count, and control count.
+- Worker dispatch remains forbidden until explicit operator/Core approval.
+- Mutation-matrix V3 records are side-effect level 0 and carry no payload/body
+  content.
+- Legacy exposed API spec, unprotected hostname, and known-CVE surface families
+  remain V2; old authorization/workflow V3 behavior is unchanged.
+
 ### Runbook
 
-- SD-G12 status remains `PENDING`.
+- SD-G12 status is `PASS`.
 - P1 evidence (2026-08-20): `4 passed` focused, `39 passed` affected, and
   `1488 passed, 9 skipped, 53 subtests passed` full suite.
 - P2 evidence (2026-08-20): `4 passed` focused, `46 passed` affected, and
+  `1492 passed, 9 skipped, 53 subtests passed` full suite.
+- P3 evidence (2026-08-20): `11 passed` focused, `29 passed` affected, and
   `1492 passed, 9 skipped, 53 subtests passed` full suite.
 
 ## SD-G7 — ImpactGraph
