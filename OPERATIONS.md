@@ -238,6 +238,32 @@ Current P3 slice:
 - P1 affected checks (2026-08-20): `35 passed, 5 skipped`.
 - P1 full suite (2026-08-20): `1474 passed, 9 skipped, 53 subtests passed`.
 
+## SD-G12 — Broad Injection Wave
+
+### Scope
+
+SD-G12 starts the broad injection wave after the production executor fabric. This
+is attack-period SD-G12, not old infrastructure `GATE 12` or old `GATE 13`.
+
+Current P1 slice:
+
+- HunterFamily seed rows now include SQLi, SSTI, LFI/RFI/path traversal, mass
+  assignment, JWT crypto/claim confusion, CORS credential-exfiltration chain,
+  GraphQL authorization/injection, DOM taint/client-side execution, and AI/LLM
+  prompt-injection/context-leakage/tool-abuse families.
+- These rows create coverage debt for input-bearing AttackSurfaceGraph nodes.
+- They do not create Evidence, Candidates, Findings, Worker dispatches, severity,
+  confidence, or vulnerability truth.
+- Every SD-G12 P1 seed remains IN_SCOPE-gated and stops at V2 coverage
+  readiness; active V3 execution/admission mapping is scheduled for a later
+  SD-G12 slice.
+
+### Runbook
+
+- SD-G12 status remains `PENDING`.
+- P1 evidence (2026-08-20): `4 passed` focused, `39 passed` affected, and
+  `1488 passed, 9 skipped, 53 subtests passed` full suite.
+
 ## SD-G7 — ImpactGraph
 
 ### Scope

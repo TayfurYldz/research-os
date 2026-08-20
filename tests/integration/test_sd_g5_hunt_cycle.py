@@ -193,22 +193,35 @@ class SDG5HuntCycleIntegrationTests(unittest.TestCase):
         else:
             self.assertEqual(len(queue_items), 0)
 
-    def test_registry_seed_contains_five_families(self) -> None:
+    def test_registry_seed_contains_baseline_and_sd_g12_families(self) -> None:
         with PostgresUnitOfWork(self.engine) as uow:
             families = uow.hunter_families.list_enabled()
             uow.rollback()
 
-        self.assertEqual(len(families), 5)
         names = {f.name for f in families}
-        self.assertEqual(
-            names,
+        self.assertTrue(
             {
                 "OBJECT_AUTHORIZATION",
                 "WORKFLOW_STATE_TRANSITION",
                 "EXPOSED_API_SPEC",
                 "UNPROTECTED_HOSTNAME",
                 "TECH_KNOWN_CVE_SURFACE",
-            },
+            }
+            <= names
+        )
+        self.assertTrue(
+            {
+                "SQL_INJECTION",
+                "SERVER_SIDE_TEMPLATE_INJECTION",
+                "FILE_INCLUDE_AND_PATH_TRAVERSAL",
+                "MASS_ASSIGNMENT",
+                "JWT_CRYPTO_AND_CLAIM_CONFUSION",
+                "CORS_CREDENTIAL_EXFILTRATION_CHAIN",
+                "GRAPHQL_AUTHORIZATION_AND_INJECTION",
+                "DOM_TAINT_AND_CLIENT_SIDE_EXECUTION",
+                "AI_LLM_PROMPT_INJECTION_AND_TOOL_ABUSE",
+            }
+            <= names
         )
 
     def test_no_op_cycle_when_graph_is_empty(self) -> None:
