@@ -355,15 +355,26 @@ Current P2 slice:
 - Unrelated external signals return `NO_MATCH` without changing Finding truth.
 - Provider metadata containing secret/raw request keys fails closed.
 
+Current P3 slice:
+
+- `match_nday_advisories` maps in-scope observed technology versions to
+  provider-supplied advisory/CVE records.
+- n-day output is `AFFECTED_VERSION_CANDIDATE` metadata only, not a Finding.
+- Out-of-scope observations return no matches.
+- Unsupported version/range formats fail closed instead of producing weak
+  matches.
+
 ### Runbook
 
-- SD-G14 status remains `PENDING`.
+- SD-G14 status is `PASS`.
 - P1 evidence (2026-08-20): `7 passed` focused, `53 passed` affected, and
   `1514 passed, 9 skipped, 53 subtests passed` full suite.
 - P2 evidence (2026-08-20): `11 passed` focused, `57 passed` affected, and
   `1518 passed, 9 skipped, 53 subtests passed` full suite.
-- Seal blockers: n-day version-to-CVE lane, PostgreSQL package vertical slice,
-  and full-suite seal.
+- P3 evidence (2026-08-20): `16 passed` focused and
+  `74 passed, 10 subtests passed` affected.
+- P4 evidence (2026-08-20): `17 passed` focused, `63 passed` affected, and
+  `1524 passed, 9 skipped, 53 subtests passed` full suite.
 
 ## SD-G7 — ImpactGraph
 

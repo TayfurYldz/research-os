@@ -1,6 +1,6 @@
 # SD-G14 Plan — Report, Duplicate Economics, and n-day Lane
 
-**Status:** PENDING — P1/P2 implemented; seal pending
+**Status:** PASS
 **Previous gate:** SD-G13 PASS (`2bb0c23`)
 
 ## Purpose
@@ -74,3 +74,45 @@ Evidence:
 - Focused checks (2026-08-20): `11 passed`.
 - Affected checks (2026-08-20): `57 passed`.
 - Full suite (2026-08-20): `1518 passed, 9 skipped, 53 subtests passed`.
+
+## P3 — n-day Version-to-CVE Lane
+
+Files:
+
+- `src/research_os/research/nday.py`
+- `tests/unit/research/test_sd_g14_nday.py`
+
+Behavior:
+
+- matches in-scope observed technology versions to provider-supplied advisory
+  records;
+- supports bounded numeric version range clauses such as `>=1.0.0,<1.5.0`;
+- produces `AFFECTED_VERSION_CANDIDATE` metadata only, not Findings;
+- returns no matches for out-of-scope observations;
+- fails closed on unsupported version or range formats;
+- keeps version-to-CVE mapping as a lane, not the main Research brain.
+
+Evidence:
+
+- Focused checks (2026-08-20): `16 passed`.
+- Affected checks (2026-08-20): `74 passed, 10 subtests passed`.
+
+## P4 — PostgreSQL Package Vertical Slice
+
+Files:
+
+- `tests/integration/test_sd_g14_report_package.py`
+
+Behavior:
+
+- proves `PackageFindingReport` can load an approved Finding from PostgreSQL;
+- builds a `report.package.v1` package with proof/reproduction anchors;
+- persists a `REPORT_PACKAGE_BUILT` audit event;
+- does not create submissions, Findings, Candidates, Evidence, Approvals, or
+  HumanReview records.
+
+Evidence:
+
+- Focused checks (2026-08-20): `17 passed`.
+- Affected checks (2026-08-20): `63 passed`.
+- Full suite (2026-08-20): `1524 passed, 9 skipped, 53 subtests passed`.
