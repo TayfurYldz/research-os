@@ -1,6 +1,6 @@
 # SD-G10 Plan — Independent Validator + Severity Engine + Circuit Breaker
 
-**Status:** PENDING
+**Status:** PASS
 **Previous gate:** SD-G9 PASS (`2752df6`)
 **Do not confuse with:** old infrastructure `GATE 10 — Runtime / Strix Boundary Integrity`.
 
@@ -65,6 +65,14 @@ Evidence:
 Add append-only validator/severity/circuit-breaker records if application
 integration requires durable state beyond audit events. No destructive updates.
 
+Evidence:
+
+- No additional mutable tables were required for the current integration.
+- Validator, severity, and circuit-breaker decisions are persisted as
+  append-only `audit_event` records.
+- Severity decisions stay outside Hypothesis, Observation, Evidence, Candidate,
+  and early FindingProposal records.
+
 ## P4 — Integration Tests
 
 Required PostgreSQL scenarios:
@@ -76,12 +84,24 @@ Required PostgreSQL scenarios:
 - family with high rejected+inconclusive rate is throttled and not disabled;
 - learning telemetry can explain the throttle decision.
 
+Evidence:
+
+- `tests/integration/test_sd_g10_validator_controls.py` covers all required
+  PostgreSQL scenarios.
+- Affected SD-G7/SD-G10/Gate14-Gate17 set (2026-08-20): `167 passed`.
+
 ## P5 — Seal Standard
 
-`GATE_10_STATUS` remains `PENDING` until:
+`GATE_10_STATUS` is `PASS` after:
 
 - SD-G10 unit tests pass;
 - SD-G10 PostgreSQL integration tests pass;
 - full pytest suite passes;
 - `OPERATIONS.md` contains final evidence;
 - `maturity.py` changes to PASS in the same seal commit.
+
+Seal evidence (2026-08-20):
+
+- Focused SD-G10 set: `29 passed`.
+- Affected SD-G7/SD-G10/Gate14-Gate17 set: `167 passed`.
+- Full suite: `1470 passed, 9 skipped, 53 subtests passed`.

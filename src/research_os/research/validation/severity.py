@@ -136,17 +136,17 @@ _PLATFORM_MAPPING = {
 def classify_severity(signal: SeverityInput) -> SeverityResult:
     """Classify validated in-scope impact into internal P0-P3 severity."""
 
-    if signal.scope_state is not ScopeState.IN_SCOPE:
-        return SeverityResult(
-            severity=None,
-            platform_mapping=None,
-            reason_codes=("SEVERITY_REJECTED_NOT_IN_SCOPE",),
-        )
     if signal.validation_state is not ValidationState.PASSED:
         return SeverityResult(
             severity=None,
             platform_mapping=None,
             reason_codes=("SEVERITY_REJECTED_VALIDATION_NOT_PASSED",),
+        )
+    if signal.scope_state is not ScopeState.IN_SCOPE:
+        return SeverityResult(
+            severity=None,
+            platform_mapping=None,
+            reason_codes=("SEVERITY_REJECTED_NOT_IN_SCOPE",),
         )
     if not signal.impact_kinds:
         return SeverityResult(

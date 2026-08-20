@@ -144,7 +144,7 @@ SD-G10 starts the attack-period validation/economy layer after HunterScore:
 
 ### Runbook
 
-- `GATE_10_STATUS = "PENDING"`.
+- `GATE_10_STATUS = "PASS"`.
 - SD-G10 is not old infrastructure `GATE 10 — Runtime / Strix Boundary
   Integrity`.
 - Current P1 domain tests:
@@ -162,6 +162,19 @@ SD-G10 starts the attack-period validation/economy layer after HunterScore:
   - Focused checks: `131 passed` for Gate14-Gate17 e2e, `31 passed` for
     SD-G10 finding-admission unit/integration coverage.
   - Full suite: `1465 passed, 9 skipped, 53 subtests passed`.
+- P3/P4/P5 seal evidence (2026-08-20):
+  - `ScoreFindingSeverity` writes severity decisions only to append-only audit
+    events, never into Hypothesis, Observation, Evidence, Candidate, or early
+    FindingProposal records.
+  - `EvaluateFamilyCircuitBreaker` reads family telemetry from the append-only
+    ledger and can only `ALLOW` or `THROTTLE`; it never disables/deletes a
+    family.
+  - PostgreSQL SD-G10 integration covers V1/V2 missing, V3 queued, deterministic
+    severity scoring, out-of-scope/validation-missing non-scoring, and
+    throttle-without-disable telemetry.
+  - Focused SD-G10 checks: `29 passed`.
+  - Affected SD-G7/SD-G10/Gate14-Gate17 checks: `167 passed`.
+  - Full suite: `1470 passed, 9 skipped, 53 subtests passed`.
 
 ## SD-G7 — ImpactGraph
 
