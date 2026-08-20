@@ -26,6 +26,10 @@ from integration.harness import (
     seed_authorized_spine,
     truncate_spine,
 )
+from research_os.application.executor_replay_manifest import (
+    BuildExecutorReplayManifest,
+    BuildExecutorReplayManifestCommand,
+)
 from research_os.application.execute_planned_experiment import (
     ExecutePlannedExperiment,
     ExecutePlannedExperimentCommand,
@@ -163,6 +167,19 @@ class Gate19HttpTransactionTests(unittest.TestCase):
         for item in worker_results:
             self.assertNotIn("password", str(item.raw_result).lower())
             self.assertNotIn("cookie", str(item.diagnostics).lower())
+
+        manifest = BuildExecutorReplayManifest(factory).execute(
+            BuildExecutorReplayManifestCommand("exp-1")
+        )
+        repeated = BuildExecutorReplayManifest(factory).execute(
+            BuildExecutorReplayManifestCommand("exp-1")
+        )
+        self.assertEqual(manifest.manifest_hash, repeated.manifest_hash)
+        self.assertEqual(manifest.replay_class, "DETERMINISTIC_REPLAY")
+        self.assertEqual(manifest.reason_codes, ("REPLAY_MANIFEST_READY",))
+        self.assertEqual(manifest.manifest["attempts"][0]["worker_result"]["status"], "SUCCEEDED")
+        self.assertNotIn("cookie", str(manifest.manifest).lower())
+        self.assertNotIn("password", str(manifest.manifest).lower())
 
     def test_out_of_scope_origin_denied(self) -> None:
         factory = PostgresUnitOfWorkFactory(self.engine)

@@ -176,6 +176,36 @@ SD-G10 starts the attack-period validation/economy layer after HunterScore:
   - Affected SD-G7/SD-G10/Gate14-Gate17 checks: `167 passed`.
   - Full suite: `1470 passed, 9 skipped, 53 subtests passed`.
 
+## SD-G11 — Production Executor Fabric
+
+### Scope
+
+SD-G11 starts the Attack Muscle production executor fabric. This is **not** old
+infrastructure `GATE 11 — Runtime Routing Integrity`, and it is **not** G21
+browser/application-state maturity.
+
+Current P1 slice:
+
+- `BuildExecutorReplayManifest` reads persisted Experiment, ExecutionAttempt,
+  WorkerResult, and Observation rows without redispatching a Worker.
+- It produces a canonical replay manifest plus SHA-256 hash.
+- Raw result, diagnostics, artifact descriptors, and observation payloads are
+  represented by redacted digests only.
+- Replay class is explicit: `DETERMINISTIC_REPLAY`,
+  `ENVIRONMENT_SENSITIVE`, `HUMAN_REVIEW_REQUIRED`, or `NOT_REPLAYABLE`.
+- Browser and stateful side-effect outputs are not treated as deterministic
+  replay.
+
+### Runbook
+
+- SD-G11 status remains `PENDING`.
+- G21 remains `PENDING`; local Chromium browser checks passed, but cgroup
+  containment skipped without delegation and required mode fails closed.
+- P1 evidence (2026-08-20): `6 passed` for replay manifest unit coverage plus
+  PostgreSQL G19 ledger integration.
+- Affected checks (2026-08-20): `35 passed, 5 skipped`.
+- Full suite (2026-08-20): `1474 passed, 9 skipped, 53 subtests passed`.
+
 ## SD-G7 — ImpactGraph
 
 ### Scope
