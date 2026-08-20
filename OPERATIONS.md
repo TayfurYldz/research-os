@@ -210,17 +210,33 @@ Current P2 slice:
   required, redirect reauthorization required, and human review required for
   high side-effect replay classes.
 
+Current P3 slice:
+
+- `AssessExecutorFabricExperiment` reads WorkerResult rows plus replay
+  manifest/bundle hashes and emits deterministic fabric invariant assessments
+  without redispatching Workers.
+- `http.transaction` now supports HTTPS loopback transport while preserving
+  Core-issued network envelope enforcement and redirect STOP behavior.
+- The packaged Worker copy stays byte-for-byte synchronized with the runtime
+  Worker implementation.
+- PostgreSQL SD-G11 vertical slice covers HTTPS API execution, browser ledger
+  environment-sensitive assessment, vulnerable/secure/deceptive workflow
+  fixtures, scope-escape envelope blocking, and redirect reauthorization.
+
 ### Runbook
 
-- SD-G11 status remains `PENDING`.
+- SD-G11 status is `PASS`.
 - G21 remains `PENDING`; local Chromium browser checks passed, but cgroup
   containment skipped without delegation and required mode fails closed.
 - P1 evidence (2026-08-20): `6 passed` for replay manifest unit coverage plus
   PostgreSQL G19 ledger integration.
 - P2 evidence (2026-08-20): `9 passed` for replay manifest, replay bundle, and
   PostgreSQL G19 ledger integration.
-- Affected checks (2026-08-20): `35 passed, 5 skipped`.
-- Full suite (2026-08-20): `1474 passed, 9 skipped, 53 subtests passed`.
+- P3 evidence (2026-08-20): `36 passed` focused HTTPS/worker/fabric checks,
+  `104 passed` affected checks, and `1484 passed, 9 skipped, 53 subtests passed`
+  full suite.
+- P1 affected checks (2026-08-20): `35 passed, 5 skipped`.
+- P1 full suite (2026-08-20): `1474 passed, 9 skipped, 53 subtests passed`.
 
 ## SD-G7 — ImpactGraph
 

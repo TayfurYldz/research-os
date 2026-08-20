@@ -1,6 +1,6 @@
 # SD-G11 Plan — Production Executor Fabric
 
-**Status:** PENDING
+**Status:** PASS
 **Previous gate:** SD-G10 PASS (`f5b08c0`)
 **Do not confuse with:** old infrastructure `GATE 11 — Runtime Routing Integrity`.
 **Also not:** `GATE 21 — browser / application state`.
@@ -93,6 +93,40 @@ Evidence:
 Extend the manifest contract to HTTPS/browser/API workers with secure,
 vulnerable, deceptive, and scope-escape fixtures. No worker can reach outside
 the Core-issued envelope; every redirect still requires reauthorization.
+
+Files:
+
+- `src/research_os/application/executor_fabric_assessment.py`
+- `src/research_os/worker_runtime/python/http_transaction.py`
+- `workers/python/research_os_worker/http_transaction.py`
+- `tests/e2e/lab/https_transaction_lab.py`
+- `tests/unit/application/test_executor_fabric_assessment.py`
+- `tests/unit/worker_runtime/test_http_transaction.py`
+- `tests/integration/test_sd_g11_executor_fabric_vertical_slice.py`
+
+Behavior:
+
+- reads persisted WorkerResult rows plus replay manifest/bundle hashes without
+  redispatching Workers;
+- extends `http.transaction` to HTTPS loopback transport while preserving
+  Core-issued network envelope enforcement and redirect STOP behavior;
+- emits a deterministic fabric assessment hash with derived invariant metadata
+  only, not raw response bodies, diagnostics, screenshots, traces, or session
+  material;
+- verifies replay controls stay fail closed: automatic redispatch forbidden,
+  Core authorization required, and redirect reauthorization required;
+- treats browser ledger rows as environment-sensitive without claiming G21
+  browser/application-state maturity;
+- proves HTTPS/API/state-transition worker behavior across vulnerable, secure,
+  deceptive, scope-escape, and redirect fixtures;
+- confirms scope-escape attempts stop at the Core-issued network envelope and
+  redirect results stop with `REAUTHORIZATION_REQUIRED`.
+
+Evidence:
+
+- Focused checks (2026-08-20): `36 passed`.
+- SD-G11 affected checks (2026-08-20): `104 passed`.
+- Full suite (2026-08-20): `1484 passed, 9 skipped, 53 subtests passed`.
 
 ## G21 Boundary Note
 

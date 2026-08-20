@@ -4,6 +4,7 @@ import unittest
 
 import pathsetup  # noqa: F401
 
+from e2e.lab.https_transaction_lab import HttpsTransactionLab
 from e2e.lab.http_transaction_lab import EXTERNAL_REDIRECT, Gate19HttpLab
 from research_os.tools.registry import load_capability_registry
 from research_os.worker_runtime.python.capabilities import execute
@@ -43,6 +44,20 @@ class HttpTransactionWorkerTests(unittest.TestCase):
         self.assertNotIn("cookie", str(raw).lower())
         self.assertFalse(raw["self_authorized"])
 
+    def test_authorized_https_get_succeeds(self) -> None:
+        lab = HttpsTransactionLab()
+        origin = lab.start()
+        try:
+            status, raw, diagnostics = execute(_request(origin))
+        finally:
+            lab.stop()
+        self.assertEqual(status, "SUCCEEDED")
+        self.assertIsNone(diagnostics)
+        self.assertEqual(raw["status_code"], 200)
+        self.assertEqual(raw["json_top_level_keys"], ["ok", "transport"])
+        self.assertTrue(raw["url"].startswith("https://127.0.0.1:"))
+        self.assertFalse(raw["self_authorized"])
+
     def test_redirect_not_followed(self) -> None:
         status, raw, diagnostics = execute(_request(self.origin, path="/redirect"))
         self.assertEqual(status, "REAUTHORIZATION_REQUIRED")
@@ -53,8 +68,20 @@ class HttpTransactionWorkerTests(unittest.TestCase):
         self.assertFalse(diagnostics["self_authorized"])
         self.assertNotEqual(raw.get("status_code"), 200)
 
-    def test_wrong_scheme_denied(self) -> None:
-        status, _, diagnostics = execute(_request("https://127.0.0.1:9"))
+    def test_unsupported_scheme_denied(self) -> None:
+        request = _request("ftp://127.0.0.1:9")
+        request["network_envelope"] = {
+            "normalized_scheme": "ftp",
+            "normalized_host": "127.0.0.1",
+            "normalized_port": 9,
+            "document_path": "/ok",
+            "origin_wide": True,
+            "allowed_path_prefixes": [],
+            "denied_path_prefixes": [],
+            "loopback_only": True,
+            "source_scope_rule_ids": ["test"],
+        }
+        status, _, diagnostics = execute_http_transaction(request)
         self.assertEqual(status, "BLOCKED")
         self.assertIn("scheme", diagnostics["error"])
         self.assertFalse(diagnostics["contacted"])

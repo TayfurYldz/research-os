@@ -10,6 +10,7 @@ import hashlib
 import http.client
 import json
 import socket
+import ssl
 import time
 from typing import Any, Mapping
 from urllib.parse import urlencode, urljoin, urlsplit
@@ -17,7 +18,7 @@ from urllib.parse import urlencode, urljoin, urlsplit
 from .browser_envelope import envelope_allows, parse_envelope
 
 HTTP_TRANSACTION_CAPABILITY = "http.transaction"
-ALLOWED_SCHEMES = frozenset({"http"})
+ALLOWED_SCHEMES = frozenset({"http", "https"})
 
 ALLOWED_READ_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
 ALLOWED_MUTATE_METHODS = frozenset({"POST", "PUT", "PATCH", "DELETE"})
@@ -243,7 +244,7 @@ def execute_http_transaction(
 def _reject_origin(origin: str) -> str | None:
     parsed = urlsplit(origin)
     if parsed.scheme not in ALLOWED_SCHEMES:
-        return "scheme must be http"
+        return "scheme must be http or https"
     if parsed.username or parsed.password:
         return "userinfo is not allowed"
     if parsed.path not in {"", "/"}:
@@ -362,12 +363,8 @@ def _exchange(
 ) -> dict[str, Any]:
     parsed = urlsplit(origin)
     if parsed.scheme not in ALLOWED_SCHEMES:
-        raise _OriginRejected("non-loopback HTTP is blocked")
-    connection = http.client.HTTPConnection(
-        parsed.hostname,
-        parsed.port or 80,
-        timeout=timeout,
-    )
+        raise _OriginRejected("non-loopback HTTP(S) is blocked")
+    connection = _connection(parsed, timeout)
     try:
         connection.request(method, request_path, body=body, headers=dict(headers))
         response = connection.getresponse()
@@ -415,6 +412,27 @@ def _exchange(
         elif parsed_body is None:
             payload["json_value_kind"] = "null"
     return payload
+
+
+def _connection(parsed, timeout: float):
+    host = parsed.hostname
+    if parsed.scheme == "https":
+        context = (
+            ssl._create_unverified_context()
+            if host in {"127.0.0.1", "localhost"}
+            else ssl.create_default_context()
+        )
+        return http.client.HTTPSConnection(
+            host,
+            parsed.port or 443,
+            timeout=timeout,
+            context=context,
+        )
+    return http.client.HTTPConnection(
+        host,
+        parsed.port or 80,
+        timeout=timeout,
+    )
 
 
 def _request_fingerprint(method: str, path: str, query: object, body: bytes | None) -> str:
