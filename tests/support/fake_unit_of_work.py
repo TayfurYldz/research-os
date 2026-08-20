@@ -59,6 +59,7 @@ from research_os.data.records import (
     SnapshotRecord,
     TargetInferenceRecord,
     ChangeEventRecord,
+    CoverageDebtSnapshotRecord,
     VerificationRecord,
     WorkerResultRecord,
     SessionContextRecord,
@@ -119,6 +120,7 @@ class _Store:
         self.snapshots: dict[str, SnapshotRecord] = {}
         self.snapshot_members: dict[str, SnapshotMemberRecord] = {}
         self.change_events: dict[str, ChangeEventRecord] = {}
+        self.coverage_debt_snapshots: dict[str, CoverageDebtSnapshotRecord] = {}
         self.research_orchestrations: dict[str, ResearchOrchestrationRecord] = {}
         self.research_cycles: dict[str, ResearchCycleRecord] = {}
         self.budget_consumptions: dict[str, BudgetConsumptionRecord] = {}
@@ -294,6 +296,8 @@ def _id_of(record: Any) -> str:
         return f"{record.snapshot_id}:{record.observation_id}"
     if isinstance(record, ChangeEventRecord):
         return record.change_event_id
+    if isinstance(record, CoverageDebtSnapshotRecord):
+        return record.snapshot_id
     if isinstance(record, ResearchOrchestrationRecord):
         return record.research_run_id
     if isinstance(record, ResearchCycleRecord):
@@ -1146,6 +1150,22 @@ class _ChangeEventRepo(_Repo):
         )
 
 
+class _CoverageDebtSnapshotRepo(_Repo):
+    def __init__(self, store: _Store, fail_on_insert: bool = False) -> None:
+        super().__init__(store.coverage_debt_snapshots, fail_on_insert=fail_on_insert)
+        self._root = store
+
+    def list_for_research_run(self, research_run_id: str) -> list[CoverageDebtSnapshotRecord]:
+        return sorted(
+            [
+                record
+                for record in self._root.coverage_debt_snapshots.values()
+                if record.research_run_id == research_run_id
+            ],
+            key=lambda record: record.created_at,
+        )
+
+
 class _ResearchOrchestrationRepo:
     def __init__(self, store: _Store) -> None:
         self._root = store
@@ -1553,6 +1573,9 @@ class FakeUnitOfWork:
         self.change_events = _ChangeEventRepo(
             self._store, fail_on_insert=fail_on == "change_events"
         )
+        self.coverage_debt_snapshots = _CoverageDebtSnapshotRepo(
+            self._store, fail_on_insert=fail_on == "coverage_debt_snapshots"
+        )
         self.research_orchestrations = _ResearchOrchestrationRepo(self._store)
         self.research_cycles = _ResearchCycleRepo(
             self._store, fail_on_insert=fail_on == "research_cycles"
@@ -1683,6 +1706,8 @@ class FakeUnitOfWork:
         self._store.snapshot_members.update(snapshot.snapshot_members)
         self._store.change_events.clear()
         self._store.change_events.update(snapshot.change_events)
+        self._store.coverage_debt_snapshots.clear()
+        self._store.coverage_debt_snapshots.update(snapshot.coverage_debt_snapshots)
         self._store.research_orchestrations.clear()
         self._store.research_orchestrations.update(snapshot.research_orchestrations)
         self._store.research_cycles.clear()

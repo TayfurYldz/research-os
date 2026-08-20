@@ -118,6 +118,9 @@ class ControlRef:
     name: str
     aria_label: str
     placeholder: str
+    href_scheme: str = ""
+    href_origin: str = ""
+    href_path: str = ""
 
 
 class BrowserEngine(Protocol):
@@ -211,7 +214,7 @@ def reauthorization_diagnostics(
 
 
 def control_to_mapping(control: ControlRef) -> dict[str, Any]:
-    return {
+    payload = {
         "element_reference": control.element_reference,
         "snapshot_fingerprint": control.snapshot_fingerprint,
         "tag": control.tag,
@@ -223,6 +226,13 @@ def control_to_mapping(control: ControlRef) -> dict[str, Any]:
         "aria_label": control.aria_label,
         "placeholder": control.placeholder,
     }
+    if control.href_scheme:
+        payload["href_scheme"] = control.href_scheme
+    if control.href_origin:
+        payload["href_origin"] = control.href_origin
+    if control.href_path:
+        payload["href_path"] = control.href_path
+    return payload
 
 
 def network_event_to_mapping(event: NetworkEvent) -> dict[str, Any]:
@@ -736,6 +746,7 @@ class InMemoryBrowserEngine:
             name = cap_text(str(item.get("name") or ""))
             aria_label = cap_text(str(item.get("aria_label") or ""))
             placeholder = cap_text(str(item.get("placeholder") or ""))
+            href_scheme, href_origin, href_path = safe_href_parts(item.get("href"), state.url)
             signature = {
                 "tag": tag,
                 "role": role,
@@ -743,12 +754,16 @@ class InMemoryBrowserEngine:
                 "name": name,
                 "aria_label": aria_label,
                 "placeholder": placeholder,
+                "href_scheme": href_scheme,
+                "href_origin": href_origin,
+                "href_path": href_path,
                 "disabled": bool(item.get("disabled")),
                 "checked": bool(item.get("checked")),
             }
             signatures.append(signature)
         fingerprint = fingerprint_controls(state.url, signatures)
         for index, item in enumerate(capped):
+            href_scheme, href_origin, href_path = safe_href_parts(item.get("href"), state.url)
             controls.append(
                 ControlRef(
                     element_reference=f"el-{index}",
@@ -761,6 +776,9 @@ class InMemoryBrowserEngine:
                     name=cap_text(str(item.get("name") or "")),
                     aria_label=cap_text(str(item.get("aria_label") or "")),
                     placeholder=cap_text(str(item.get("placeholder") or "")),
+                    href_scheme=href_scheme,
+                    href_origin=href_origin,
+                    href_path=href_path,
                 )
             )
         state.controls = controls
@@ -929,9 +947,26 @@ def _extract_controls(html: str) -> list[dict[str, Any]]:
                 "name": attrs.get("name") or "",
                 "aria_label": attrs.get("aria-label") or "",
                 "placeholder": attrs.get("placeholder") or "",
+                "href": attrs.get("href") or "",
             }
         )
     return controls
+
+
+def safe_href_parts(href: object, base_url: str) -> tuple[str, str, str]:
+    raw = href if isinstance(href, str) else ""
+    raw = raw.strip()
+    if not raw:
+        return "", "", ""
+    parsed_raw = urlsplit(raw)
+    if parsed_raw.scheme and parsed_raw.scheme not in {"http", "https"}:
+        return parsed_raw.scheme, "", f"{parsed_raw.scheme}:"
+    parsed = urlsplit(urljoin(base_url, raw))
+    if parsed.scheme not in {"http", "https"}:
+        return parsed.scheme or "", "", ""
+    port = f":{parsed.port}" if parsed.port is not None else ""
+    origin = f"{parsed.scheme}://{parsed.hostname}{port}" if parsed.hostname else ""
+    return parsed.scheme, origin, (parsed.path or "/")[:256]
 
 
 def _parse_attrs(raw: str) -> dict[str, str]:

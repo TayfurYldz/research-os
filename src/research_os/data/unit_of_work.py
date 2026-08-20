@@ -45,6 +45,7 @@ from research_os.data.ports import (
     SessionContextRepository,
     DiscoveryRunConfigRepository,
     ControlEventRepository,
+    CoverageDebtSnapshotRepository,
     DiscoveryFactRepository,
     DiscoveryFactSourceRepository,
     DiscoveryInferenceRepository,
@@ -97,6 +98,7 @@ class UnitOfWork(Protocol):
     research_selections: ResearchSelectionRepository
     snapshots: SnapshotRepository
     change_events: ChangeEventRepository
+    coverage_debt_snapshots: CoverageDebtSnapshotRepository
     research_orchestrations: ResearchOrchestrationRepository
     research_cycles: ResearchCycleRepository
     budget_consumptions: BudgetConsumptionRepository

@@ -376,6 +376,44 @@ Current P3 slice:
 - P4 evidence (2026-08-20): `17 passed` focused, `63 passed` affected, and
   `1524 passed, 9 skipped, 53 subtests passed` full suite.
 
+## SD-G15 — Continuous Change, Live Coverage Debt, and Recall
+
+### Scope
+
+SD-G15 keeps the temporal lane from becoming a vulnerability oracle while
+making coverage debt live for the operator. It also consolidates benchmark
+recall across existing family scorecards without allowing averages to hide a
+miss or false finding.
+
+Current P1 slice:
+
+- `assess_live_coverage_debt` compares durable coverage-debt snapshot summaries
+  and reports count/total-debt deltas.
+- `RefreshLiveCoverageDebt` persists a new coverage snapshot, attaches
+  in-window ChangeEvents as context, and writes
+  `LIVE_COVERAGE_DEBT_REFRESHED`.
+- The audit payload explicitly carries `not_a_vulnerability`, `not_evidence`,
+  `not_candidate`, and `not_finding`.
+- The use-case does not create Evidence, Candidate, Finding, Approval,
+  HumanReview, or V3 queue state.
+
+Current P2 slice:
+
+- `consolidate_recall_report` produces `recall.consolidated.v1` from object
+  authorization, workflow authorization, and research-selection scorecards.
+- Recall is reported per family as exact fractions.
+- `weighted_average_allowed = false`; any family miss, false finding, or hard
+  failure fails the consolidated gate.
+
+### Runbook
+
+- SD-G15 status is `PASS`.
+- P1/P2 focused evidence (2026-08-20): `10 passed` including PostgreSQL vertical
+  slice when `RESEARCH_OS_TEST_DATABASE_URL` is configured.
+- Discovery regression evidence (2026-08-20): `37 passed`.
+- Affected evidence (2026-08-20): `44 passed`.
+- Seal evidence (2026-08-20): `1534 passed, 9 skipped, 53 subtests passed`.
+
 ## SD-G7 — ImpactGraph
 
 ### Scope

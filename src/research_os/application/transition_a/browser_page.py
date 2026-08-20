@@ -77,6 +77,9 @@ ALLOWED_CONTROL_KEYS = (
     "name",
     "aria_label",
     "placeholder",
+    "href_scheme",
+    "href_origin",
+    "href_path",
 )
 ALLOWED_EVENT_KEYS = (
     "event_id",
@@ -202,6 +205,9 @@ def _controls(raw: object) -> list[dict[str, Any]]:
             "name": _capped_text(item.get("name"), ""),
             "aria_label": _capped_text(item.get("aria_label"), ""),
             "placeholder": _capped_text(item.get("placeholder"), ""),
+            "href_scheme": _capped_text(item.get("href_scheme"), ""),
+            "href_origin": _capped_text(item.get("href_origin"), ""),
+            "href_path": _capped_text(item.get("href_path"), ""),
         }
         extra = set(item) - set(ALLOWED_CONTROL_KEYS)
         if extra:

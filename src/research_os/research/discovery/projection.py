@@ -40,6 +40,9 @@ class ControlView:
     name: str
     role: str
     input_type: str
+    href_scheme: str = ""
+    href_origin: str = ""
+    href_path: str = ""
 
 
 @dataclass(frozen=True)
@@ -282,9 +285,35 @@ def project_observation_view(
                         "name": control.name,
                         "role": control.role,
                         "input_type": control.input_type,
+                        **({"href_path": control.href_path} if control.href_path else {}),
+                        **({"href_origin": control.href_origin} if control.href_origin else {}),
                     },
                 )
             )
+            boundary = _scope_boundary_from_control(view, control)
+            if boundary is not None:
+                boundary_origin, boundary_path, boundary_kind = boundary
+                boundary_key = canonical_key(
+                    "SCOPE_BOUNDARY_CANDIDATE",
+                    boundary_kind,
+                    boundary_origin or "",
+                    boundary_path or "",
+                    control_key,
+                )
+                _offer(
+                    _fact(
+                        DiscoveryFactKind.SCOPE_BOUNDARY_CANDIDATE,
+                        boundary_key,
+                        epistemic=TargetEpistemicStatus.DERIVED,
+                        origin=boundary_origin,
+                        path=boundary_path,
+                        attributes={
+                            "control_event_kind": boundary_kind,
+                            "not_observed": True,
+                            "source_fact_kind": DiscoveryFactKind.CONTROL.value,
+                        },
+                    )
+                )
             inspect_sig = canonical_key("INSPECT_CONTROL", control_key, view.identity_id)
             if inspect_sig not in existing_frontier_dedupes:
                 item = FrontierItem(
@@ -306,6 +335,8 @@ def project_observation_view(
                         "name": control.name,
                         "role": control.role,
                         "input_type": control.input_type,
+                        **({"href_path": control.href_path} if control.href_path else {}),
+                        **({"href_origin": control.href_origin} if control.href_origin else {}),
                     },
                 )
                 frontier.append(item)
@@ -573,6 +604,19 @@ def project_control_event(
         workflow_transition_ready=False,
         resolve_transition_frontier=None,
     )
+
+
+def _scope_boundary_from_control(
+    view: ObservationView,
+    control: ControlView,
+) -> tuple[str | None, str | None, str] | None:
+    if control.href_scheme and control.href_scheme not in {"http", "https"}:
+        return None, control.href_path or None, ControlEventKind.NEW_ORIGIN_BOUNDARY.value
+    if not control.href_origin:
+        return None
+    if control.href_origin.rstrip("/") == view.normalized_origin.rstrip("/"):
+        return None
+    return control.href_origin, control.href_path or "/", ControlEventKind.NEW_ORIGIN_BOUNDARY.value
 
 
 def _instance_from_path(normalized_path: str) -> str | None:

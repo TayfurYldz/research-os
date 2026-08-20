@@ -25,6 +25,7 @@ from .browser_engine import (
     lease_binding_matches,
     network_event_to_mapping,
     reauthorization_diagnostics,
+    safe_href_parts,
     snapshot_raw,
 )
 from .browser_envelope import (
@@ -43,7 +44,8 @@ CONTROL_EXTRACT_SCRIPT = """(elements) => elements.map((el) => ({
   checked: !!el.checked,
   name: (el.getAttribute('name') || '').slice(0, 64),
   aria_label: (el.getAttribute('aria-label') || '').slice(0, 64),
-  placeholder: (el.getAttribute('placeholder') || '').slice(0, 64)
+  placeholder: (el.getAttribute('placeholder') || '').slice(0, 64),
+  href: (el.getAttribute('href') || '').slice(0, 256)
 }))"""
 CONTROL_SELECTOR = "a, button, input, select, textarea"
 
@@ -584,6 +586,7 @@ class PlaywrightChromiumEngine:
         for item in items:
             if not isinstance(item, dict):
                 continue
+            href_scheme, href_origin, href_path = safe_href_parts(item.get("href"), url)
             signatures.append(
                 {
                     "tag": str(item.get("tag") or ""),
@@ -592,6 +595,9 @@ class PlaywrightChromiumEngine:
                     "name": cap_text(str(item.get("name") or "")),
                     "aria_label": cap_text(str(item.get("aria_label") or "")),
                     "placeholder": cap_text(str(item.get("placeholder") or "")),
+                    "href_scheme": href_scheme,
+                    "href_origin": href_origin,
+                    "href_path": href_path,
                     "disabled": bool(item.get("disabled")),
                     "checked": bool(item.get("checked")),
                 }
@@ -600,6 +606,7 @@ class PlaywrightChromiumEngine:
         for index, item in enumerate(items):
             if not isinstance(item, dict):
                 continue
+            href_scheme, href_origin, href_path = safe_href_parts(item.get("href"), url)
             controls.append(
                 ControlRef(
                     element_reference=f"el-{index}",
@@ -612,6 +619,9 @@ class PlaywrightChromiumEngine:
                     name=cap_text(str(item.get("name") or "")),
                     aria_label=cap_text(str(item.get("aria_label") or "")),
                     placeholder=cap_text(str(item.get("placeholder") or "")),
+                    href_scheme=href_scheme,
+                    href_origin=href_origin,
+                    href_path=href_path,
                 )
             )
         runtime.controls = controls

@@ -183,6 +183,9 @@ def observation_view(
             name=str(item.get("name") or ""),
             role=str(item.get("role") or ""),
             input_type=str(item.get("input_type") or ""),
+            href_scheme=str(item.get("href_scheme") or ""),
+            href_origin=str(item.get("href_origin") or ""),
+            href_path=str(item.get("href_path") or ""),
         )
         for item in payload.get("controls") or []
         if isinstance(item, Mapping)
