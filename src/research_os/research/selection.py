@@ -194,6 +194,11 @@ def families_for_node(
         required_edge_kind = preconditions.get("required_edge_kind")
         if required_edge_kind is not None and not _node_has_edge_kind(node, graph, required_edge_kind):
             continue
+        required_attribute_any = preconditions.get("required_attribute_any")
+        if required_attribute_any is not None and not _node_has_required_attribute_any(
+            node, required_attribute_any
+        ):
+            continue
         matched.append(family)
     return tuple(matched)
 
@@ -208,6 +213,35 @@ def _node_has_edge_kind(
         if edge.from_node_id == node.node_id or edge.to_node_id == node.node_id:
             return True
     return False
+
+
+def _node_has_required_attribute_any(
+    node: "AttackSurfaceNode", required_attribute_any: object
+) -> bool:
+    """Require at least one allowed value for every named node attribute."""
+    if not isinstance(required_attribute_any, Mapping) or not required_attribute_any:
+        return False
+    attributes = node.attributes or {}
+    for key, allowed in required_attribute_any.items():
+        if not isinstance(key, str) or not key.strip():
+            return False
+        allowed_values = _string_set(allowed)
+        if not allowed_values:
+            return False
+        node_values = _string_set(attributes.get(key))
+        if not node_values.intersection(allowed_values):
+            return False
+    return True
+
+
+def _string_set(value: object) -> set[str]:
+    if value is None:
+        return set()
+    if isinstance(value, str):
+        return {value}
+    if isinstance(value, (list, tuple, frozenset, set)):
+        return {str(item) for item in value if str(item).strip()}
+    return {str(value)}
 
 
 def claim_from_template(

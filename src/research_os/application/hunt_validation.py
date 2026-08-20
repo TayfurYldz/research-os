@@ -17,6 +17,7 @@ from research_os.data.records import AuditEventRecord, HuntV3QueueRecord
 from research_os.data.unit_of_work import UnitOfWork
 from research_os.research.discovery.graph import AttackSurfaceGraph
 from research_os.research.mutation.matrix import build_mutation_matrix
+from research_os.research.protocol import build_protocol_parser_plan
 from research_os.research.selection import HunterFamilyView, claim_from_template
 from research_os.research.types import ResearchInputError
 
@@ -39,12 +40,15 @@ V3_CAPABILITY_FOR_FAMILY = {
     "GRAPHQL_AUTHORIZATION_AND_INJECTION": "mutation.matrix",
     "DOM_TAINT_AND_CLIENT_SIDE_EXECUTION": "mutation.matrix",
     "AI_LLM_PROMPT_INJECTION_AND_TOOL_ABUSE": "mutation.matrix",
+    "HTTP_REQUEST_SMUGGLING_DESYNC": "protocol.parser",
+    "HTTP_CACHE_POISONING_DECEPTION": "protocol.parser",
 }
 
 V3_ACTION_FOR_CAPABILITY = {
     "http.authorization_differential": "probe",
     "http.state_transition_authorization": "probe",
     "mutation.matrix": "plan",
+    "protocol.parser": "plan",
 }
 
 
@@ -222,7 +226,7 @@ class ValidateHuntTiers:
         )
         capability_arguments = _v3_arguments_for_family(
             command.family,
-            node_id=node.node_id,
+            node=node,
             claim=claim,
             identity_id=identity_id,
         )
@@ -246,6 +250,11 @@ class ValidateHuntTiers:
 
 
 def _side_effect_for_family(family_name: str) -> int:
+    if family_name in {
+        "HTTP_REQUEST_SMUGGLING_DESYNC",
+        "HTTP_CACHE_POISONING_DECEPTION",
+    }:
+        return 3
     if family_name == "WORKFLOW_STATE_TRANSITION":
         return 1
     return 0
@@ -254,15 +263,16 @@ def _side_effect_for_family(family_name: str) -> int:
 def _v3_arguments_for_family(
     family: HunterFamilyView,
     *,
-    node_id: str,
+    node,
     claim: str,
     identity_id: str | None,
 ) -> dict[str, Any]:
-    if V3_CAPABILITY_FOR_FAMILY.get(family.name) == "mutation.matrix":
+    capability = V3_CAPABILITY_FOR_FAMILY.get(family.name)
+    if capability == "mutation.matrix":
         matrix = build_mutation_matrix(family)
         return {
             "claim": claim,
-            "node_id": node_id,
+            "node_id": node.node_id,
             "family_name": family.name,
             "identity_id": identity_id or "ANONYMOUS",
             "matrix_hash": matrix.matrix_hash,
@@ -272,12 +282,52 @@ def _v3_arguments_for_family(
             "control_count": len(matrix.controls),
             "worker_dispatch": "forbidden_until_operator_approval",
         }
+    if capability == "protocol.parser":
+        plan = build_protocol_parser_plan(family)
+        matching_signals = _matching_protocol_surface_signals(
+            node.attributes or {},
+            plan.required_surface_signals,
+        )
+        if not matching_signals:
+            raise HuntValidationTierError(
+                f"protocol parser family {family.name} requires surface evidence"
+            )
+        return {
+            "claim": claim,
+            "node_id": node.node_id,
+            "family_name": family.name,
+            "identity_id": identity_id or "ANONYMOUS",
+            "protocol_plan_hash": plan.plan_hash,
+            "plan_version": plan.plan_version,
+            "protocol_lane": plan.lane,
+            "step_count": len(plan.steps),
+            "dimension_count": len(plan.dimensions),
+            "control_count": len(plan.controls),
+            "surface_signal_count": len(matching_signals),
+            "approval_required": "SE3",
+            "worker_dispatch": "forbidden_until_se3_approval",
+        }
     return {
         "claim": claim,
-        "node_id": node_id,
+        "node_id": node.node_id,
         "family_name": family.name,
         "identity_id": identity_id or "ANONYMOUS",
     }
+
+
+def _matching_protocol_surface_signals(
+    attributes: Mapping[str, Any],
+    required_surface_signals: tuple[str, ...],
+) -> tuple[str, ...]:
+    value = attributes.get("protocol_surface_signals")
+    if isinstance(value, str):
+        observed = {value}
+    elif isinstance(value, (list, tuple, set, frozenset)):
+        observed = {str(item) for item in value if str(item).strip()}
+    else:
+        observed = set()
+    required = set(required_surface_signals)
+    return tuple(sorted(observed.intersection(required)))
 
 
 def _result(

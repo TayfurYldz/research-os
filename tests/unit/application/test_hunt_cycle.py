@@ -140,6 +140,26 @@ def _v3_graph() -> AttackSurfaceGraph:
     )
 
 
+def _protocol_graph() -> AttackSurfaceGraph:
+    node = _node(
+        node_id="op-protocol",
+        kind=AttackSurfaceNodeKind.HTTP_OPERATION,
+        canonical_key="origin:http://example.com|path:/edge|method:GET",
+        attributes={
+            "origin": "http://example.com",
+            "path": "/edge",
+            "method": "GET",
+            "protocol_surface_signals": ["reverse_proxy", "http2"],
+        },
+    )
+    return AttackSurfaceGraph(
+        research_run_id="run-1",
+        strategy_version="surface.discovery.v1",
+        nodes=(node,),
+        edges=(),
+    )
+
+
 def _family_api_spec() -> HunterFamilyView:
     return HunterFamilyView(
         family_id="hf-exposed-api-spec",
@@ -222,6 +242,41 @@ def _family_object_authz_identity() -> HunterFamilyView:
             "for identity {identity_id}."
         ),
         evidence_requirements={},
+        validation_tier="V3",
+        enabled=True,
+        version=1,
+    )
+
+
+def _family_protocol_smuggling() -> HunterFamilyView:
+    return HunterFamilyView(
+        family_id="hf-http-smuggling-desync",
+        name="HTTP_REQUEST_SMUGGLING_DESYNC",
+        target_node_kinds=("HTTP_OPERATION",),
+        preconditions={
+            "scope_classification": "IN_SCOPE",
+            "required_attribute_any": {
+                "protocol_surface_signals": ["reverse_proxy", "http2"],
+            },
+        },
+        claim_template=(
+            "Protocol surface {canonical_key} has parser-boundary evidence "
+            "supporting request-smuggling/desync specialist planning."
+        ),
+        evidence_requirements={
+            "protocol_lane": "http_request_smuggling_desync",
+            "required_surface_signals": ["reverse_proxy", "http2"],
+            "required_controls": [
+                "single_parser_control",
+                "connection_close_control",
+                "deceptive_proxy_control",
+            ],
+            "required_protocol_dimensions": [
+                "frontend_protocol",
+                "backend_protocol",
+                "normalization_boundary",
+            ],
+        },
         validation_tier="V3",
         enabled=True,
         version=1,
@@ -475,6 +530,50 @@ class ValidateHuntTiersTests(unittest.TestCase):
         self.assertIsInstance(queue_record, HuntV3QueueRecord)
         self.assertEqual(queue_record.state, "PENDING")
         self.assertEqual(queue_record.capability, "http.authorization_differential")
+
+    def test_protocol_parser_family_queues_se3_plan_only_when_surface_supported(self) -> None:
+        store = _Store()
+        seed_authorization_run(store)
+        factory = FakeUnitOfWorkFactory(store)
+        use_case = GenerateHuntHypotheses(factory)
+        graph = _protocol_graph()
+        registry = (_family_protocol_smuggling(),)
+
+        generated = use_case.execute(
+            GenerateHuntHypothesesCommand(
+                research_run_id="run-1",
+                graph=graph,
+                registry=registry,
+            )
+        )
+
+        hypothesis_id = generated.hypothesis_ids[0]
+        validator = ValidateHuntTiers(factory)
+        result = validator.execute(
+            ValidateHuntTiersCommand(
+                research_run_id="run-1",
+                hypothesis_id=hypothesis_id,
+                family=_family_protocol_smuggling(),
+                node_id="op-protocol",
+                graph=graph,
+            )
+        )
+
+        self.assertTrue(result.v3_queued)
+        queue_record = list(store.hunt_v3_queue.values())[0]
+        self.assertEqual(queue_record.capability, "protocol.parser")
+        self.assertEqual(queue_record.action, "plan")
+        self.assertEqual(queue_record.side_effect_level, 3)
+        self.assertEqual(queue_record.arguments["approval_required"], "SE3")
+        self.assertEqual(
+            queue_record.arguments["worker_dispatch"],
+            "forbidden_until_se3_approval",
+        )
+        self.assertEqual(queue_record.arguments["protocol_lane"], "http_request_smuggling_desync")
+        self.assertGreaterEqual(queue_record.arguments["step_count"], 8)
+        self.assertEqual(len(queue_record.arguments["protocol_plan_hash"]), 64)
+        self.assertNotIn("payload", queue_record.arguments)
+        self.assertNotIn("body", queue_record.arguments)
 
     def test_v3_family_rejects_unknown_scope_node(self) -> None:
         store = _Store()

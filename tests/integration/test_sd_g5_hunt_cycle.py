@@ -238,6 +238,13 @@ class SDG5HuntCycleIntegrationTests(unittest.TestCase):
             }
             <= names
         )
+        self.assertTrue(
+            {
+                "HTTP_REQUEST_SMUGGLING_DESYNC",
+                "HTTP_CACHE_POISONING_DECEPTION",
+            }
+            <= names
+        )
 
     def test_no_op_cycle_when_graph_is_empty(self) -> None:
         from research_os.research.discovery.graph import AttackSurfaceGraph

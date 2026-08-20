@@ -288,6 +288,44 @@ Current P3 slice:
 - P3 evidence (2026-08-20): `11 passed` focused, `29 passed` affected, and
   `1492 passed, 9 skipped, 53 subtests passed` full suite.
 
+## SD-G13 — Protocol/Parser Specialist
+
+### Scope
+
+SD-G13 starts the protocol/parser specialist lane after the broad injection
+wave. This is attack-period SD-G13, not old infrastructure `GATE 13`
+operational readiness.
+
+Current P1 slice:
+
+- Protocol families now cover HTTP request smuggling/desync and HTTP cache
+  poisoning/deception.
+- These families require `protocol_surface_signals` on the AttackSurfaceGraph
+  node before they create coverage debt or hypotheses.
+- `build_protocol_parser_plan` creates deterministic `protocol.parser.v1`
+  plans with required surface signals, dimensions, controls, bounded steps, and
+  SHA-256 plan hashes.
+- V3 admission queues `protocol.parser` / `plan` records only; no payload/body
+  content is stored.
+- Protocol parser queue records are side-effect level 3 and require SE3 before
+  Worker dispatch.
+
+Current P2 slice:
+
+- `ApproveHuntV3Queue` moves V3 queue records to `APPROVED` only when a recorded
+  human approval exists for `hunt-v3-queue:<queue_id>`.
+- SE3 protocol parser queue records missing `approval_required=SE3` remain
+  pending even if an approval record exists.
+- Approval decisions are audited and do not dispatch Workers.
+
+### Runbook
+
+- SD-G13 status is `PASS`.
+- P1 evidence (2026-08-20): `39 passed` focused and `50 passed` affected.
+- P2 evidence (2026-08-20): `6 passed` focused with PostgreSQL integration.
+- Seal evidence (2026-08-20): `74 passed` affected and
+  `1507 passed, 9 skipped, 53 subtests passed` full suite.
+
 ## SD-G7 — ImpactGraph
 
 ### Scope

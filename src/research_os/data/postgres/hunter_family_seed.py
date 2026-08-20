@@ -242,4 +242,92 @@ SEED_FAMILIES = [
         "enabled": True,
         "version": 1,
     },
+    {
+        "family_id": "hf-http-smuggling-desync",
+        "name": "HTTP_REQUEST_SMUGGLING_DESYNC",
+        "target_node_kinds": ["HTTP_OPERATION", "SERVICE", "TECH"],
+        "preconditions": {
+            "scope_classification": "IN_SCOPE",
+            "required_attribute_any": {
+                "protocol_surface_signals": [
+                    "reverse_proxy",
+                    "http2",
+                    "h2c_upgrade",
+                    "connection_reuse",
+                    "front_backend_split",
+                ],
+            },
+        },
+        "claim_template": (
+            "Protocol surface {canonical_key} has parser-boundary evidence "
+            "supporting request-smuggling/desync specialist planning."
+        ),
+        "evidence_requirements": {
+            "protocol_lane": "http_request_smuggling_desync",
+            "required_surface_signals": [
+                "reverse_proxy",
+                "http2",
+                "h2c_upgrade",
+                "connection_reuse",
+                "front_backend_split",
+            ],
+            "required_controls": [
+                "single_parser_control",
+                "connection_close_control",
+                "deceptive_proxy_control",
+            ],
+            "required_protocol_dimensions": [
+                "frontend_protocol",
+                "backend_protocol",
+                "normalization_boundary",
+            ],
+        },
+        "validation_tier": "V3",
+        "enabled": True,
+        "version": 1,
+    },
+    {
+        "family_id": "hf-cache-poison-deception",
+        "name": "HTTP_CACHE_POISONING_DECEPTION",
+        "target_node_kinds": ["HTTP_OPERATION", "ORIGIN", "SERVICE", "TECH"],
+        "preconditions": {
+            "scope_classification": "IN_SCOPE",
+            "required_attribute_any": {
+                "protocol_surface_signals": [
+                    "cdn",
+                    "edge_cache",
+                    "reverse_proxy",
+                    "cache_header",
+                    "vary_header",
+                ],
+            },
+        },
+        "claim_template": (
+            "Cache/proxy surface {canonical_key} has normalization evidence "
+            "supporting cache poisoning/deception specialist planning."
+        ),
+        "evidence_requirements": {
+            "protocol_lane": "http_cache_poisoning_deception",
+            "required_surface_signals": [
+                "cdn",
+                "edge_cache",
+                "reverse_proxy",
+                "cache_header",
+                "vary_header",
+            ],
+            "required_controls": [
+                "non_cacheable_control",
+                "vary_control",
+                "deceptive_cache_control",
+            ],
+            "required_protocol_dimensions": [
+                "cache_key_dimension",
+                "cache_behavior",
+                "proxy_layer",
+            ],
+        },
+        "validation_tier": "V3",
+        "enabled": True,
+        "version": 1,
+    },
 ]

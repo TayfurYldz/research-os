@@ -162,6 +162,38 @@ class FamilyResolverTests(unittest.TestCase):
         node = _node(node_id="n1", kind=AttackSurfaceNodeKind.HOSTNAME, canonical_key="example.com")
         self.assertEqual(families_for_node(node, _graph(node), (family,)), ())
 
+    def test_required_attribute_any_precondition_requires_matching_signal(self) -> None:
+        family = HunterFamilyView(
+            family_id="hf-protocol",
+            name="HTTP_REQUEST_SMUGGLING_DESYNC",
+            target_node_kinds=("HTTP_OPERATION",),
+            preconditions={
+                "required_attribute_any": {
+                    "protocol_surface_signals": ["reverse_proxy", "http2"],
+                },
+            },
+            claim_template="protocol {canonical_key}",
+            evidence_requirements={},
+            validation_tier="V3",
+            enabled=True,
+            version=1,
+        )
+        matching = _node(
+            node_id="op-1",
+            kind=AttackSurfaceNodeKind.HTTP_OPERATION,
+            canonical_key="op:1",
+            attributes={"protocol_surface_signals": ["cdn", "reverse_proxy"]},
+        )
+        missing = _node(
+            node_id="op-2",
+            kind=AttackSurfaceNodeKind.HTTP_OPERATION,
+            canonical_key="op:2",
+            attributes={"protocol_surface_signals": ["cdn"]},
+        )
+
+        self.assertEqual(families_for_node(matching, _graph(matching), (family,)), (family,))
+        self.assertEqual(families_for_node(missing, _graph(missing), (family,)), ())
+
     def test_multiple_families_can_match(self) -> None:
         f1 = HunterFamilyView(
             family_id="hf-a",
