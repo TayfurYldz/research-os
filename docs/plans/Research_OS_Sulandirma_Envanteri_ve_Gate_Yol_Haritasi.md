@@ -5,6 +5,23 @@
 **Doğrulama:** Her madde bu oturumda master @ GATE 22 kodundan dosya:satır kanıtıyla yeniden doğrulanmıştır.
 **Amaç:** ChatGPT döneminin mimariye yerleştirdiği tüm zayıflatılmış düşünceleri bulmak, teşhis etmek ve her birini **güvenlik modelini koruyarak** zirveye taşımanın yolunu göstermek.
 
+**Reconcile durumu (2026-08-20):** Saldırı dönemi sulandırma cerrahisi
+SD-G1–SD-G16 hattında tamamlandı ve SD-G16 seal commit'i
+`113b99eb28dbf318dfeba67ee089aaa24885de31` olarak pushlandı. Son full QA:
+`1542 passed, 9 skipped, 53 subtests passed`.
+
+**Hüküm:** Bu envanterdeki ana söküm/yükseltme işleri `TAMAMLANDI`.
+Eski teşhis metinleri korunur; aşağıdaki `Durum` notları bugünkü gerçeği
+gösterir.
+
+**Ayrı yeni-faz / formal doğrulama bayrakları:** `LIVE_MODEL_VALIDATED=false`,
+`GATE_04B_STATUS=PENDING`, `GATE_21_STATUS=PENDING`,
+`SECURITY_RESEARCH_VALIDATED=false`, `PRODUCTION_READY=false` ve
+`SUBSCRIPTION_OAUTH_STATUS=NOT_IMPLEMENTED` hâlâ doğrudur. Bunlar sulandırma
+cerrahisinin eksik işi değil; canlı model kalibrasyonu, formal Chromium/cgroup
+seal, saha-validasyon ve production-readiness fazına taşınmış bağımsız
+formalitelerdir.
+
 ---
 
 ## 0. Teşhis felsefesi: "korunacak öz" / "sökülecek zayıflık" ayrımı
@@ -137,6 +154,11 @@ Madde numaralandırması kategorilidir: **A** = ağ kilitleri, **B** = scope eks
 ## F. MODEL/AI EKSİKLERİ
 
 - **F1. GATE 04B PENDING:** `maturity.py:72` — ≥2 BENCHMARK_COMPATIBLE canlı runtime ile karşılaştırmalı koşu hiç yapılmamış. LIVE_MODEL_VALIDATED=False. **Çözüm:** İki canlı runtime konfigürasyonu (ör. iki farklı CLI/API runtime), benchmark koşusu, `run_research_benchmark.py` ile. Bu, saldırı dönemi G4'ten **önce** kapatılmalı — avcı beyni canlı model olmadan kördür.
+  - **Durum (2026-08-20 reconcile):** `YENI_FAZ_FORMALITESI`. SD-G4
+    saldırı dönemi içinde model ekonomisi/routing/bütçe disiplinini kapattı;
+    model iddiaları SD-G16'da registry ve truth üretmekten kesin biçimde
+    ayrıldı. Ancak `LIVE_MODEL_VALIDATED=false` ve `GATE_04B_STATUS=PENDING`
+    hâlâ bilinçli olarak korunuyor; bu canlı-runtime kalibrasyon fazının işi.
 - **F2. Hunter rolü yok:** ModelRole (model_port.py:20) mevcut ama avcıya özgü rol/şema seti (hipotez üretimi, kanıt değerlendirme, zincir muhakemesi) tanımlı değil. **G4.**
 - **F3. MCP bağlantıları yok:** Dış araç/bilgi kaynaklarına MCP üzerinden erişim yok. Sensor Plane protokolü (Dikiş 7) bunun doğal yuvası. **G2.**
 
@@ -152,7 +174,13 @@ Madde numaralandırması kategorilidir: **A** = ağ kilitleri, **B** = scope eks
 ## H. KAYIT EKSİKLERİ
 
 - **H1.** `maturity.py`'de GATE_21 ve GATE_22 sabitleri **yok** (Kimi sınavında G21'i yakaladı; G22'yi ben ekledim). OPERATIONS.md'de PASS yazıyor ama maturity bayrağı tanımsız.
+  - **Durum (2026-08-20 reconcile):** `TAMAMLANDI`. `maturity.py` artık
+    `GATE_21_STATUS="PENDING"` ve `GATE_22_STATUS="PASS"` sabitlerini ve
+    `maturity_mapping()` girdilerini içeriyor.
 - **H2.** `maturity.py` docstring'i G20'de bitiyor — G21/G22 açıklamaları eklenmemiş.
+  - **Durum (2026-08-20 reconcile):** `TAMAMLANDI`. `maturity.py`
+    docstring'i G21 ve G22 ayrımını içeriyor; G21 formal PASS bekliyor, G22
+    PASS.
 - **Çözüm:** Her yeni gate ile maturity sabiti + docstring paragrafı aynı commit'te gelir; kapanış standardının parçası yapıldı (Ana Plan §3 değişmezleri).
 
 ---
@@ -205,27 +233,32 @@ Bunlar sulandırılmamış, tam tersine zirvede inşa edilmiş; saldırı dönem
 ## L. CERRAHİ SIRALAMA — tek bakışta
 
 ```
-G1  : A1, A2, A3(registry), B1, B2, B3, D1, D2, H1, H2    → kilit açılımı
-      + scope TTL (bayat kayıt → REQUIRE_HUMAN_REVIEW)
-      + platform API scope senkronu (HackerOne/Bugcrowd)
-G2  : I1, I5, I6, I7(kısım), E4, F3                       → dış algı
-G3  : I1'in grafik yansıması                              → yüzey modeli
-G4  : C1, C2, C3(iskelet), D3, D4, D5, F1, F2, E2, E3     → beyin kilidi kırma
-G5  : D6, D8, G(minimal CLI), I7(kısım)                   → authorization avcısı
-G6  : C4, C5 + rate_limit_profile zorlama testi           → saldırı kasları
-G7  : D7                                                  → workflow avcısı
-G8  : I2, I3, I4                                          → API/object avcısı
-G9  : E1                                                  → ilk enjeksiyon seti
-G10 : J1 + saha devre kesicisi (aile throttle)            → validator + severity
-G11 : C6 + adım-bazlı onay kanıtı                         → zincirleme
-G12 : I9 (AI/LLM kendi HunterFamily'si)                   → geniş enjeksiyon
-G13 : —                                                   → protokol uzmanı
-G14 : J2, J3, I8 + dış duplicate sinyali                  → ekonomi
-G15 : I10, J4, G(tam CLI) + recall konsolidasyonu         → sürekli av + ölçüm
-G16 : keşifsel hipotez üreteci (registry-dışı avcılık)    → yaratıcılık organı
+G1  [TAMAMLANDI] : A1, A2, A3(registry), B1, B2, B3, D1, D2, H1, H2    → kilit açılımı
+                   + scope TTL (bayat kayıt → REQUIRE_HUMAN_REVIEW)
+                   + platform API scope senkronu (HackerOne/Bugcrowd)
+G2  [TAMAMLANDI] : I1, I5, I6, I7(kısım), E4, F3                       → dış algı
+G3  [TAMAMLANDI] : I1'in grafik yansıması                              → yüzey modeli
+G4  [TAMAMLANDI] : C1, C2, C3(iskelet), D3, D4, D5, F1, F2, E2, E3     → beyin kilidi kırma
+G5  [TAMAMLANDI] : D6, D8, G(minimal CLI), I7(kısım)                   → authorization avcısı
+G6  [TAMAMLANDI] : C4, C5 + rate_limit_profile zorlama testi           → saldırı kasları
+G7  [TAMAMLANDI] : D7                                                  → workflow avcısı
+G8  [TAMAMLANDI] : I2, I3, I4                                          → API/object avcısı
+G9  [TAMAMLANDI] : E1                                                  → ilk enjeksiyon seti
+G10 [TAMAMLANDI] : J1 + saha devre kesicisi (aile throttle)            → validator + severity
+G11 [TAMAMLANDI] : C6 + adım-bazlı onay kanıtı                         → zincirleme
+G12 [TAMAMLANDI] : I9 (AI/LLM kendi HunterFamily'si)                   → geniş enjeksiyon
+G13 [TAMAMLANDI] : —                                                   → protokol uzmanı
+G14 [TAMAMLANDI] : J2, J3, I8 + dış duplicate sinyali                  → ekonomi
+G15 [TAMAMLANDI] : I10, J4, G(tam CLI) + recall konsolidasyonu         → sürekli av + ölçüm
+G16 [TAMAMLANDI] : keşifsel hipotez üreteci (registry-dışı avcılık)    → yaratıcılık organı
 ```
 
 **Revizyon notu (2026-08-18, ikinci tur):** Claude'un 7 maddesinden 6'sı tamamen, 1'i (AI/LLM) güçlendirilerek kabul edildi; Bölüm B'deki "kayıtlı olmayan şeyi bulamama" yapısal teşhisi G16 olarak plana girdi. Recall kanıtı artık G15'i beklemez — her aile kendi gate'inde kanıtlar.
+
+**Kapanış notu (2026-08-20):** Bu yol haritası SD-G16 ile kapandı. Sulandırma
+cerrahisinin açık operasyonel maddesi kalmadı. Bundan sonraki açık bayraklar
+canlı model doğrulama, production readiness, saha-validasyon ve legacy formal
+browser/cgroup seal konularıdır; bunlar yeni faz olarak ele alınmalıdır.
 
 Her maddenin cerrahisi, Ana Plan'daki dikiş haritasındaki kenetlenme protokolüyle mühürlenir: fixture üçlüsü, `false_finding=0`, taze-oturum yeniden-üretim, 912+285 testin tamamı yeşil, Kali doğrulaması, maturity güncellemesi.
 
