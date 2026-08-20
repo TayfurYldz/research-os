@@ -76,6 +76,7 @@ from research_os.security_benchmark.scenarios import SecurityGroundTruthScenario
 from research_os.security_benchmark.scorecard import ObservedScenarioResult
 from research_os.security_benchmark.types import ExpectedSecurityClass
 from support.recording_worker import RecordingWorkerPort
+from support.sd_g10_validator import seed_validator_pass
 
 GATE16_HUMAN = "gate16-human-reviewer"
 
@@ -322,6 +323,18 @@ def run_scenario(factory, scenario: SecurityGroundTruthScenario) -> ObservedScen
             return _snapshot(
                 factory, scenario, prefix, worker, lab, False, False
             )
+        with factory.open() as uow:
+            candidate = uow.candidates.get(proposed.candidate_id)
+            assert candidate is not None
+            seed_validator_pass(
+                uow,
+                research_run_id=candidate.research_run_id,
+                hypothesis_id=candidate.hypothesis_id,
+                created_at=NOW,
+                family_id="hf-state-transition",
+                marker=proposed.candidate_id,
+            )
+            uow.commit()
         submitted = SubmitFindingProposal(factory, clock=FixedClock()).execute(
             SubmitFindingProposalCommand(candidate_id=proposed.candidate_id)
         )

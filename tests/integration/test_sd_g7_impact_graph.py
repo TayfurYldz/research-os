@@ -41,6 +41,7 @@ from research_os.application.submit_finding_proposal import (
 from research_os.data.postgres.engine import create_sync_engine
 from research_os.data.postgres.unit_of_work import PostgresUnitOfWork
 from research_os.data.records import (
+    AuditEventRecord,
     CandidateAdmissionRecord,
     CandidateRecord,
     EvidenceAdmissionRecord,
@@ -192,6 +193,30 @@ def _seed_candidate(uow: PostgresUnitOfWork) -> None:
     )
 
 
+def _seed_validator_pass(uow: PostgresUnitOfWork) -> None:
+    for tier in ("V1", "V2", "V3"):
+        uow.audit_events.insert(
+            AuditEventRecord(
+                audit_event_id=f"audit-{tier.lower()}-pass",
+                occurred_at=NOW,
+                actor_id="control-plane:hunt-validation",
+                actor_type="CONTROL_PLANE",
+                event_type="HUNT_TIER_DECISION",
+                subject_type="hypothesis",
+                subject_id="hyp-1",
+                correlation_id="run-1",
+                payload={
+                    "research_run_id": "run-1",
+                    "family_id": "hf-object-authz",
+                    "tier": tier,
+                    "outcome": "PASSED",
+                    "reason_code": f"{tier}_PASSED",
+                    "node_canonical_key": "origin:https://example.com|path:/api/accounts|method:GET",
+                },
+            )
+        )
+
+
 def _impact_node(proof_refs: tuple[str, ...], kind: ImpactKind) -> ImpactNode:
     return ImpactNode(
         node_id="n1",
@@ -262,6 +287,7 @@ class SDG7ImpactGraphIntegrationTests(unittest.TestCase):
         register = RegisterImpactChain(uow_factory, clock=FixedClock())
         chain = _impact_chain()
         with uow_factory.open() as uow:
+            _seed_validator_pass(uow)
             resolver = UnitOfWorkProofResolver(uow)
             register.execute(
                 RegisterImpactChainCommand(
@@ -292,6 +318,7 @@ class SDG7ImpactGraphIntegrationTests(unittest.TestCase):
         submit = SubmitFindingProposal(uow_factory, clock=FixedClock())
 
         with uow_factory.open() as uow:
+            _seed_validator_pass(uow)
             resolver = UnitOfWorkProofResolver(uow)
             register.execute(
                 RegisterImpactChainCommand(
@@ -318,9 +345,48 @@ class SDG7ImpactGraphIntegrationTests(unittest.TestCase):
         self.assertIsNotNone(proposal)
         self.assertEqual(proposal.impact_chain_ids, ("chain-1",))
 
+    def test_submit_finding_proposal_rejects_missing_validator_pass(self) -> None:
+        uow_factory = PostgresUnitOfWorkFactory(self.engine)
+        submit = SubmitFindingProposal(uow_factory, clock=FixedClock())
+
+        result = submit.execute(
+            SubmitFindingProposalCommand(
+                candidate_id="cand-1",
+                draft=FindingProposalDraft(
+                    proposal_id="fp-no-validator",
+                    candidate_id="cand-1",
+                    research_run_id="run-1",
+                    title=HTTP_AUTHORIZATION_DIFFERENTIAL_FINDING_TITLE,
+                    claim=HTTP_AUTHORIZATION_DIFFERENTIAL_CANDIDATE_CLAIM,
+                    evidence_ids=("ev-1",),
+                    verification_ids=("ver-1",),
+                    rationale={
+                        "reason_code": "AUTHORIZED_LOCAL_LAB_PROPOSAL",
+                        "not_a_finding": True,
+                    },
+                    provenance={"source": "test"},
+                ),
+            )
+        )
+
+        self.assertEqual(result.proposal_id, None)
+        self.assertEqual(result.reason_codes, ("V1_MISSING", "V2_MISSING", "V3_MISSING"))
+        with PostgresUnitOfWork(self.engine) as uow:
+            proposals = uow.finding_proposals.list_for_research_run("run-1")
+            events = uow.audit_events.list_for_subject_type("candidate")
+            uow.rollback()
+        self.assertEqual(proposals, [])
+        self.assertTrue(
+            any(event.event_type == "FINDING_PROPOSAL_VALIDATION_REJECTED" for event in events)
+        )
+
     def test_submit_finding_proposal_rejects_missing_chain(self) -> None:
         uow_factory = PostgresUnitOfWorkFactory(self.engine)
         submit = SubmitFindingProposal(uow_factory, clock=FixedClock())
+
+        with uow_factory.open() as uow:
+            _seed_validator_pass(uow)
+            uow.commit()
 
         with self.assertRaises(ApplicationError) as ctx:
             submit.execute(
@@ -338,6 +404,7 @@ class SDG7ImpactGraphIntegrationTests(unittest.TestCase):
 
         chain = _impact_chain(ImpactKind.DATA_WRITE)
         with uow_factory.open() as uow:
+            _seed_validator_pass(uow)
             resolver = UnitOfWorkProofResolver(uow)
             register.execute(
                 RegisterImpactChainCommand(
@@ -383,6 +450,7 @@ class SDG7ImpactGraphIntegrationTests(unittest.TestCase):
         submit = SubmitFindingProposal(uow_factory, clock=FixedClock())
 
         with uow_factory.open() as uow:
+            _seed_validator_pass(uow)
             resolver = UnitOfWorkProofResolver(uow)
             register.execute(
                 RegisterImpactChainCommand(

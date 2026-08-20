@@ -49,6 +49,17 @@ Add a validator use case that reads append-only tier/audit/proof state and emits
 durable validator decisions. FindingProposal admission must reject candidates
 without required validator PASS.
 
+Evidence:
+
+- `SubmitFindingProposal` now requires security candidates to have append-only
+  validator tier PASS evidence through the required tier before a
+  FindingProposal can be created.
+- Diagnostic candidates remain exempt because they do not represent a security
+  finding.
+- Missing V3 evidence and `V3_QUEUED` fail closed with
+  `REJECTED_VALIDATION_NOT_PASSED` and an audit event.
+- Full suite evidence (2026-08-20): `1465 passed, 9 skipped, 53 subtests passed`.
+
 ## P3 — Persistence
 
 Add append-only validator/severity/circuit-breaker records if application

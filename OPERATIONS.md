@@ -153,6 +153,15 @@ SD-G10 starts the attack-period validation/economy layer after HunterScore:
   ```
 - P1 evidence (2026-08-20): `1461 passed, 9 skipped, 53 subtests passed` via
   full `pytest`; Alembic deprecation warnings removed with `path_separator = os`.
+- P2 application integration evidence (2026-08-20):
+  - `SubmitFindingProposal` rejects security candidates without append-only
+    validator tier PASS evidence through V3.
+  - Diagnostic-only proposals stay exempt from the security validator gate.
+  - Rejections write `FINDING_PROPOSAL_VALIDATION_REJECTED` audit events and
+    return `REJECTED_VALIDATION_NOT_PASSED`.
+  - Focused checks: `131 passed` for Gate14-Gate17 e2e, `31 passed` for
+    SD-G10 finding-admission unit/integration coverage.
+  - Full suite: `1465 passed, 9 skipped, 53 subtests passed`.
 
 ## SD-G7 — ImpactGraph
 

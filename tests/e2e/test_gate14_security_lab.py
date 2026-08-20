@@ -109,6 +109,7 @@ from research_os.research.finding_proposal import (
 from research_os.research.planning import plan_authorization_differential
 from research_os.research.verification import VerificationOutcome
 from support.recording_worker import RecordingWorkerPort, invocation_outcome
+from support.sd_g10_validator import seed_validator_pass
 
 TEST_URL = os.environ.get(TEST_DATABASE_URL_ENV)
 if TEST_URL:
@@ -398,6 +399,16 @@ class Gate14SecurityLabE2ETests(unittest.TestCase):
         )
         self.assertEqual(completed.outcome, VerificationOutcome.VALIDATED)
         self.assertEqual(completed.state, CandidateState.VALIDATED)
+        with factory.open() as uow:
+            candidate = uow.candidates.get(candidate_id)
+            assert candidate is not None
+            seed_validator_pass(
+                uow,
+                research_run_id=candidate.research_run_id,
+                hypothesis_id=candidate.hypothesis_id,
+                created_at=NOW,
+            )
+            uow.commit()
         return completed.verification_id
 
     def test_01_vulnerable_lab_completes_http_security_probe(self) -> None:

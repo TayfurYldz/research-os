@@ -17,7 +17,12 @@ from research_os.application.ports import Clock, SystemClock, UnitOfWorkFactory
 from research_os.core.enums import ActorType
 from research_os.data.records import AuditEventRecord, FindingProposalRecord
 from research_os.data.unit_of_work import UnitOfWork
-from research_os.research.candidate import CandidateState
+from research_os.research.candidate import (
+    DIAGNOSTIC_CANDIDATE_CLASSIFICATION,
+    HTTP_AUTHORIZATION_DIFFERENTIAL_CLASSIFICATION,
+    HTTP_STATE_TRANSITION_CLASSIFICATION,
+    CandidateState,
+)
 from research_os.research.impact.capability_map import validate_chain_impact_scope
 from research_os.research.impact.validator import validate_chain
 from research_os.research.finding_proposal import (
@@ -30,6 +35,18 @@ from research_os.research.finding_proposal import (
     propose_diagnostic_finding_proposal,
     propose_state_transition_finding_proposal,
 )
+from research_os.research.validation.tier_gate import (
+    ValidationTier,
+    ValidationTierOutcome,
+    validate_required_tiers,
+)
+
+
+FINDING_VALIDATION_REJECTED = "FINDING_PROPOSAL_VALIDATION_REJECTED"
+SECURITY_CANDIDATE_REQUIRED_TIER = {
+    HTTP_AUTHORIZATION_DIFFERENTIAL_CLASSIFICATION: ValidationTier.V3,
+    HTTP_STATE_TRANSITION_CLASSIFICATION: ValidationTier.V3,
+}
 
 
 @dataclass(frozen=True)
@@ -97,6 +114,37 @@ class SubmitFindingProposal:
             proposal_id = draft.proposal_id if decision.creates_proposal else None
             if proposal_id is not None:
                 assert decision.initial_state is FindingProposalState.PROPOSED
+                validation = _validate_security_candidate_tiers(uow, candidate)
+                if validation is not None and not validation.admitted:
+                    uow.audit_events.insert(
+                        AuditEventRecord(
+                            audit_event_id=new_opaque_id(),
+                            occurred_at=self._clock.now(),
+                            actor_id=self._actor_id,
+                            actor_type=ActorType.CONTROL_PLANE.value,
+                            event_type=FINDING_VALIDATION_REJECTED,
+                            subject_type="candidate",
+                            subject_id=candidate.candidate_id,
+                            correlation_id=candidate.research_run_id,
+                            payload={
+                                "hypothesis_id": candidate.hypothesis_id,
+                                "classification": candidate.classification,
+                                "outcome": validation.outcome.value,
+                                "reason_codes": list(validation.reason_codes),
+                                "required_tiers": [
+                                    item.value for item in validation.required_tiers
+                                ],
+                                "not_a_finding": True,
+                            },
+                        )
+                    )
+                    uow.commit()
+                    return SubmitFindingProposalResult(
+                        outcome=FindingProposalAdmissionOutcome.REJECTED_VALIDATION_NOT_PASSED,
+                        proposal_id=None,
+                        state=None,
+                        reason_codes=validation.reason_codes,
+                    )
                 impact_chain_ids = _validate_impact_claims(
                     uow, draft, draft.research_run_id
                 )
@@ -170,3 +218,40 @@ def _validate_impact_claims(
             )
         chain_ids.append(claim.chain_id)
     return tuple(chain_ids)
+
+
+def _validate_security_candidate_tiers(uow: UnitOfWork, candidate):
+    if candidate.classification == DIAGNOSTIC_CANDIDATE_CLASSIFICATION:
+        return None
+    required_tier = SECURITY_CANDIDATE_REQUIRED_TIER.get(candidate.classification)
+    if required_tier is None:
+        return validate_required_tiers(ValidationTier.V3, {})
+
+    observed = _latest_tier_outcomes(
+        uow,
+        research_run_id=candidate.research_run_id,
+        hypothesis_id=candidate.hypothesis_id,
+    )
+    return validate_required_tiers(required_tier, observed)
+
+
+def _latest_tier_outcomes(
+    uow: UnitOfWork,
+    *,
+    research_run_id: str,
+    hypothesis_id: str,
+) -> dict[ValidationTier, ValidationTierOutcome]:
+    events = [
+        event
+        for event in uow.audit_events.list_for_subject_type("hypothesis")
+        if event.subject_id == hypothesis_id
+        and event.correlation_id == research_run_id
+        and event.payload.get("tier") in {"V1", "V2", "V3"}
+        and event.payload.get("outcome") in {"PASSED", "REJECTED", "INCONCLUSIVE", "QUEUED"}
+    ]
+    latest: dict[ValidationTier, ValidationTierOutcome] = {}
+    for event in sorted(events, key=lambda item: (item.occurred_at, item.audit_event_id)):
+        latest[ValidationTier(str(event.payload["tier"]))] = ValidationTierOutcome(
+            str(event.payload["outcome"])
+        )
+    return latest

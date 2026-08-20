@@ -88,6 +88,7 @@ from research_os.research.selection import (
 from research_os.security_benchmark.scenarios import SecurityGroundTruthScenario
 from research_os.security_benchmark.scorecard import ObservedScenarioResult
 from support.recording_worker import RecordingWorkerPort
+from support.sd_g10_validator import seed_validator_pass
 
 GATE17_HUMAN = "gate17-human-reviewer"
 MODEL_MODULE_MARKERS = (
@@ -383,6 +384,23 @@ def _promote_supported(
         )
         if completed.state != CandidateState.VALIDATED:
             continue
+        with factory.open() as uow:
+            candidate = uow.candidates.get(proposed.candidate_id)
+            assert candidate is not None
+            family = family_for_claim(hypothesis.claim)
+            seed_validator_pass(
+                uow,
+                research_run_id=candidate.research_run_id,
+                hypothesis_id=candidate.hypothesis_id,
+                created_at=clock.now(),
+                family_id=(
+                    "hf-object-authz"
+                    if family is HypothesisFamily.OBJECT_AUTHORIZATION
+                    else "hf-state-transition"
+                ),
+                marker=proposed.candidate_id,
+            )
+            uow.commit()
         submitted = SubmitFindingProposal(factory, clock=clock).execute(
             SubmitFindingProposalCommand(candidate_id=proposed.candidate_id)
         )
