@@ -30,6 +30,10 @@ from research_os.application.executor_replay_manifest import (
     BuildExecutorReplayManifest,
     BuildExecutorReplayManifestCommand,
 )
+from research_os.application.executor_replay_bundle import (
+    BuildExecutorReplayBundle,
+    BuildExecutorReplayBundleCommand,
+)
 from research_os.application.execute_planned_experiment import (
     ExecutePlannedExperiment,
     ExecutePlannedExperimentCommand,
@@ -180,6 +184,26 @@ class Gate19HttpTransactionTests(unittest.TestCase):
         self.assertEqual(manifest.manifest["attempts"][0]["worker_result"]["status"], "SUCCEEDED")
         self.assertNotIn("cookie", str(manifest.manifest).lower())
         self.assertNotIn("password", str(manifest.manifest).lower())
+
+        bundle = BuildExecutorReplayBundle(factory).execute(
+            BuildExecutorReplayBundleCommand("exp-1")
+        )
+        repeated_bundle = BuildExecutorReplayBundle(factory).execute(
+            BuildExecutorReplayBundleCommand("exp-1")
+        )
+        self.assertEqual(bundle.bundle_hash, repeated_bundle.bundle_hash)
+        self.assertEqual(bundle.manifest_hash, manifest.manifest_hash)
+        self.assertEqual(bundle.replay_class, "DETERMINISTIC_REPLAY")
+        self.assertEqual(bundle.bundle["request_template"]["template_state"], "PLAN_BOUND")
+        self.assertEqual(
+            bundle.bundle["request_template"]["capability_definition_fingerprint"],
+            capability.definition_fingerprint,
+        )
+        self.assertFalse(bundle.bundle["replay_controls"]["auto_redispatch_allowed"])
+        self.assertTrue(bundle.bundle["replay_controls"]["requires_core_authorization"])
+        self.assertTrue(bundle.bundle["replay_controls"]["requires_redirect_reauthorization"])
+        self.assertNotIn("cookie", str(bundle.bundle).lower())
+        self.assertNotIn("password", str(bundle.bundle).lower())
 
     def test_out_of_scope_origin_denied(self) -> None:
         factory = PostgresUnitOfWorkFactory(self.engine)

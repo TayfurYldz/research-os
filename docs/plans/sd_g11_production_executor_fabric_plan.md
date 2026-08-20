@@ -63,6 +63,31 @@ Add controlled artifact bundle assembly after the manifest model is stable:
 request templates, response digests, screenshot/trace descriptors where present,
 and privacy-preserving redaction metadata.
 
+Files:
+
+- `src/research_os/application/executor_replay_bundle.py`
+
+Behavior:
+
+- wraps the replay manifest with a deterministic replay bundle and bundle hash;
+- reads the durable ExperimentPlan as a request-template fingerprint without
+  exposing raw arguments;
+- emits response digests from WorkerResult rows without response bodies,
+  diagnostics, or control-signal content;
+- keeps screenshot/trace/response artifact presence visible while storing
+  artifact descriptors only as digests;
+- sets replay controls to fail closed: no automatic redispatch, Core
+  authorization required, redirect reauthorization required, and human review
+  required for high side-effect replay classes.
+
+Evidence:
+
+- Unit: deterministic bundle hash, secret-free output, missing plan explicit,
+  and high side-effect bundles requiring human review.
+- PostgreSQL: G19 authorized HTTP execution now proves manifest + replay bundle
+  generation from the same persisted ledger rows.
+- Focused checks (2026-08-20): `9 passed`.
+
 ## P3 — Production Executor Vertical Slice
 
 Extend the manifest contract to HTTPS/browser/API workers with secure,

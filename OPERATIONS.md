@@ -196,12 +196,28 @@ Current P1 slice:
 - Browser and stateful side-effect outputs are not treated as deterministic
   replay.
 
+Current P2 slice:
+
+- `BuildExecutorReplayBundle` wraps the replay manifest with a deterministic
+  bundle hash.
+- Durable ExperimentPlan rows are represented as request-template fingerprints;
+  raw arguments are not copied into the bundle.
+- WorkerResult response bodies, diagnostics, control signals, and artifact
+  descriptors are represented by digests only.
+- Screenshot/trace/response artifact presence is retained through descriptor
+  kind + digest metadata.
+- Replay controls fail closed: no automatic redispatch, Core authorization
+  required, redirect reauthorization required, and human review required for
+  high side-effect replay classes.
+
 ### Runbook
 
 - SD-G11 status remains `PENDING`.
 - G21 remains `PENDING`; local Chromium browser checks passed, but cgroup
   containment skipped without delegation and required mode fails closed.
 - P1 evidence (2026-08-20): `6 passed` for replay manifest unit coverage plus
+  PostgreSQL G19 ledger integration.
+- P2 evidence (2026-08-20): `9 passed` for replay manifest, replay bundle, and
   PostgreSQL G19 ledger integration.
 - Affected checks (2026-08-20): `35 passed, 5 skipped`.
 - Full suite (2026-08-20): `1474 passed, 9 skipped, 53 subtests passed`.
