@@ -258,11 +258,22 @@ Current P1 slice:
   readiness; active V3 execution/admission mapping is scheduled for a later
   SD-G12 slice.
 
+Current P2 slice:
+
+- `build_mutation_matrix` creates deterministic matrix plans from HunterFamily
+  evidence requirements.
+- Matrices enforce a 30-cell minimum, bounded maximum, explicit controls, and
+  fail-closed unknown dimensions.
+- Matrix planning does not create payload bodies, WorkerRequests, Evidence,
+  Candidates, or Findings.
+
 ### Runbook
 
 - SD-G12 status remains `PENDING`.
 - P1 evidence (2026-08-20): `4 passed` focused, `39 passed` affected, and
   `1488 passed, 9 skipped, 53 subtests passed` full suite.
+- P2 evidence (2026-08-20): `4 passed` focused, `46 passed` affected, and
+  `1492 passed, 9 skipped, 53 subtests passed` full suite.
 
 ## SD-G7 — ImpactGraph
 

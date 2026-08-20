@@ -1,6 +1,6 @@
 # SD-G12 Plan — Broad Injection Wave
 
-**Status:** PENDING — P1 implemented; wider QA and seal pending
+**Status:** PENDING — P1/P2 implemented; seal pending
 **Previous gate:** SD-G11 PASS (`39313ac`)
 **Do not confuse with:** old infrastructure `GATE 12` or old `GATE 13`.
 
@@ -57,3 +57,28 @@ Evidence:
 - Focused checks (2026-08-20): `4 passed`.
 - Affected checks (2026-08-20): `39 passed`.
 - Full suite (2026-08-20): `1488 passed, 9 skipped, 53 subtests passed`.
+
+## P2 — Bounded Mutation Matrix Planning
+
+Files:
+
+- `src/research_os/research/mutation/matrix.py`
+- `tests/unit/research/test_sd_g12_mutation_matrix.py`
+
+Behavior:
+
+- builds deterministic, hash-addressed matrix plans from HunterFamily evidence
+  requirements;
+- enforces a 30-cell minimum so P1 surfaces cannot be marked exhausted after a
+  shallow probe;
+- caps generated cells to a bounded maximum and does not emit payload bodies,
+  WorkerRequests, Evidence, Candidates, or Findings;
+- preserves family-specific controls such as secure/deceptive/read-back,
+  metamorphic variants, and tool-denial controls;
+- fails closed on unknown matrix dimensions or too-small caps.
+
+Evidence:
+
+- Focused checks (2026-08-20): `4 passed`.
+- Affected checks (2026-08-20): `46 passed`.
+- Full suite (2026-08-20): `1492 passed, 9 skipped, 53 subtests passed`.

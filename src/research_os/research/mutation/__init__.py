@@ -15,6 +15,11 @@ from research_os.research.mutation.families import (
     TypeJugglingFamily,
 )
 from research_os.research.mutation.intent import mutation_variant_to_intent
+from research_os.research.mutation.matrix import (
+    MutationMatrixCell,
+    MutationMatrixPlan,
+    build_mutation_matrix,
+)
 from research_os.research.mutation.types import MutationFamily, MutationRule, MutationVariant
 
 __all__ = [
@@ -31,4 +36,7 @@ __all__ = [
     "ContentTypeConfusionFamily",
     "IdOrTraversalCandidateFamily",
     "mutation_variant_to_intent",
+    "MutationMatrixCell",
+    "MutationMatrixPlan",
+    "build_mutation_matrix",
 ]
