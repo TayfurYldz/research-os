@@ -11,6 +11,7 @@ from research_os.maturity import (
     GATE_01_STATUS,
     GATE_04B_STATUS,
     GATE_09_STATUS,
+    GATE_10_STATUS,
     GATE_12_STATUS,
     GATE_13_STATUS,
     GATE_14_STATUS,
@@ -42,6 +43,7 @@ class Gate14MaturityTests(unittest.TestCase):
         self.assertEqual(GATE_22_STATUS, "PASS")
         self.assertEqual(GATE_01_STATUS, "PASS")
         self.assertEqual(GATE_09_STATUS, "PASS")
+        self.assertEqual(GATE_10_STATUS, "PENDING")
         self.assertEqual(GATE_12_STATUS, "PASS")
         self.assertEqual(GATE_13_STATUS, "PASS")
         self.assertEqual(GATE_04B_STATUS, "PENDING")
@@ -60,6 +62,7 @@ class Gate14MaturityTests(unittest.TestCase):
         self.assertEqual(mapping["GATE_21"], "PENDING")
         self.assertEqual(mapping["GATE_22"], "PASS")
         self.assertEqual(mapping["GATE_09"], "PASS")
+        self.assertEqual(mapping["GATE_10"], "PENDING")
         self.assertEqual(mapping["GATE_04B"], "PENDING")
         self.assertIs(mapping["LIVE_MODEL_VALIDATED"], False)
         self.assertIs(mapping["SECURITY_RESEARCH_VALIDATED"], False)
@@ -80,6 +83,7 @@ class Gate14MaturityTests(unittest.TestCase):
             )
         )
         self.assertIn("GATE 01:", text)
+        self.assertIn("GATE 10:", text)
         self.assertIn("GATE 14:", text)
         self.assertIn("GATE 15:", text)
         self.assertIn("GATE 16:", text)
@@ -90,6 +94,7 @@ class Gate14MaturityTests(unittest.TestCase):
         self.assertIn("GATE 21:", text)
         self.assertIn("GATE 22:", text)
         self.assertIn(f"  {GATE_01_STATUS}", text)
+        self.assertIn(f"  {GATE_10_STATUS}", text)
         self.assertIn(f"  {GATE_14_STATUS}", text)
         self.assertIn(f"  {GATE_15_STATUS}", text)
         self.assertIn(f"  {GATE_16_STATUS}", text)
@@ -113,6 +118,7 @@ class Gate14MaturityTests(unittest.TestCase):
         self.assertEqual(GATE_22_STATUS, "PASS")
         self.assertEqual(GATE_01_STATUS, "PASS")
         self.assertEqual(GATE_09_STATUS, "PASS")
+        self.assertEqual(GATE_10_STATUS, "PENDING")
         self.assertFalse(SECURITY_RESEARCH_VALIDATED)
         self.assertFalse(PRODUCTION_READY)
         self.assertFalse(LIVE_MODEL_VALIDATED)

@@ -185,6 +185,18 @@ GATE 09 does not prove autonomous vulnerability discovery, active probing
 execution, live internet reconnaissance, bug-bounty performance, or production
 readiness.
 
+GATE 10 PENDING means the Attack Period Independent Validator, Severity Engine,
+and Circuit Breaker (SD-G10) is under construction. SD-G10 is not the old
+infrastructure GATE 10 (Runtime / Strix Boundary Integrity). The SD-G10
+validator rejects admission when required V1/V2/V3 tiers are missing or not
+passed; V3 QUEUED is not a validator PASS. The severity engine is downstream of
+validation and scope, maps internal P0-P3 to platform-style Bugcrowd/HackerOne
+labels, and must not leak severity/confidence/finding language into Hypothesis,
+Observation, Evidence, Candidate, or early FindingProposal records. The family
+circuit breaker uses append-only telemetry to throttle noisy families without
+disabling or deleting them. GATE 10 does not prove live internet reconnaissance,
+production executor depth, bug-bounty performance, or production readiness.
+
 GATE 07 PASS means the Attack Period ImpactGraph (SD-G7) is sealed at a1d8e39 +
 seal commit; independent architect audit: 1100 unit+contract passed;
 ImpactGraph chains proof-backed, cross-run locked, impact kinds bounded by
@@ -224,6 +236,7 @@ GATE_06_STATUS = "PASS"
 GATE_07_STATUS = "PASS"
 GATE_08_STATUS = "PASS"
 GATE_09_STATUS = "PASS"
+GATE_10_STATUS = "PENDING"
 GATE_12_STATUS = "PASS"
 GATE_13_STATUS = "PASS"
 GATE_14_STATUS = "PASS"
@@ -256,6 +269,7 @@ def maturity_mapping() -> dict[str, object]:
         "GATE_07": GATE_07_STATUS,
         "GATE_08": GATE_08_STATUS,
         "GATE_09": GATE_09_STATUS,
+        "GATE_10": GATE_10_STATUS,
         "GATE_12": GATE_12_STATUS,
         "GATE_13": GATE_13_STATUS,
         "GATE_14": GATE_14_STATUS,

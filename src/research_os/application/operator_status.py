@@ -10,6 +10,7 @@ from research_os.maturity import (
     DIAGNOSTIC_E2E_VALIDATED,
     GATE_01_STATUS,
     GATE_04B_STATUS,
+    GATE_10_STATUS,
     GATE_14_STATUS,
     GATE_15_STATUS,
     GATE_16_STATUS,
@@ -38,6 +39,7 @@ class OperatorStatusSnapshot:
     observability: str
     gate_01: str = GATE_01_STATUS
     gate_04b: str = GATE_04B_STATUS
+    gate_10: str = GATE_10_STATUS
     gate_14: str = GATE_14_STATUS
     gate_15: str = GATE_15_STATUS
     gate_16: str = GATE_16_STATUS
@@ -121,6 +123,8 @@ def render_operator_status(snapshot: OperatorStatusSnapshot) -> str:
             f"  {snapshot.gate_01}",
             "GATE 04B:",
             f"  {snapshot.gate_04b}",
+            "GATE 10:",
+            f"  {snapshot.gate_10}",
             "GATE 14:",
             f"  {snapshot.gate_14}",
             "GATE 15:",

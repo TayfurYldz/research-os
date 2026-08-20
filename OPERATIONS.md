@@ -127,6 +127,33 @@ priority queue so the operator can see what the system would hunt next:
   python -m pytest -q
   ```
 
+## SD-G10 — Independent Validator + Severity Engine + Circuit Breaker
+
+### Scope
+
+SD-G10 starts the attack-period validation/economy layer after HunterScore:
+
+- **Independent validator**: required V1/V2/V3 tiers must pass before downstream
+  admission. Missing tiers fail closed. `V3_QUEUED` is not a validator PASS.
+- **Severity engine**: severity is downstream of validator PASS and IN_SCOPE
+  status. It maps internal `P0`-`P3` to platform-style Bugcrowd/HackerOne
+  labels, but does not write severity into Hypothesis, Observation, Evidence,
+  Candidate, or early FindingProposal rationale.
+- **Family circuit breaker**: rejected/inconclusive telemetry can throttle a
+  family, but the breaker must never disable or delete a family.
+
+### Runbook
+
+- `GATE_10_STATUS = "PENDING"`.
+- SD-G10 is not old infrastructure `GATE 10 — Runtime / Strix Boundary
+  Integrity`.
+- Current P1 domain tests:
+  ```bash
+  python -m pytest tests/unit/research/validation tests/unit/test_maturity.py -q
+  ```
+- P1 evidence (2026-08-20): `1461 passed, 9 skipped, 53 subtests passed` via
+  full `pytest`; Alembic deprecation warnings removed with `path_separator = os`.
+
 ## SD-G7 — ImpactGraph
 
 ### Scope
