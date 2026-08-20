@@ -414,6 +414,48 @@ Current P2 slice:
 - Affected evidence (2026-08-20): `44 passed`.
 - Seal evidence (2026-08-20): `1534 passed, 9 skipped, 53 subtests passed`.
 
+## SD-G16 — Exploratory Hypothesis Generator
+
+### Scope
+
+SD-G16 adds a registry-external exploratory lane. It can draft a new
+human-reviewable family idea when sourced anomaly signals do not map to enabled
+`HunterFamily` rows, but it cannot admit that family into the registry and it
+cannot promote the idea into Evidence, Candidate, Finding, or ImpactGraph state.
+
+- **Exploratory domain** (`research_os.research.exploratory`):
+  `ExploratorySignal`, `ExploratoryHypothesisDraft`, and
+  `draft_registry_external_hypothesis`.
+- **Application use case** (`DraftExploratoryHypothesis`): loads the enabled
+  registry read-only, persists one `HypothesisRecord`, and writes an
+  `EXPLORATORY_HYPOTHESIS_DRAFTED` audit event.
+- **Human approval boundary**: every draft carries
+  `requires_human_family_approval=true` and
+  `may_write_hunter_registry=false`; registry mutation remains a separate
+  operator-approved workflow.
+
+### Validation Boundaries
+
+- Every generated draft starts at `HYPOTHESIZED`.
+- Required gates are fixed as `HYPOTHESIZED`, `V1`, `V2`, `V3`, and
+  `FALSE_FINDING_ZERO`.
+- Model novelty claims such as `N4_ZERO_DAY` are retained only as advisory
+  metadata; the normalized `novelty_basis` remains `UNCLASSIFIED`.
+- Direct vulnerability/exploit/evidence/finding truth claims are rejected at the
+  research-domain boundary.
+- The use case does not create HunterFamily, Evidence, Candidate,
+  FindingProposal, HumanReview, Approval, Finding, ImpactGraph, or V3 queue
+  state.
+
+### Runbook
+
+- SD-G16 status is `PASS`.
+- Focused evidence (2026-08-20): `8 passed`.
+- Affected evidence (2026-08-20): `84 passed`.
+- Seal evidence (2026-08-20): `1542 passed, 9 skipped, 53 subtests passed`.
+- PostgreSQL availability remains a QA requirement for full sealing; missing
+  PostgreSQL is SKIP/PENDING evidence, not PASS evidence.
+
 ## SD-G7 — ImpactGraph
 
 ### Scope
