@@ -821,7 +821,7 @@ class Gate14SecurityLabE2ETests(unittest.TestCase):
         assert self.engine is not None
         with self.engine.connect() as connection:
             version = connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one()
-        self.assertEqual(version, "a33_001_hypothesis_identity")
+        self.assertEqual(version, "a34_001_program_platforms")
 
 
 if __name__ == "__main__":

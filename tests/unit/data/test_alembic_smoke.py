@@ -39,6 +39,7 @@ A28_MIGRATION = ALEMBIC_VERSIONS / "a28_001_token_economy.py"
 A29_MIGRATION = ALEMBIC_VERSIONS / "a29_001_hunter_family_registry.py"
 A32_MIGRATION = ALEMBIC_VERSIONS / "a32_001_coverage_debt_snapshot.py"
 A33_MIGRATION = ALEMBIC_VERSIONS / "a33_001_hypothesis_identity.py"
+A34_MIGRATION = ALEMBIC_VERSIONS / "a34_001_program_platforms.py"
 
 
 def _imported_modules(tree: ast.AST) -> set[str]:
@@ -456,6 +457,16 @@ class AlembicSmokeTests(unittest.TestCase):
         self.assertNotIn("create_all", source)
         a32 = A32_MIGRATION.read_text(encoding="utf-8")
         self.assertNotIn("identity_id", a32)
+
+    def test_a34_migration_extends_program_platforms(self) -> None:
+        source = A34_MIGRATION.read_text(encoding="utf-8")
+        self.assertIn("a34_001_program_platforms", source)
+        self.assertIn("a33_001_hypothesis_identity", source)
+        self.assertIn("ck_program_platform", source)
+        self.assertIn("yeswehack", source)
+        self.assertIn("intigriti", source)
+        self.assertIn("other", source)
+        self.assertNotIn("create_all", source)
 
 
 if __name__ == "__main__":

@@ -130,6 +130,9 @@ class PostgresUnitOfWork:
         self.hunt_v3_queue: PostgresHuntV3QueueRepository
         self.impact_chains: PostgresImpactChainRepository
 
+    def open(self) -> PostgresUnitOfWork:
+        return type(self)(self._engine)
+
     def __enter__(self) -> PostgresUnitOfWork:
         self._connection = self._engine.connect()
         self._transaction = self._connection.begin()

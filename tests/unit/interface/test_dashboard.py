@@ -53,6 +53,19 @@ class DashboardTests(unittest.TestCase):
                 }
             )
 
+    def test_bootstrap_payload_accepts_yeswehack_platform(self) -> None:
+        payload = _bootstrap_payload(
+            {
+                "program_name": "Authorized Test",
+                "platform": "yeswehack",
+                "target_reference": "local-target",
+                "authorization_reference": "auth-reference",
+                "in_scope": "example.test",
+            }
+        )
+
+        self.assertEqual(payload["platform"], "yeswehack")
+
     def test_scope_records_parse_exact_and_wildcard_hosts(self) -> None:
         now = datetime.now(timezone.utc)
         records = _scope_records(

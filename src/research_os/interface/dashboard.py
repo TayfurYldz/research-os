@@ -39,6 +39,10 @@ from research_os.data.postgres.unit_of_work import PostgresUnitOfWork
 from research_os.interface.cli import build_status_snapshot
 from research_os.safe_data import redact_secret_keys
 
+ALLOWED_PLATFORMS = frozenset(
+    {"manual", "yeswehack", "hackerone", "bugcrowd", "intigriti", "other"}
+)
+
 
 def collect_dashboard_payload(*, env: Mapping[str, str] | None = None) -> dict[str, Any]:
     source = dict(os.environ if env is None else env)
@@ -214,7 +218,7 @@ def _bootstrap_payload(payload: Mapping[str, Any]) -> dict[str, Any]:
     if not in_scope:
         raise ValueError("in_scope requires at least one scope entry")
     platform = _optional_text(payload, "platform") or "manual"
-    if platform not in {"manual", "hackerone", "bugcrowd", "intigriti", "other"}:
+    if platform not in ALLOWED_PLATFORMS:
         raise ValueError("platform is not supported")
     side_effect_ceiling = _non_negative_int(payload, "side_effect_ceiling", 0)
     if side_effect_ceiling not in {0, 1, 2, 3}:
@@ -1131,7 +1135,7 @@ HTML = r"""<!doctype html>
               <form id="setupForm">
                 <div class="setupGrid">
                   <div class="field"><label for="programName">Program</label><input id="programName" name="program_name" required autocomplete="off"></div>
-                  <div class="field"><label for="platform">Platform</label><select id="platform" name="platform"><option value="manual">Manual</option><option value="hackerone">HackerOne</option><option value="bugcrowd">Bugcrowd</option><option value="intigriti">Intigriti</option><option value="other">Other</option></select></div>
+                  <div class="field"><label for="platform">Platform</label><select id="platform" name="platform"><option value="manual">Manual</option><option value="yeswehack">YesWeHack</option><option value="hackerone">HackerOne</option><option value="bugcrowd">Bugcrowd</option><option value="intigriti">Intigriti</option><option value="other">Other</option></select></div>
                   <div class="field"><label for="programHandle">Handle</label><input id="programHandle" name="program_handle" autocomplete="off"></div>
                   <div class="field"><label for="operatorId">Operator ID</label><input id="operatorId" name="operator_id" autocomplete="off"></div>
                   <div class="field wide"><label for="targetReference">Target Reference</label><input id="targetReference" name="target_reference" required autocomplete="off"></div>
