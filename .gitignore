@@ -8,6 +8,7 @@ build/
 .mypy_cache/
 .ruff_cache/
 *.log
+.claude/agent-memory-local/
 var/benchmark-results/
 var/security-benchmark-results/
 *:Zone.Identifier
