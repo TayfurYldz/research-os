@@ -1634,12 +1634,23 @@ class _HuntV3QueueRepo(_Repo):
             key=lambda record: record.created_at,
         )
 
-    def set_state(self, queue_id: str, state: str) -> None:
+    def set_state(
+        self, queue_id: str, state: str, *, from_state: str | None = None
+    ) -> None:
         if state not in {"PENDING", "APPROVED", "RUN", "BLOCKED"}:
             raise PersistenceInputError("state is not a HuntV3Queue state")
+        if from_state is not None and from_state not in {
+            "PENDING",
+            "APPROVED",
+            "RUN",
+            "BLOCKED",
+        }:
+            raise PersistenceInputError("from_state is not a HuntV3Queue state")
         current = self.get(queue_id)
         if current is None:
             raise PersistenceError("hunt_v3_queue item not found for state update")
+        if from_state is not None and current.state != from_state:
+            raise PersistenceConflictError("hunt_v3_queue state transition conflict")
         self._store[queue_id] = HuntV3QueueRecord(
             queue_id=current.queue_id,
             research_run_id=current.research_run_id,

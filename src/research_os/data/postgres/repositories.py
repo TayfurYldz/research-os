@@ -2753,16 +2753,25 @@ class PostgresHuntV3QueueRepository:
             raise PersistenceError("persistence read failed") from exc
         return [map_row.hunt_v3_queue_from_row(row) for row in rows]
 
-    def set_state(self, queue_id: str, state: str) -> None:
+    def set_state(
+        self, queue_id: str, state: str, *, from_state: str | None = None
+    ) -> None:
         require_opaque_id(queue_id, "queue_id")
         if state not in self.ALLOWED_STATES:
             raise PersistenceInputError("state is not a HuntV3Queue state")
-        result = self._connection.execute(
+        if from_state is not None and from_state not in self.ALLOWED_STATES:
+            raise PersistenceInputError("from_state is not a HuntV3Queue state")
+        stmt = (
             update(tables.hunt_v3_queue)
             .where(tables.hunt_v3_queue.c.queue_id == queue_id)
             .values(state=state)
         )
+        if from_state is not None:
+            stmt = stmt.where(tables.hunt_v3_queue.c.state == from_state)
+        result = self._connection.execute(stmt)
         if result.rowcount != 1:
+            if from_state is not None:
+                raise PersistenceConflictError("hunt_v3_queue state transition conflict")
             raise PersistenceError("hunt_v3_queue item not found for state update")
 
 
