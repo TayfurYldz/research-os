@@ -2,13 +2,42 @@
 
 Research ranks experiments. Application coordinates. Core authorizes. Worker executes.
 Does not invoke a model. Does not create Findings.
+
+`RunResearchSelection` is a compatibility/delegation layer, not an independent
+orchestrator. It owns none of the `research_orchestration` row's lifecycle
+itself: every read/write of that row goes through one internally-held
+`AutonomousResearchController` (ARC), via `ARC.start()` / `ARC.resume()` /
+`ARC.run_managed_cycle()`. ARC remains the single component that decides and
+records the next research action for a `research_run_id`; this class only
+supplies ARC with a deterministic, non-model decision strategy (HTTP
+object-authorization / workflow-state-transition probing) for the one cycle
+ARC asks it to decide, and ARC dispatches the Worker through its own single
+`PreparePlannedExperiment` / `ExecutePlannedExperiment` /
+`EvaluateExperimentFeedback` instances -- never a second, independently
+constructed set.
+
+History: earlier revisions of this module directly `insert`/`save`d
+`ResearchOrchestrationRecord` rows and called `PreparePlannedExperiment` /
+`ExecutePlannedExperiment` through their own instances, making this a second,
+structurally independent scheduler alongside `AutonomousResearchController`
+(see `docs/plans/audit/SLICE_3_COMPLETION_RECORD.md`, "Second-scheduler
+remediation"). That duplicate authority has been removed; the deterministic
+selection *policy* (which experiment to run next for HTTP
+object-authorization / workflow-state-transition hypotheses) is unchanged and
+fully preserved below -- only WHERE it is recorded and WHO dispatches the
+Worker changed.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass, replace
-from typing import Any, Mapping
+from dataclasses import dataclass
+from typing import Any
 
+from research_os.application.autonomous_research_controller import (
+    AutonomousResearchController,
+    ManagedCycleOutcome,
+    StartAutonomousResearchCommand,
+)
 from research_os.application.errors import ApplicationError
 from research_os.application.evaluate_experiment_feedback import (
     EvaluateExperimentFeedback,
@@ -20,10 +49,6 @@ from research_os.application.execute_planned_experiment import (
     ResearchLoopStatus,
 )
 from research_os.application.identity import new_opaque_id
-from research_os.application.orchestration_config import (
-    fingerprint_for_start,
-    scope_fingerprint,
-)
 from research_os.application.plan_records import experiment_plan_from_record
 from research_os.application.ports import Clock, SystemClock, UnitOfWorkFactory
 from research_os.application.prepare_planned_experiment import (
@@ -36,12 +61,12 @@ from research_os.core.scope_compiler import ScopeRuleDefinition, compile_scope_r
 from research_os.data.records import (
     AuditEventRecord,
     HypothesisRecord,
-    ResearchCycleRecord,
     ResearchOpportunityRecord,
     ResearchOrchestrationRecord,
     ResearchSelectionRecord,
 )
 from research_os.platform.worker import WorkerPort
+from research_os.research.model_port import ModelCallRequest, ModelCallResult
 from research_os.research.exploration import (
     OpportunityDimensions,
     OrdinalLevel,
@@ -94,6 +119,24 @@ RESEARCH_SELECTION_QUESTION = (
 )
 
 
+class _NeverInvokedModelPort:
+    """Placeholder satisfying ARC's `model: ModelPort` constructor argument.
+
+    `RunResearchSelection` never lets ARC take its model-driven `step()` path
+    (it only ever drives ARC through `run_managed_cycle`, which does not touch
+    `self._model`); this exists solely so ARC's constructor is satisfied
+    without importing any real model/provider adapter. If `.complete()` is
+    ever actually called, that is a programming error, not a provider
+    condition.
+    """
+
+    def complete(self, request: ModelCallRequest) -> ModelCallResult:  # pragma: no cover
+        raise ApplicationError(
+            "RunResearchSelection is a deterministic, non-model selector; its "
+            "placeholder ModelPort must never be invoked"
+        )
+
+
 def _deny_scope() -> ScopeEvaluationInput:
     return ScopeEvaluationInput(
         matches=(
@@ -134,7 +177,13 @@ class ResearchSelectionStepResult:
 
 
 class RunResearchSelection:
-    """Closed-loop selector. Not a model runtime and not Finding authority."""
+    """Closed-loop selector. Not a model runtime and not Finding authority.
+
+    Delegation layer over `AutonomousResearchController`: see module
+    docstring. Public API is unchanged from the original independent
+    implementation so existing callers (`tests/e2e/gate17_harness.py`) do not
+    need to change.
+    """
 
     def __init__(
         self,
@@ -147,11 +196,13 @@ class RunResearchSelection:
         self._uow_factory = uow_factory
         self._clock = clock or SystemClock()
         self._actor_id = actor_id
-        self._prepare = PreparePlannedExperiment(uow_factory, clock=self._clock)
-        self._execute = ExecutePlannedExperiment(
-            uow_factory, worker, clock=self._clock, actor_id=actor_id
+        self._arc = AutonomousResearchController(
+            uow_factory,
+            worker,
+            _NeverInvokedModelPort(),
+            clock=self._clock,
+            actor_id=actor_id,
         )
-        self._evaluate = EvaluateExperimentFeedback(uow_factory, clock=self._clock)
         self._surfaces: dict[str, StartResearchSelectionCommand] = {}
 
     def start(self, command: StartResearchSelectionCommand) -> ResearchSelectionStepResult:
@@ -160,87 +211,107 @@ class RunResearchSelection:
         with self._uow_factory.open() as uow:
             run = uow.research_runs.get(command.research_run_id)
             if run is None:
+                uow.rollback()
                 raise ApplicationError("research run not found")
             existing = uow.research_orchestrations.get(command.research_run_id)
-            if existing is not None:
+            if existing is None:
+                hypotheses = uow.hypotheses.list_for_research_run(command.research_run_id)
+                if not hypotheses:
+                    for context in command.object_contexts:
+                        uow.hypotheses.insert(
+                            HypothesisRecord(
+                                hypothesis_id=new_opaque_id(),
+                                research_run_id=command.research_run_id,
+                                claim=HTTP_AUTHORIZATION_DIFFERENTIAL_CLAIM,
+                                origin_reference=object_origin_reference(context),
+                                created_at=now,
+                            )
+                        )
+                    for context in command.workflow_contexts:
+                        uow.hypotheses.insert(
+                            HypothesisRecord(
+                                hypothesis_id=new_opaque_id(),
+                                research_run_id=command.research_run_id,
+                                claim=HTTP_STATE_TRANSITION_CLAIM,
+                                origin_reference=workflow_origin_reference(context),
+                                created_at=now,
+                            )
+                        )
+                uow.commit()
+            else:
                 uow.rollback()
-                return self._result_from_orchestration(existing)
-            hypotheses = uow.hypotheses.list_for_research_run(command.research_run_id)
-            if not hypotheses:
-                for context in command.object_contexts:
-                    uow.hypotheses.insert(
-                        HypothesisRecord(
-                            hypothesis_id=new_opaque_id(),
-                            research_run_id=command.research_run_id,
-                            claim=HTTP_AUTHORIZATION_DIFFERENTIAL_CLAIM,
-                            origin_reference=object_origin_reference(context),
-                            created_at=now,
-                        )
-                    )
-                for context in command.workflow_contexts:
-                    uow.hypotheses.insert(
-                        HypothesisRecord(
-                            hypothesis_id=new_opaque_id(),
-                            research_run_id=command.research_run_id,
-                            claim=HTTP_STATE_TRANSITION_CLAIM,
-                            origin_reference=workflow_origin_reference(context),
-                            created_at=now,
-                        )
-                    )
-            zero = command.bounds.max_cycles == 0
-            scope_fp = scope_fingerprint(command.scope)
-            fingerprint = fingerprint_for_start(
-                research_run_id=command.research_run_id,
-                budget_id=command.budget_id,
-                target_reference=command.authorized_origin,
-                research_question=RESEARCH_SELECTION_QUESTION,
-                policy_version=ORCHESTRATION_POLICY_VERSION,
-                bounds=command.bounds,
-                routing_policy_version=None,
-                scope_fp=scope_fp,
-            )
-            record = ResearchOrchestrationRecord(
-                research_run_id=command.research_run_id,
-                state=(
-                    OrchestrationState.COMPLETED.value
-                    if zero
-                    else OrchestrationState.READY.value
-                ),
-                cycle_number=0,
-                last_phase="start",
-                last_opportunity_id=None,
-                last_hypothesis_id=None,
-                last_experiment_id=None,
-                pause_reason=None,
-                stop_reason=StopReason.MAX_CYCLES_REACHED.value if zero else None,
-                policy_version=ORCHESTRATION_POLICY_VERSION,
-                max_cycles=command.bounds.max_cycles,
-                max_experiments=command.bounds.max_experiments,
-                max_model_calls=command.bounds.max_model_calls,
-                max_worker_invocations=command.bounds.max_worker_invocations,
-                max_elapsed_ms=command.bounds.max_elapsed_ms,
-                max_selected_opportunities=command.bounds.max_selected_opportunities,
-                max_runtime_fallback=command.bounds.max_runtime_fallback,
-                side_effect_ceiling=command.bounds.side_effect_ceiling,
-                allow_repeated_control_experiments=(
-                    command.bounds.allow_repeated_control_experiments
-                ),
-                created_at=now,
-                updated_at=now,
-                checkpoint_at=now,
-                budget_id=command.budget_id,
-                target_reference=command.authorized_origin,
-                research_question=RESEARCH_SELECTION_QUESTION,
-                configuration_fingerprint=fingerprint,
-                current_phase=OrchestrationPhase.CYCLE_READY.value,
-                routing_policy_version=None,
-                scope_fingerprint=scope_fp,
-            )
-            uow.research_orchestrations.insert(record)
+        tick = self._arc.start(self._arc_command(command))
+        if existing is None:
+            self._record_started_audit(command)
+        return self._result_from_tick(tick)
+
+    def bind_surface(self, command: StartResearchSelectionCommand) -> None:
+        """Re-attach operator surface after process reconstruction. Does not mutate Core."""
+
+        self._surfaces[command.research_run_id] = command
+
+    def step(self, research_run_id: str) -> ResearchSelectionStepResult:
+        command = self._surfaces.get(research_run_id)
+        if command is None:
+            raise ApplicationError("research selection surface is not bound for this run")
+        extra: dict[str, Any] = {}
+
+        def _cycle(
+            current: ResearchOrchestrationRecord,
+            prepare: PreparePlannedExperiment,
+            execute: ExecutePlannedExperiment,
+            evaluate: EvaluateExperimentFeedback,
+        ) -> ManagedCycleOutcome:
+            return self._run_selection_cycle(command, current, prepare, execute, evaluate, extra)
+
+        tick = self._arc.run_managed_cycle(research_run_id, _cycle)
+        return self._result_from_tick(tick, **extra)
+
+    def resume(self, command: StartResearchSelectionCommand) -> ResearchSelectionStepResult:
+        self.bind_surface(command)
+        tick = self._arc.resume(command.research_run_id)
+        return self._result_from_tick(tick)
+
+    def run_bounded(
+        self, command: StartResearchSelectionCommand
+    ) -> ResearchSelectionStepResult:
+        started = self.start(command)
+        if started.state in {
+            OrchestrationState.COMPLETED.value,
+            OrchestrationState.BUDGET_EXHAUSTED.value,
+        }:
+            return started
+        result = started
+        for _ in range(command.bounds.max_cycles + 1):
+            result = self.step(command.research_run_id)
+            if result.state in {
+                OrchestrationState.COMPLETED.value,
+                OrchestrationState.BUDGET_EXHAUSTED.value,
+                OrchestrationState.PAUSED.value,
+                OrchestrationState.BLOCKED.value,
+                OrchestrationState.FAILED_OPERATIONAL.value,
+            }:
+                return result
+        return result
+
+    def _arc_command(
+        self, command: StartResearchSelectionCommand
+    ) -> StartAutonomousResearchCommand:
+        return StartAutonomousResearchCommand(
+            research_run_id=command.research_run_id,
+            budget_id=command.budget_id,
+            target_reference=command.authorized_origin,
+            scope=command.scope,
+            bounds=command.bounds,
+            research_question=RESEARCH_SELECTION_QUESTION,
+        )
+
+    def _record_started_audit(self, command: StartResearchSelectionCommand) -> None:
+        with self._uow_factory.open() as uow:
             uow.audit_events.insert(
                 AuditEventRecord(
                     audit_event_id=new_opaque_id(),
-                    occurred_at=now,
+                    occurred_at=self._clock.now(),
                     actor_id=self._actor_id,
                     actor_type=ActorType.CONTROL_PLANE.value,
                     event_type="RESEARCH_SELECTION_STARTED",
@@ -257,32 +328,18 @@ class RunResearchSelection:
                 )
             )
             uow.commit()
-            return self._result_from_orchestration(record)
 
-    def bind_surface(self, command: StartResearchSelectionCommand) -> None:
-        """Re-attach operator surface after process reconstruction. Does not mutate Core."""
-
-        self._surfaces[command.research_run_id] = command
-
-    def step(self, research_run_id: str) -> ResearchSelectionStepResult:
-        command = self._surfaces.get(research_run_id)
-        if command is None:
-            raise ApplicationError("research selection surface is not bound for this run")
+    def _run_selection_cycle(
+        self,
+        command: StartResearchSelectionCommand,
+        current: ResearchOrchestrationRecord,
+        prepare: PreparePlannedExperiment,
+        execute: ExecutePlannedExperiment,
+        evaluate: EvaluateExperimentFeedback,
+        extra: dict[str, Any],
+    ) -> ManagedCycleOutcome:
+        research_run_id = command.research_run_id
         with self._uow_factory.open() as uow:
-            orchestration = uow.research_orchestrations.get(research_run_id)
-            if orchestration is None:
-                raise ApplicationError("research orchestration not found")
-            if orchestration.state in {
-                OrchestrationState.COMPLETED.value,
-                OrchestrationState.BUDGET_EXHAUSTED.value,
-                OrchestrationState.FAILED_OPERATIONAL.value,
-                OrchestrationState.BLOCKED.value,
-            }:
-                uow.rollback()
-                return self._result_from_orchestration(orchestration)
-            if orchestration.state == OrchestrationState.PAUSED.value:
-                uow.rollback()
-                return self._result_from_orchestration(orchestration)
             hypotheses = uow.hypotheses.list_for_research_run(research_run_id)
             assessments = uow.hypothesis_assessments.list_for_research_run(research_run_id)
             experiments = uow.experiments.list_for_research_run(research_run_id)
@@ -290,7 +347,7 @@ class RunResearchSelection:
             opportunities = uow.research_opportunities.list_for_research_run(research_run_id)
             cycles = uow.research_cycles.list_for_research_run(research_run_id)
             usage = OrchestrationUsage(
-                cycles_completed=orchestration.cycle_number,
+                cycles_completed=current.cycle_number,
                 experiments_executed=len(
                     [
                         item
@@ -312,16 +369,16 @@ class RunResearchSelection:
                 runtime_fallbacks=0,
             )
             bounds = OrchestrationBounds(
-                max_cycles=orchestration.max_cycles,
-                max_experiments=orchestration.max_experiments,
-                max_model_calls=orchestration.max_model_calls,
-                max_worker_invocations=orchestration.max_worker_invocations,
-                max_elapsed_ms=orchestration.max_elapsed_ms,
-                max_selected_opportunities=orchestration.max_selected_opportunities,
-                max_runtime_fallback=orchestration.max_runtime_fallback,
-                side_effect_ceiling=orchestration.side_effect_ceiling,
+                max_cycles=current.max_cycles,
+                max_experiments=current.max_experiments,
+                max_model_calls=current.max_model_calls,
+                max_worker_invocations=current.max_worker_invocations,
+                max_elapsed_ms=current.max_elapsed_ms,
+                max_selected_opportunities=current.max_selected_opportunities,
+                max_runtime_fallback=current.max_runtime_fallback,
+                side_effect_ceiling=current.side_effect_ceiling,
                 allow_repeated_control_experiments=(
-                    orchestration.allow_repeated_control_experiments
+                    current.allow_repeated_control_experiments
                 ),
             )
             bound = check_orchestration_bounds(bounds, usage)
@@ -370,9 +427,6 @@ class RunResearchSelection:
             budget_exhausted = (
                 not bound.allowed and bound.stop_reason is StopReason.BUDGET_EXHAUSTED
             )
-            max_cycles = (
-                not bound.allowed and bound.stop_reason is StopReason.MAX_CYCLES_REACHED
-            )
             stop = None
             if not bound.allowed:
                 stop = (
@@ -389,54 +443,36 @@ class RunResearchSelection:
                     operational=False,
                 )
             now = self._clock.now()
-            cycle_number = orchestration.cycle_number + 1
+            cycle_number = current.cycle_number + 1
             if stop is not None:
-                state = (
-                    OrchestrationState.BUDGET_EXHAUSTED.value
-                    if stop is ResearchStopReason.BUDGET_EXHAUSTED
-                    else OrchestrationState.COMPLETED.value
-                )
-                updated = replace(
-                    orchestration,
-                    state=state,
-                    cycle_number=orchestration.cycle_number,
-                    last_phase=OrchestrationPhase.CYCLE_COMPLETE.value,
-                    current_phase=OrchestrationPhase.CYCLE_COMPLETE.value,
-                    stop_reason=stop.value,
-                    updated_at=now,
-                    checkpoint_at=now,
-                )
-                uow.research_orchestrations.save(updated)
-                uow.research_cycles.insert(
-                    ResearchCycleRecord(
-                        cycle_id=new_opaque_id(),
-                        research_run_id=research_run_id,
-                        cycle_number=cycle_number,
-                        phase_completed=OrchestrationPhase.CYCLE_COMPLETE.value,
-                        outcome=CycleOutcome.COMPLETE.value,
-                        created_at=now,
-                        stop_reason=stop.value,
-                    )
-                )
                 self._persist_decisions(uow, research_run_id, decisions, now)
-                uow.audit_events.insert(
-                    self._trace_audit(
-                        research_run_id=research_run_id,
-                        cycle_number=cycle_number,
-                        portfolio=portfolio,
-                        decisions=decisions,
-                        selected=None,
-                        core_decision=None,
-                        stop_reason=stop.value,
-                        budget_before=bounds.max_experiments - usage.experiments_executed,
-                        budget_after=bounds.max_experiments - usage.experiments_executed,
-                        now=now,
-                    )
+                trace = self._trace_audit(
+                    research_run_id=research_run_id,
+                    cycle_number=cycle_number,
+                    portfolio=portfolio,
+                    decisions=decisions,
+                    selected=None,
+                    core_decision=None,
+                    stop_reason=stop.value,
+                    budget_before=bounds.max_experiments - usage.experiments_executed,
+                    budget_after=bounds.max_experiments - usage.experiments_executed,
+                    now=now,
                 )
                 uow.commit()
-                return self._result_from_orchestration(
-                    updated,
-                    options_considered=len(decisions),
+                extra["options_considered"] = len(decisions)
+                state = (
+                    OrchestrationState.BUDGET_EXHAUSTED
+                    if stop is ResearchStopReason.BUDGET_EXHAUSTED
+                    else OrchestrationState.COMPLETED
+                )
+                return ManagedCycleOutcome(
+                    outcome=CycleOutcome.COMPLETE,
+                    phase_label=OrchestrationPhase.CYCLE_COMPLETE.value,
+                    state=state,
+                    stop_reason_value=stop.value,
+                    increment_cycle=True,
+                    current_phase=OrchestrationPhase.CYCLE_COMPLETE,
+                    extra_audit_events=(trace,),
                 )
             assert selected is not None
             option = selected.option
@@ -445,7 +481,7 @@ class RunResearchSelection:
 
         experiment_id = new_opaque_id()
         plan = plan_from_option(option, budget_id=command.budget_id)
-        self._prepare.execute(
+        prepare.execute(
             PreparePlannedExperimentCommand(
                 experiment_id=experiment_id,
                 research_run_id=research_run_id,
@@ -473,7 +509,7 @@ class RunResearchSelection:
                 ),
             )
         )
-        executed = self._execute.execute(
+        executed = execute.execute(
             ExecutePlannedExperimentCommand(
                 experiment_id=experiment_id,
                 plan=plan,
@@ -484,7 +520,7 @@ class RunResearchSelection:
         assessment_id = None
         observation_ids = executed.observation_ids
         if executed.status is ResearchLoopStatus.OBSERVATION_PRODUCED:
-            feedback = self._evaluate.execute(
+            feedback = evaluate.execute(
                 EvaluateExperimentFeedbackCommand(experiment_id=experiment_id)
             )
             assessment_id = feedback.assessment_id
@@ -493,135 +529,59 @@ class RunResearchSelection:
             # Core denied. Do not mutate scope. Record and continue next step.
             pass
 
-        with self._uow_factory.open() as uow:
-            orchestration = uow.research_orchestrations.get(research_run_id)
-            if orchestration is None:
-                raise ApplicationError("research orchestration not found")
-            now = self._clock.now()
-            pause = (
-                command.pause_after_cycles is not None
-                and cycle_number >= command.pause_after_cycles
-            )
-            state = OrchestrationState.PAUSED.value if pause else OrchestrationState.RUNNING.value
-            stop_reason = ResearchStopReason.OPERATOR_PAUSED.value if pause else None
-            updated = replace(
-                orchestration,
-                state=state,
-                cycle_number=cycle_number,
-                last_phase=OrchestrationPhase.ASSESSMENT_COMPLETE.value,
-                current_phase=OrchestrationPhase.ASSESSMENT_COMPLETE.value,
-                last_opportunity_id=option.option_id,
-                last_hypothesis_id=option.hypothesis_id,
-                last_experiment_id=experiment_id,
-                last_observation_id=observation_ids[0] if observation_ids else None,
-                last_assessment_id=assessment_id,
-                pause_reason=stop_reason,
-                stop_reason=stop_reason,
-                updated_at=now,
-                checkpoint_at=now,
-            )
-            uow.research_orchestrations.save(updated)
-            uow.research_cycles.insert(
-                ResearchCycleRecord(
-                    cycle_id=new_opaque_id(),
-                    research_run_id=research_run_id,
-                    cycle_number=cycle_number,
-                    phase_completed=OrchestrationPhase.ASSESSMENT_COMPLETE.value,
-                    outcome=(
-                        CycleOutcome.PAUSE.value if pause else CycleOutcome.CONTINUE.value
-                    ),
-                    created_at=now,
-                    stop_reason=stop_reason,
-                    opportunity_id=option.option_id,
-                    hypothesis_id=option.hypothesis_id,
-                    experiment_id=experiment_id,
-                )
-            )
-            uow.audit_events.insert(
-                self._trace_audit(
-                    research_run_id=research_run_id,
-                    cycle_number=cycle_number,
-                    portfolio=portfolio,
-                    decisions=decisions,
-                    selected=option,
-                    core_decision=executed.core_decision.value
-                    if executed.core_decision is not None
-                    else executed.status.value,
-                    stop_reason=stop_reason,
-                    budget_before=command.bounds.max_experiments - usage.experiments_executed,
-                    budget_after=command.bounds.max_experiments
-                    - usage.experiments_executed
-                    - (1 if executed.status is ResearchLoopStatus.OBSERVATION_PRODUCED else 0),
-                    now=now,
-                    experiment_id=experiment_id,
-                    assessment_id=assessment_id,
-                    observation_ids=observation_ids,
-                )
-            )
-            uow.commit()
-            return ResearchSelectionStepResult(
-                research_run_id=research_run_id,
-                state=updated.state,
-                cycle_number=updated.cycle_number,
-                outcome=CycleOutcome.PAUSE.value if pause else CycleOutcome.CONTINUE.value,
-                stop_reason=stop_reason,
-                selected_purpose=option.purpose.value,
-                experiment_id=experiment_id,
-                hypothesis_id=option.hypothesis_id,
-                observation_ids=observation_ids,
-                assessment_id=assessment_id,
-                core_decision=(
-                    executed.core_decision.value
-                    if executed.core_decision is not None
-                    else executed.status.value
-                ),
-                options_considered=len(decisions),
-                selection_reason_codes=selected.reason_codes,
-            )
+        pause = (
+            command.pause_after_cycles is not None
+            and cycle_number >= command.pause_after_cycles
+        )
+        stop_reason_value = ResearchStopReason.OPERATOR_PAUSED.value if pause else None
+        core_decision = (
+            executed.core_decision.value
+            if executed.core_decision is not None
+            else executed.status.value
+        )
+        # Reuses the same pre-execution `portfolio`/`decisions` snapshot the
+        # decision uow above already computed and persisted -- this is a pure
+        # audit-trail projection, not a second read of authoritative state.
+        trace = self._trace_audit(
+            research_run_id=research_run_id,
+            cycle_number=cycle_number,
+            portfolio=portfolio,
+            decisions=decisions,
+            selected=option,
+            core_decision=core_decision,
+            stop_reason=stop_reason_value,
+            budget_before=command.bounds.max_experiments - usage.experiments_executed,
+            budget_after=command.bounds.max_experiments
+            - usage.experiments_executed
+            - (1 if executed.status is ResearchLoopStatus.OBSERVATION_PRODUCED else 0),
+            now=self._clock.now(),
+            experiment_id=experiment_id,
+            assessment_id=assessment_id,
+            observation_ids=observation_ids,
+        )
 
-    def resume(self, command: StartResearchSelectionCommand) -> ResearchSelectionStepResult:
-        self.bind_surface(command)
-        with self._uow_factory.open() as uow:
-            orchestration = uow.research_orchestrations.get(command.research_run_id)
-            if orchestration is None:
-                raise ApplicationError("research orchestration not found")
-            if orchestration.state == OrchestrationState.PAUSED.value:
-                now = self._clock.now()
-                updated = replace(
-                    orchestration,
-                    state=OrchestrationState.RUNNING.value,
-                    pause_reason=None,
-                    stop_reason=None,
-                    updated_at=now,
-                    checkpoint_at=now,
-                )
-                uow.research_orchestrations.save(updated)
-                uow.commit()
-                return self._result_from_orchestration(updated)
-            uow.rollback()
-            return self._result_from_orchestration(orchestration)
+        extra["options_considered"] = len(decisions)
+        extra["selected_purpose"] = option.purpose.value
+        extra["observation_ids"] = observation_ids
+        extra["assessment_id"] = assessment_id
+        extra["core_decision"] = core_decision
+        extra["selection_reason_codes"] = selected.reason_codes
 
-    def run_bounded(
-        self, command: StartResearchSelectionCommand
-    ) -> ResearchSelectionStepResult:
-        started = self.start(command)
-        if started.state in {
-            OrchestrationState.COMPLETED.value,
-            OrchestrationState.BUDGET_EXHAUSTED.value,
-        }:
-            return started
-        result = started
-        for _ in range(command.bounds.max_cycles + 1):
-            result = self.step(command.research_run_id)
-            if result.state in {
-                OrchestrationState.COMPLETED.value,
-                OrchestrationState.BUDGET_EXHAUSTED.value,
-                OrchestrationState.PAUSED.value,
-                OrchestrationState.BLOCKED.value,
-                OrchestrationState.FAILED_OPERATIONAL.value,
-            }:
-                return result
-        return result
+        return ManagedCycleOutcome(
+            outcome=CycleOutcome.PAUSE if pause else CycleOutcome.CONTINUE,
+            phase_label=OrchestrationPhase.ASSESSMENT_COMPLETE.value,
+            state=OrchestrationState.PAUSED if pause else OrchestrationState.RUNNING,
+            stop_reason_value=stop_reason_value,
+            hypothesis_id=option.hypothesis_id,
+            experiment_id=experiment_id,
+            opportunity_id=option.option_id,
+            observation_id=observation_ids[0] if observation_ids else None,
+            assessment_id=assessment_id,
+            pause_reason=stop_reason_value,
+            increment_cycle=True,
+            current_phase=OrchestrationPhase.ASSESSMENT_COMPLETE,
+            extra_audit_events=(trace,),
+        )
 
     def _portfolio(
         self,
@@ -839,26 +799,31 @@ class RunResearchSelection:
             },
         )
 
-    def _result_from_orchestration(
+    def _result_from_tick(
         self,
-        record: ResearchOrchestrationRecord,
+        tick,
         *,
+        selected_purpose: str | None = None,
+        observation_ids: tuple[str, ...] = (),
+        assessment_id: str | None = None,
+        core_decision: str | None = None,
         options_considered: int = 0,
+        selection_reason_codes: tuple[str, ...] = (),
     ) -> ResearchSelectionStepResult:
         return ResearchSelectionStepResult(
-            research_run_id=record.research_run_id,
-            state=record.state,
-            cycle_number=record.cycle_number,
-            outcome=record.state,
-            stop_reason=record.stop_reason,
-            selected_purpose=None,
-            experiment_id=record.last_experiment_id,
-            hypothesis_id=record.last_hypothesis_id,
-            observation_ids=(),
-            assessment_id=record.last_assessment_id,
-            core_decision=None,
+            research_run_id=tick.research_run_id,
+            state=tick.state,
+            cycle_number=tick.cycle_number,
+            outcome=tick.outcome,
+            stop_reason=tick.stop_reason,
+            selected_purpose=selected_purpose,
+            experiment_id=tick.experiment_id,
+            hypothesis_id=tick.hypothesis_id,
+            observation_ids=observation_ids,
+            assessment_id=assessment_id,
+            core_decision=core_decision,
             options_considered=options_considered,
-            selection_reason_codes=(),
+            selection_reason_codes=selection_reason_codes,
         )
 
 

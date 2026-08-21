@@ -6,6 +6,7 @@ or Research-domain admission semantics. Autonomous != unbounded.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass, replace
 from datetime import datetime
 
@@ -102,6 +103,11 @@ DIAGNOSTIC_RESEARCH_QUESTION = (
     "Does the diagnostic capability return the submitted value?"
 )
 
+# Sentinel distinguishing "caller did not specify this field, carry the
+# persisted value forward unchanged" from "caller explicitly wants this field
+# set to None". Plain `None` cannot mean both without ambiguity.
+_UNSET = object()
+
 
 @dataclass(frozen=True)
 class StartAutonomousResearchCommand:
@@ -127,6 +133,43 @@ class OrchestrationTickResult:
     last_phase: str
     hypothesis_id: str | None = None
     experiment_id: str | None = None
+
+
+@dataclass(frozen=True)
+class ManagedCycleOutcome:
+    """What a `run_managed_cycle` strategy decided. Not itself a persisted write.
+
+    Lets a non-model, deterministic selection strategy (e.g. HTTP
+    object-authorization / workflow-state-transition probing) report the
+    result of one cycle without touching `research_orchestration` itself.
+    `AutonomousResearchController.run_managed_cycle` is the only writer of
+    that row; this is its input, not an alternate write path.
+    """
+
+    outcome: CycleOutcome
+    phase_label: str
+    state: OrchestrationState | None = None
+    stop_reason_value: str | None = None
+    hypothesis_id: str | None = None
+    experiment_id: str | None = None
+    opportunity_id: str | None = None
+    observation_id: str | None = None
+    assessment_id: str | None = None
+    pause_reason: str | None = None
+    increment_cycle: bool = False
+    current_phase: OrchestrationPhase | None = None
+    extra_audit_events: tuple[AuditEventRecord, ...] = ()
+
+
+ManagedCycleFn = Callable[
+    [
+        ResearchOrchestrationRecord,
+        PreparePlannedExperiment,
+        ExecutePlannedExperiment,
+        EvaluateExperimentFeedback,
+    ],
+    ManagedCycleOutcome,
+]
 
 
 class AutonomousResearchController:
@@ -638,6 +681,55 @@ class AutonomousResearchController:
                 return last
         return last
 
+    def run_managed_cycle(
+        self, research_run_id: str, cycle_fn: ManagedCycleFn
+    ) -> OrchestrationTickResult:
+        """Run one cycle of a caller-supplied, non-model decision strategy.
+
+        This is the delegation seam for selection strategies that cannot use
+        the model-driven `step()` path (e.g. a deterministic HTTP
+        object-authorization / workflow-state-transition prober) but must
+        still not become a second component that independently owns
+        `research_orchestration` progression or independently dispatches a
+        Worker. `cycle_fn` only receives this controller's own single
+        `PreparePlannedExperiment` / `ExecutePlannedExperiment` /
+        `EvaluateExperimentFeedback` instances -- the same ones `step()`
+        uses -- so there is exactly one Worker dispatch path regardless of
+        which strategy decided to use it. `cycle_fn`'s returned
+        `ManagedCycleOutcome` is persisted through the same terminal-state
+        guard and cycle bookkeeping (`_complete_cycle`) as `step()`, so this
+        controller remains the sole writer of the orchestration row.
+        """
+        current = self._reload(research_run_id)
+        if current.state in {
+            OrchestrationState.COMPLETED.value,
+            OrchestrationState.BUDGET_EXHAUSTED.value,
+            OrchestrationState.FAILED_OPERATIONAL.value,
+            OrchestrationState.BLOCKED.value,
+            OrchestrationState.WAITING_HUMAN.value,
+            OrchestrationState.PAUSED.value,
+        }:
+            return _result_from_record(current, CycleOutcome.CONTINUE)
+        if self._unknown_open(research_run_id):
+            return self._stop(current, StopReason.OPERATIONAL_FAILURE, "unknown_outcome")
+        result = cycle_fn(current, self._prepare, self._execute, self._evaluate)
+        return self._complete_cycle(
+            current,
+            result.outcome,
+            result.phase_label,
+            stop_reason=result.stop_reason_value,
+            state=result.state,
+            hypothesis_id=result.hypothesis_id,
+            experiment_id=result.experiment_id,
+            opportunity_id=result.opportunity_id,
+            observation_id=result.observation_id,
+            assessment_id=result.assessment_id,
+            pause_reason=result.pause_reason,
+            increment_cycle=result.increment_cycle,
+            current_phase=result.current_phase,
+            extra_audit_events=result.extra_audit_events,
+        )
+
     def _step_surface_discovery(
         self,
         command: StartAutonomousResearchCommand,
@@ -941,13 +1033,17 @@ class AutonomousResearchController:
         outcome: CycleOutcome,
         phase: str,
         *,
-        stop_reason: StopReason | None = None,
+        stop_reason: StopReason | str | None = None,
         state: OrchestrationState | None = None,
         hypothesis_id: str | None = None,
         experiment_id: str | None = None,
         opportunity_id: str | None = None,
+        observation_id: str | None = None,
+        assessment_id: str | None = None,
+        pause_reason: object = _UNSET,
         increment_cycle: bool = False,
         current_phase: OrchestrationPhase | None = None,
+        extra_audit_events: tuple[AuditEventRecord, ...] = (),
     ) -> OrchestrationTickResult:
         now = self._clock.now()
         inserting = increment_cycle or outcome is not CycleOutcome.CONTINUE
@@ -963,6 +1059,9 @@ class AutonomousResearchController:
         )
         if outcome is CycleOutcome.COMPLETE and state is None:
             next_state = OrchestrationState.COMPLETED.value
+        resolved_stop_reason = (
+            stop_reason.value if isinstance(stop_reason, StopReason) else stop_reason
+        )
         with self._uow_factory.open() as uow:
             updated = replace(
                 current,
@@ -981,7 +1080,12 @@ class AutonomousResearchController:
                 last_opportunity_id=opportunity_id or current.last_opportunity_id,
                 last_hypothesis_id=hypothesis_id or current.last_hypothesis_id,
                 last_experiment_id=experiment_id or current.last_experiment_id,
-                stop_reason=stop_reason.value if stop_reason else current.stop_reason,
+                last_observation_id=observation_id or current.last_observation_id,
+                last_assessment_id=assessment_id or current.last_assessment_id,
+                pause_reason=(
+                    current.pause_reason if pause_reason is _UNSET else pause_reason
+                ),
+                stop_reason=resolved_stop_reason if resolved_stop_reason else current.stop_reason,
                 updated_at=now,
                 checkpoint_at=now,
             )
@@ -995,12 +1099,14 @@ class AutonomousResearchController:
                         phase_completed=phase,
                         outcome=outcome.value,
                         created_at=now,
-                        stop_reason=stop_reason.value if stop_reason else None,
+                        stop_reason=resolved_stop_reason or None,
                         opportunity_id=opportunity_id,
                         hypothesis_id=hypothesis_id,
                         experiment_id=experiment_id,
                     )
                 )
+            for event in extra_audit_events:
+                uow.audit_events.insert(event)
             uow.commit()
         self._observability.emit(
             TelemetryEvent(
