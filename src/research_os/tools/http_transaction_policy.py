@@ -7,6 +7,7 @@ from urllib.parse import urlsplit
 
 from research_os.tools.browser_page_policy import validate_browser_page_arguments
 from research_os.tools.http_authentication_policy import validate_http_authentication_arguments
+from research_os.tools.http_raw_exchange_policy import validate_http_raw_exchange_arguments
 from research_os.tools.registry import ArgumentValidationIssue
 
 FORBIDDEN_REQUEST_HEADERS = frozenset(
@@ -36,6 +37,8 @@ def extra_argument_validator_for(capability_id: str):
         return validate_http_authentication_arguments
     if capability_id == "browser.page":
         return validate_browser_page_arguments
+    if capability_id == "http.raw_exchange":
+        return validate_http_raw_exchange_arguments
     return None
 
 

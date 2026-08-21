@@ -37,6 +37,8 @@ from research_os.data.records import AuditEventRecord, HuntV3QueueRecord
 from research_os.platform.secrets import CompositeSecretPort
 from research_os.platform.worker import WorkerPort
 from research_os.research.compiler_registry import (
+    MUTATION_MATRIX_FAMILIES,
+    PROTOCOL_FAMILIES,
     CompilerOutcome,
     CompilerRequest,
     CompilerResult,
@@ -47,6 +49,9 @@ DISPATCH_ACTOR_ID = "control-plane:dispatch-approved-v3-queue"
 HUNT_V3_QUEUE_DISPATCHED = "HUNT_V3_QUEUE_DISPATCHED"
 HUNT_V3_QUEUE_DISPATCH_BLOCKED = "HUNT_V3_QUEUE_DISPATCH_BLOCKED"
 HUNT_V3_QUEUE_DISPATCH_REJECTED = "HUNT_V3_QUEUE_DISPATCH_REJECTED"
+HUNT_V3_UNIT_INTENT = "HUNT_V3_UNIT_INTENT"
+HUNT_V3_UNIT_OUTCOME = "HUNT_V3_UNIT_OUTCOME"
+UNIT_FAMILIES = MUTATION_MATRIX_FAMILIES | PROTOCOL_FAMILIES
 
 
 class HuntV3DispatchError(ApplicationError):
@@ -80,6 +85,7 @@ class DispatchApprovedV3QueueResult:
     attempt_id: str | None = None
     core_decision: str | None = None
     worker_invoked: bool = False
+    coverage_recorded: bool = False
 
 
 class DispatchApprovedV3Queue:
@@ -115,8 +121,68 @@ class DispatchApprovedV3Queue:
                 hypothesis_id=item.hypothesis_id,
                 worker_invoked=False,
             )
+        family_name = _family_name(item)
+        unit_id = _unit_id(command, family_name)
+        if family_name in UNIT_FAMILIES:
+            if unit_id is None:
+                compiled = self._compile(command, item)
+                self._audit_unit(
+                    item,
+                    event_type=HUNT_V3_UNIT_OUTCOME,
+                    unit_id="",
+                    experiment_id=None,
+                    outcome="BLOCKED_INVALID_INPUT",
+                    reason_code="SELECTED_UNIT_REQUIRED",
+                    coverage_eligible=False,
+                    compiler_id=compiled.compiler_id,
+                )
+                return DispatchApprovedV3QueueResult(
+                    research_run_id=item.research_run_id,
+                    queue_id=item.queue_id,
+                    state=item.state,
+                    outcome="BLOCKED_INVALID_INPUT",
+                    reason_code="SELECTED_UNIT_REQUIRED",
+                    compiler_id=compiled.compiler_id,
+                    hypothesis_id=item.hypothesis_id,
+                    worker_invoked=False,
+                )
+            prior = self._prior_unit(item.queue_id, unit_id)
+            if prior is not None:
+                return DispatchApprovedV3QueueResult(
+                    research_run_id=item.research_run_id,
+                    queue_id=item.queue_id,
+                    state=item.state,
+                    outcome="ALREADY_DISPATCHED",
+                    reason_code="UNIT_ALREADY_ATTEMPTED",
+                    compiler_id=None,
+                    experiment_id=str(prior.payload.get("experiment_id") or "") or None,
+                    hypothesis_id=item.hypothesis_id,
+                    worker_invoked=False,
+                )
+
         compiled = self._compile(command, item)
         if not compiled.compiled or compiled.plan is None:
+            if family_name in UNIT_FAMILIES:
+                self._audit_unit(
+                    item,
+                    event_type=HUNT_V3_UNIT_OUTCOME,
+                    unit_id=unit_id or "",
+                    experiment_id=None,
+                    outcome=compiled.outcome.value,
+                    reason_code=compiled.reason_code,
+                    coverage_eligible=False,
+                    compiler_id=compiled.compiler_id,
+                )
+                return DispatchApprovedV3QueueResult(
+                    research_run_id=item.research_run_id,
+                    queue_id=item.queue_id,
+                    state=item.state,
+                    outcome=compiled.outcome.value,
+                    reason_code=compiled.reason_code,
+                    compiler_id=compiled.compiler_id,
+                    hypothesis_id=item.hypothesis_id,
+                    worker_invoked=False,
+                )
             self._block(item, compiled)
             return DispatchApprovedV3QueueResult(
                 research_run_id=item.research_run_id,
@@ -137,6 +203,17 @@ class DispatchApprovedV3Queue:
                 plan=compiled.plan,
             )
         )
+        if family_name in UNIT_FAMILIES and unit_id is not None:
+            self._audit_unit(
+                item,
+                event_type=HUNT_V3_UNIT_INTENT,
+                unit_id=unit_id,
+                experiment_id=experiment_id,
+                outcome="INTENT",
+                reason_code="PREPARED",
+                coverage_eligible=False,
+                compiler_id=compiled.compiler_id,
+            )
         loop = self._execute.execute(
             ExecutePlannedExperimentCommand(
                 experiment_id=experiment_id,
@@ -189,6 +266,31 @@ class DispatchApprovedV3Queue:
                 worker_invoked=False,
             )
 
+        coverage_recorded = loop.status is ResearchLoopStatus.OBSERVATION_PRODUCED
+        if family_name in UNIT_FAMILIES and unit_id is not None:
+            self._audit_unit(
+                item,
+                event_type=HUNT_V3_UNIT_OUTCOME,
+                unit_id=unit_id,
+                experiment_id=experiment_id,
+                outcome=loop.status.value,
+                reason_code="DISPATCHED",
+                coverage_eligible=coverage_recorded,
+                compiler_id=compiled.compiler_id,
+                attempt_id=loop.attempt_id,
+            )
+            return self._result(
+                item,
+                state=item.state,
+                outcome=loop.status.value,
+                reason_code="DISPATCHED",
+                compiled=compiled,
+                experiment_id=experiment_id,
+                loop=loop,
+                worker_invoked=worker_invoked,
+                coverage_recorded=coverage_recorded,
+            )
+
         self._mark_run(item, experiment_id=experiment_id, loop=loop, compiled=compiled)
         return self._result(
             item,
@@ -199,7 +301,63 @@ class DispatchApprovedV3Queue:
             experiment_id=experiment_id,
             loop=loop,
             worker_invoked=worker_invoked,
+            coverage_recorded=coverage_recorded,
         )
+
+    def _prior_unit(self, queue_id: str, unit_id: str) -> AuditEventRecord | None:
+        with self._uow_factory.open() as uow:
+            events = uow.audit_events.list_for_subject_type("HUNT_V3_QUEUE")
+            uow.rollback()
+        for event in events:
+            if event.subject_id != queue_id:
+                continue
+            if event.event_type not in {HUNT_V3_UNIT_INTENT, HUNT_V3_UNIT_OUTCOME}:
+                continue
+            if str(event.payload.get("unit_id") or "") == unit_id:
+                return event
+        return None
+
+    def _audit_unit(
+        self,
+        item: HuntV3QueueRecord,
+        *,
+        event_type: str,
+        unit_id: str,
+        experiment_id: str | None,
+        outcome: str,
+        reason_code: str,
+        coverage_eligible: bool,
+        compiler_id: str | None,
+        attempt_id: str | None = None,
+    ) -> None:
+        now = self._clock.now()
+        with self._uow_factory.open() as uow:
+            uow.audit_events.insert(
+                AuditEventRecord(
+                    audit_event_id=new_opaque_id(),
+                    occurred_at=now,
+                    actor_id=DISPATCH_ACTOR_ID,
+                    actor_type=ActorType.CONTROL_PLANE.value,
+                    event_type=event_type,
+                    subject_type="HUNT_V3_QUEUE",
+                    subject_id=item.queue_id,
+                    payload={
+                        "research_run_id": item.research_run_id,
+                        "queue_id": item.queue_id,
+                        "unit_id": unit_id,
+                        "experiment_id": experiment_id,
+                        "attempt_id": attempt_id,
+                        "outcome": outcome,
+                        "reason_code": reason_code,
+                        "compiler_id": compiler_id,
+                        "coverage_eligible": coverage_eligible,
+                        "compiled_is_not_coverage": True,
+                        "approval_is_not_authorization": True,
+                    },
+                    correlation_id=item.research_run_id,
+                )
+            )
+            uow.commit()
 
     def _load_approved(self, command: DispatchApprovedV3QueueCommand) -> HuntV3QueueRecord:
         with self._uow_factory.open() as uow:
@@ -338,6 +496,7 @@ class DispatchApprovedV3Queue:
         experiment_id: str | None,
         loop: ResearchLoopOutcome | None,
         worker_invoked: bool,
+        coverage_recorded: bool = False,
     ) -> DispatchApprovedV3QueueResult:
         return DispatchApprovedV3QueueResult(
             research_run_id=item.research_run_id,
@@ -353,6 +512,7 @@ class DispatchApprovedV3Queue:
                 loop.core_decision.value if loop is not None and loop.core_decision is not None else None
             ),
             worker_invoked=worker_invoked,
+            coverage_recorded=coverage_recorded,
         )
 
 
@@ -364,4 +524,19 @@ def _cell_by_id(items: object, item_id: str) -> dict[str, Any] | None:
             return dict(item)
         if isinstance(item, Mapping) and item.get("step_id") == item_id:
             return dict(item)
+    return None
+
+
+def _family_name(item: HuntV3QueueRecord) -> str | None:
+    value = item.arguments.get("family_name")
+    if isinstance(value, str) and value.strip():
+        return value.strip()
+    return None
+
+
+def _unit_id(command: DispatchApprovedV3QueueCommand, family_name: str | None) -> str | None:
+    if family_name in MUTATION_MATRIX_FAMILIES:
+        return command.selected_cell_id
+    if family_name in PROTOCOL_FAMILIES:
+        return command.selected_step_id
     return None

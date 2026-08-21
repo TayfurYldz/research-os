@@ -21,14 +21,18 @@ from research_os.core.enums import ActorType, ApprovalDecision, ScopeRuleEffect
 from research_os.core.scope import ScopeEvaluationInput, ScopeRuleMatch
 from research_os.core.scope_compiler import ScopeRuleDefinition, compile_scope_rules
 from research_os.data.records import ApprovalRecord, HuntV3QueueRecord, IssuedBudgetRecord
+from research_os.platform.worker import InvocationStatus, WorkerInvocationOutcome
 from research_os.research.compiler_registry import (
     COMPILER_AUTHORIZATION_DIFFERENTIAL,
     COMPILER_MUTATION_MATRIX_CELL,
     COMPILER_PROTOCOL_STEP,
-    CompilerOutcome,
 )
+from research_os.research.mutation.matrix import build_mutation_matrix
+from research_os.research.protocol.parser_plan import build_protocol_parser_plan
+from research_os.data.postgres.hunter_family_seed import SEED_FAMILIES
+from research_os.research.selection import HunterFamilyView
 from support.fake_unit_of_work import FakeUnitOfWorkFactory, _Store
-from support.recording_worker import RecordingWorkerPort
+from support.recording_worker import RecordingWorkerPort, STARTED_AT, COMPLETED_AT
 from support.spine import CREATED_AT, seed_spine
 
 
@@ -106,6 +110,65 @@ def _dispatch(store: _Store, worker=None, **command_overrides):
     return use_case.execute(DispatchApprovedV3QueueCommand(**values)), port
 
 
+def _seed_family(family_id: str) -> HunterFamilyView:
+    row = next(item for item in SEED_FAMILIES if item["family_id"] == family_id)
+    return HunterFamilyView(
+        family_id=str(row["family_id"]),
+        name=str(row["name"]),
+        target_node_kinds=tuple(str(item) for item in row["target_node_kinds"]),
+        preconditions=dict(row["preconditions"]),
+        claim_template=str(row["claim_template"]),
+        evidence_requirements=dict(row["evidence_requirements"]),
+        validation_tier=str(row["validation_tier"]),
+        enabled=bool(row["enabled"]),
+        version=int(row["version"]),
+    )
+
+
+def _http_success_handler(request):
+    arguments = request.get("arguments") if isinstance(request.get("arguments"), dict) else {}
+    raw = {
+        "authorized_origin": arguments.get("authorized_origin"),
+        "method": arguments.get("method") or "GET",
+        "path": arguments.get("path") or "/",
+        "status_code": 200,
+        "body_length": 2,
+        "body_digest": "aa",
+        "framing_profile": arguments.get("framing_profile"),
+        "lane": arguments.get("lane"),
+        "control": arguments.get("control"),
+        "write_count": 1,
+        "bytes_written": 16,
+        "request_fingerprint": "ab",
+        "redirect": False,
+    }
+    return WorkerInvocationOutcome(
+        invocation_status=InvocationStatus.COMPLETED,
+        started_at=STARTED_AT,
+        completed_at=COMPLETED_AT,
+        worker_result={
+            "contract_version": "v1",
+            "correlation": dict(request["correlation"]),
+            "worker_id": "local-python-diagnostic",
+            "status": "SUCCEEDED",
+            "started_at": "2026-08-16T20:00:00Z",
+            "completed_at": "2026-08-16T20:00:01Z",
+            "raw_result": raw,
+        },
+        exit_code=0,
+    )
+
+
+def _sqli_cell():
+    matrix = build_mutation_matrix(_seed_family("hf-sqli"))
+    return matrix.cells[0]
+
+
+def _smuggling_step():
+    plan = build_protocol_parser_plan(_seed_family("hf-http-smuggling-desync"))
+    return plan.lane, plan.steps[0]
+
+
 class DispatchApprovedV3QueueTests(unittest.TestCase):
     def _store(self) -> _Store:
         store = _Store()
@@ -170,8 +233,9 @@ class DispatchApprovedV3QueueTests(unittest.TestCase):
         self.assertEqual(store.hunt_v3_queue["queue-1"].state, "BLOCKED")
         self.assertEqual(store.approvals["approval-1"].decision, ApprovalDecision.APPROVE.value)
 
-    def test_protocol_family_blocks_without_worker_or_coverage(self) -> None:
+    def test_protocol_step_compiles_and_reauthorizes_without_granting_next_step(self) -> None:
         store = self._store()
+        lane, step = _smuggling_step()
         store.hunt_v3_queue["queue-1"] = _queue(
             family_id="hf-http-smuggling-desync",
             capability="protocol.parser",
@@ -179,29 +243,40 @@ class DispatchApprovedV3QueueTests(unittest.TestCase):
             side_effect_level=3,
             arguments={
                 "family_name": "HTTP_REQUEST_SMUGGLING_DESYNC",
-                "protocol_lane": "http_request_smuggling_desync",
+                "protocol_lane": lane,
                 "step_count": 8,
+                "authorized_origin": "http://127.0.0.1:8094",
+                "path": "/ok",
                 "steps": [
                     {
-                        "step_id": "hf-http-smuggling-desync:protocol-step:000",
-                        "dimension_values": {"frontend_protocol": "http1"},
-                        "control": "single_parser_control",
+                        "step_id": step.step_id,
+                        "dimension_values": dict(step.dimension_values),
+                        "control": step.control,
                     }
                 ],
                 "approval_required": "SE3",
                 "worker_dispatch": "forbidden_until_se3_approval",
             },
         )
-        result, port = _dispatch(store, selected_step_id="hf-http-smuggling-desync:protocol-step:000")
-        self.assertEqual(result.state, "BLOCKED")
+        worker = RecordingWorkerPort(store=store, handler=_http_success_handler)
+        result, port = _dispatch(
+            store, worker=worker, selected_step_id=step.step_id
+        )
+        self.assertEqual(result.state, "APPROVED")
         self.assertEqual(result.compiler_id, COMPILER_PROTOCOL_STEP)
-        self.assertEqual(result.outcome, CompilerOutcome.BLOCKED_UNSUPPORTED_CAPABILITY.value)
-        self.assertEqual(len(port.calls), 0)
-        self.assertEqual(len(store.execution_attempts), 0)
-        self.assertEqual(len(store.experiments), 1)  # seed_spine placeholder only
+        self.assertEqual(result.reason_code, "DISPATCHED")
+        self.assertEqual(len(port.calls), 1)
+        self.assertTrue(result.worker_invoked)
+        self.assertTrue(result.coverage_recorded)
+        self.assertEqual(store.hunt_v3_queue["queue-1"].state, "APPROVED")
+        second, _ = _dispatch(store, worker=port, selected_step_id=step.step_id)
+        self.assertEqual(second.outcome, "ALREADY_DISPATCHED")
+        self.assertEqual(second.reason_code, "UNIT_ALREADY_ATTEMPTED")
+        self.assertEqual(len(port.calls), 1)
 
-    def test_mutation_matrix_family_blocks_without_marking_executed(self) -> None:
+    def test_mutation_matrix_cell_executes_and_does_not_count_compile_as_coverage(self) -> None:
         store = self._store()
+        cell = _sqli_cell()
         store.hunt_v3_queue["queue-1"] = _queue(
             family_id="hf-sqli",
             capability="mutation.matrix",
@@ -210,27 +285,88 @@ class DispatchApprovedV3QueueTests(unittest.TestCase):
                 "family_name": "SQL_INJECTION",
                 "matrix_hash": "a" * 64,
                 "cell_count": 1,
+                "authorized_origin": "http://127.0.0.1:8094",
+                "path": "/ok",
                 "cells": [
                     {
-                        "cell_id": "hf-sqli:cell:000",
-                        "dimension_values": {
-                            "input_vector": "query",
-                            "encoding": "raw",
-                            "parser_delta": "boolean_delta",
-                        },
-                        "control": "secure_fixture",
+                        "cell_id": cell.cell_id,
+                        "dimension_values": dict(cell.dimension_values),
+                        "control": cell.control,
                     }
                 ],
                 "worker_dispatch": "forbidden_until_operator_approval",
             },
         )
-        result, port = _dispatch(store, selected_cell_id="hf-sqli:cell:000")
-        self.assertEqual(result.state, "BLOCKED")
+        worker = RecordingWorkerPort(store=store, handler=_http_success_handler)
+        result, port = _dispatch(store, worker=worker, selected_cell_id=cell.cell_id)
+        self.assertEqual(result.state, "APPROVED")
         self.assertEqual(result.compiler_id, COMPILER_MUTATION_MATRIX_CELL)
-        self.assertEqual(result.outcome, CompilerOutcome.BLOCKED_MISSING_SEMANTICS.value)
-        self.assertEqual(result.reason_code, "MUTATION_MATRIX_CELL_HAS_NO_PAYLOAD_CONTRACT")
+        self.assertEqual(result.reason_code, "DISPATCHED")
+        self.assertEqual(len(port.calls), 1)
+        self.assertTrue(result.coverage_recorded)
+        self.assertEqual(store.hunt_v3_queue["queue-1"].state, "APPROVED")
+        second, _ = _dispatch(store, worker=port, selected_cell_id=cell.cell_id)
+        self.assertEqual(second.outcome, "ALREADY_DISPATCHED")
+        self.assertEqual(len(port.calls), 1)
+
+    def test_core_deny_does_not_invoke_worker_for_mutation_cell(self) -> None:
+        store = self._store()
+        cell = _sqli_cell()
+        store.hunt_v3_queue["queue-1"] = _queue(
+            family_id="hf-sqli",
+            capability="mutation.matrix",
+            action="plan",
+            arguments={
+                "family_name": "SQL_INJECTION",
+                "authorized_origin": "http://127.0.0.1:8094",
+                "path": "/ok",
+                "cells": [
+                    {
+                        "cell_id": cell.cell_id,
+                        "dimension_values": dict(cell.dimension_values),
+                        "control": cell.control,
+                    }
+                ],
+            },
+        )
+        result, port = _dispatch(store, compiled_scope=None, selected_cell_id=cell.cell_id)
+        self.assertEqual(result.outcome, "CORE_DENIED")
+        self.assertEqual(result.state, "BLOCKED")
         self.assertEqual(len(port.calls), 0)
-        self.assertEqual(len(store.execution_attempts), 0)
+        self.assertFalse(result.coverage_recorded)
+
+    def test_crash_after_dispatch_does_not_retry_same_cell(self) -> None:
+        store = self._store()
+        cell = _sqli_cell()
+        store.hunt_v3_queue["queue-1"] = _queue(
+            family_id="hf-sqli",
+            capability="mutation.matrix",
+            action="plan",
+            arguments={
+                "family_name": "SQL_INJECTION",
+                "authorized_origin": "http://127.0.0.1:8094",
+                "path": "/ok",
+                "cells": [
+                    {
+                        "cell_id": cell.cell_id,
+                        "dimension_values": dict(cell.dimension_values),
+                        "control": cell.control,
+                    }
+                ],
+            },
+        )
+
+        def boom(request):
+            raise RuntimeError("crash after dispatch")
+
+        worker = RecordingWorkerPort(store=store, handler=boom)
+        with self.assertRaises(RuntimeError):
+            _dispatch(store, worker=worker, selected_cell_id=cell.cell_id)
+        self.assertEqual(len(worker.calls), 1)
+        second, _ = _dispatch(store, worker=worker, selected_cell_id=cell.cell_id)
+        self.assertEqual(second.outcome, "ALREADY_DISPATCHED")
+        self.assertEqual(len(worker.calls), 1)
+        self.assertEqual(store.hunt_v3_queue["queue-1"].state, "APPROVED")
 
     def test_pending_item_is_rejected(self) -> None:
         store = self._store()

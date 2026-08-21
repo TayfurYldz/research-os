@@ -8,6 +8,7 @@ from typing import Any, Mapping
 from .browser_page import execute_browser_page
 from .http_authentication import execute_http_authentication
 from .http_authorization import execute_http_authorization
+from .http_raw_exchange import execute_http_raw_exchange
 from .http_state_transition import execute_http_state_transition
 from .http_transaction import execute_http_transaction
 
@@ -41,6 +42,7 @@ IMPLEMENTATION_EXECUTORS: dict[str, Executor] = {
     "http.authorization.differential": execute_http_authorization,
     "http.state_transition": execute_http_state_transition,
     "http.transaction": execute_http_transaction,
+    "http.raw_exchange": execute_http_raw_exchange,
     "http.authentication": execute_http_authentication,
     "browser.page": execute_browser_page,
 }

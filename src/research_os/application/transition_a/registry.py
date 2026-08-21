@@ -12,6 +12,7 @@ from research_os.application.transition_a.diagnostic_echo import DiagnosticEchoN
 from research_os.application.transition_a.drafts import ObservationDraft
 from research_os.application.transition_a.errors import UnsupportedNormalizerError
 from research_os.application.transition_a.http_authentication import HttpAuthenticationNormalizer
+from research_os.application.transition_a.http_raw_exchange import HttpRawExchangeNormalizer
 from research_os.application.transition_a.http_transaction import HttpTransactionNormalizer
 from research_os.application.transition_a.state_transition import HttpStateTransitionNormalizer
 from research_os.tools.capabilities import (
@@ -47,6 +48,7 @@ class NormalizerRegistry:
                 HttpTransactionNormalizer(HTTP_TRANSACTION_READ_ACTION),
                 HttpTransactionNormalizer(HTTP_TRANSACTION_MUTATE_ACTION),
                 HttpAuthenticationNormalizer(),
+                HttpRawExchangeNormalizer(),
                 BrowserPageNormalizer(BROWSER_PAGE_OBSERVE_ACTION),
                 BrowserPageNormalizer(BROWSER_PAGE_NAVIGATE_ACTION),
                 BrowserPageNormalizer(BROWSER_PAGE_INTERACT_ACTION),

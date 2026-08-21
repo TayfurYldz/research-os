@@ -22,6 +22,10 @@ from research_os.research.http_transaction import (
     HTTP_TRANSACTION_EVALUATION_STRATEGY,
     HTTP_TRANSACTION_EXPECTED_OBSERVATION,
 )
+from research_os.research.mutation.cell_contract import (
+    MutationCellContractError,
+    bind_mutation_matrix_cell,
+)
 from research_os.research.planning import (
     HTTP_AUTHORIZATION_DISCONFIRMING_OBSERVATION,
     HTTP_AUTHORIZATION_EXPECTED_OBSERVATION,
@@ -32,6 +36,12 @@ from research_os.research.planning import (
     plan_state_transition,
 )
 from research_os.research.proposals import HypothesisChallenge, HypothesisProposal
+from research_os.research.protocol.step_compile import (
+    HTTP_RAW_EXCHANGE_ACTION,
+    HTTP_RAW_EXCHANGE_CAPABILITY,
+    ProtocolStepContractError,
+    bind_protocol_step,
+)
 from research_os.research.types import ExperimentPlan
 from research_os.tools.capabilities import (
     HTTP_AUTHORIZATION_DIFFERENTIAL_CAPABILITY,
@@ -277,23 +287,83 @@ class StateTransitionCompiler:
 
 
 class MutationMatrixCellCompiler:
-    """HunterFamily MutationMatrix cells are not executable payloads.
+    """Bind a selected MutationMatrixCell onto http.transaction.
 
-    A cell is a Cartesian (dimension_values, control) tuple. The repository has
-    no payload catalog, no encoding→bytes mapping, and no control-fixture binding
-    that would deterministically produce an `http.transaction` request body. AI
-    must not invent that request. Fail closed.
+    The compiler owns the payload catalog. Incoming query/body/headers are not
+    Worker authority and are ignored. AI may select a cell_id only.
     """
 
     compiler_id = COMPILER_MUTATION_MATRIX_CELL
 
     def compile(self, request: CompilerRequest) -> CompilerResult:
-        return _blocked(
-            self.compiler_id,
-            CompilerOutcome.BLOCKED_MISSING_SEMANTICS,
-            "MUTATION_MATRIX_CELL_HAS_NO_PAYLOAD_CONTRACT",
-            family_name=request.family_name,
-        )
+        arguments = request.arguments
+        family_name = request.family_name
+        if family_name is None:
+            return _blocked(
+                self.compiler_id,
+                CompilerOutcome.BLOCKED_INVALID_INPUT,
+                "MUTATION_FAMILY_REQUIRED",
+                family_name=family_name,
+            )
+        cell_id = _text_arg(arguments, "cell_id") or _text_arg(arguments, "selected_cell_id")
+        control = _text_arg(arguments, "control")
+        origin = _text_arg(arguments, "authorized_origin") or _text_arg(arguments, "origin")
+        path = _text_arg(arguments, "path") or "/"
+        dimensions = arguments.get("dimension_values")
+        if not isinstance(dimensions, Mapping):
+            return _blocked(
+                self.compiler_id,
+                CompilerOutcome.BLOCKED_MISSING_SEMANTICS,
+                "MUTATION_MATRIX_CELL_DIMENSIONS_INCOMPLETE",
+                family_name=family_name,
+            )
+        if cell_id is None or control is None or origin is None:
+            return _blocked(
+                self.compiler_id,
+                CompilerOutcome.BLOCKED_MISSING_SEMANTICS,
+                "MUTATION_MATRIX_CELL_TARGET_REQUIRED",
+                family_name=family_name,
+            )
+        try:
+            binding = bind_mutation_matrix_cell(
+                family_name=family_name,
+                cell_id=cell_id,
+                dimension_values=dimensions,
+                control=control,
+                authorized_origin=origin,
+                path=path,
+            )
+            plan = compile_experiment_intent(
+                ExperimentIntent(
+                    hypothesis_id=request.hypothesis_id,
+                    capability_id=HTTP_TRANSACTION_CAPABILITY,
+                    action=binding.action,
+                    target_reference=request.target_reference,
+                    arguments=binding.template.arguments(),
+                    requested_budget_id=request.budget_id,
+                    expected_observation=binding.expected_observation,
+                    disconfirming_observation=binding.disconfirming_observation,
+                    evaluation_strategy=binding.evaluation_strategy,
+                    requested_side_effect=request.requested_side_effect,
+                )
+            )
+        except MutationCellContractError as exc:
+            return _blocked(
+                self.compiler_id,
+                CompilerOutcome.BLOCKED_MISSING_SEMANTICS,
+                exc.reason_code,
+                family_name=family_name,
+            )
+        except ExperimentCompileError as exc:
+            outcome = (
+                CompilerOutcome.BLOCKED_UNSUPPORTED_CAPABILITY
+                if exc.reason_code == "UNKNOWN_CAPABILITY"
+                else CompilerOutcome.BLOCKED_INVALID_INPUT
+            )
+            return _blocked(
+                self.compiler_id, outcome, exc.reason_code, family_name=family_name
+            )
+        return _compiled(self.compiler_id, plan, family_name=family_name)
 
 
 class MutationVariantCompiler:
@@ -356,23 +426,78 @@ class MutationVariantCompiler:
 
 
 class ProtocolStepCompiler:
-    """Protocol specialist steps are not representable by http.transaction.
+    """Bind one ProtocolParserPlanStep onto http.raw_exchange.
 
-    Conflicting framing, raw request boundaries, duplicate length encoding,
-    connection reuse, and exact byte preservation are abstracted away by the
-    existing HTTP client capability. Fail closed; see
-    `docs/plans/audit/PROTOCOL_EXECUTION_CAPABILITY_DESIGN.md`.
+    Does not treat an approved ProtocolPlan as an execution token. Does not
+    impersonate wire semantics through http.transaction. Incoming method/body
+    fields are ignored; framing_profile is compiler-owned.
     """
 
     compiler_id = COMPILER_PROTOCOL_STEP
 
     def compile(self, request: CompilerRequest) -> CompilerResult:
-        return _blocked(
-            self.compiler_id,
-            CompilerOutcome.BLOCKED_UNSUPPORTED_CAPABILITY,
-            "PROTOCOL_WIRE_SEMANTICS_NOT_REPRESENTABLE_BY_HTTP_TRANSACTION",
-            family_name=request.family_name,
-        )
+        arguments = request.arguments
+        step_id = _text_arg(arguments, "step_id") or _text_arg(arguments, "selected_step_id")
+        control = _text_arg(arguments, "control")
+        origin = _text_arg(arguments, "authorized_origin") or _text_arg(arguments, "origin")
+        path = _text_arg(arguments, "path") or "/"
+        lane = _text_arg(arguments, "protocol_lane") or _text_arg(arguments, "lane")
+        dimensions = arguments.get("dimension_values")
+        if not isinstance(dimensions, Mapping):
+            return _blocked(
+                self.compiler_id,
+                CompilerOutcome.BLOCKED_MISSING_SEMANTICS,
+                "PROTOCOL_STEP_DIMENSIONS_INCOMPLETE",
+                family_name=request.family_name,
+            )
+        if step_id is None or control is None or origin is None or lane is None:
+            return _blocked(
+                self.compiler_id,
+                CompilerOutcome.BLOCKED_MISSING_SEMANTICS,
+                "PROTOCOL_STEP_TARGET_REQUIRED",
+                family_name=request.family_name,
+            )
+        try:
+            binding = bind_protocol_step(
+                family_name=request.family_name or "",
+                step_id=step_id,
+                dimension_values=dimensions,
+                control=control,
+                authorized_origin=origin,
+                path=path,
+                protocol_lane=lane,
+            )
+            plan = compile_experiment_intent(
+                ExperimentIntent(
+                    hypothesis_id=request.hypothesis_id,
+                    capability_id=HTTP_RAW_EXCHANGE_CAPABILITY,
+                    action=HTTP_RAW_EXCHANGE_ACTION,
+                    target_reference=request.target_reference,
+                    arguments=dict(binding.arguments),
+                    requested_budget_id=request.budget_id,
+                    expected_observation=binding.expected_observation,
+                    disconfirming_observation=binding.disconfirming_observation,
+                    evaluation_strategy=binding.evaluation_strategy,
+                    requested_side_effect=request.requested_side_effect,
+                )
+            )
+        except ProtocolStepContractError as exc:
+            return _blocked(
+                self.compiler_id,
+                CompilerOutcome.BLOCKED_MISSING_SEMANTICS,
+                exc.reason_code,
+                family_name=request.family_name,
+            )
+        except ExperimentCompileError as exc:
+            outcome = (
+                CompilerOutcome.BLOCKED_UNSUPPORTED_CAPABILITY
+                if exc.reason_code == "UNKNOWN_CAPABILITY"
+                else CompilerOutcome.BLOCKED_INVALID_INPUT
+            )
+            return _blocked(
+                self.compiler_id, outcome, exc.reason_code, family_name=request.family_name
+            )
+        return _compiled(self.compiler_id, plan, family_name=request.family_name)
 
 
 class GenericPlannerCompiler:

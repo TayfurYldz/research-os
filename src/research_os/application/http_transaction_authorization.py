@@ -23,10 +23,12 @@ from research_os.tools.capabilities import (
     BROWSER_PAGE_CAPABILITY,
     HTTP_AUTHENTICATION_CAPABILITY,
     HTTP_AUTHORIZATION_DIFFERENTIAL_CAPABILITY,
+    HTTP_RAW_EXCHANGE_CAPABILITY,
     HTTP_STATE_TRANSITION_CAPABILITY,
     HTTP_TRANSACTION_CAPABILITY,
 )
 from research_os.tools.http_authentication_policy import validate_http_authentication_arguments
+from research_os.tools.http_raw_exchange_policy import validate_http_raw_exchange_arguments
 from research_os.tools.http_transaction_policy import validate_http_transaction_arguments
 from research_os.tools.registry import ArgumentValidationIssue
 
@@ -37,6 +39,7 @@ HTTP_SCOPE_CAPABILITIES = frozenset(
         BROWSER_PAGE_CAPABILITY,
         HTTP_AUTHORIZATION_DIFFERENTIAL_CAPABILITY,
         HTTP_STATE_TRANSITION_CAPABILITY,
+        HTTP_RAW_EXCHANGE_CAPABILITY,
     }
 )
 
@@ -71,6 +74,11 @@ def authorize_http_transaction_plan(
         HTTP_AUTHORIZATION_DIFFERENTIAL_CAPABILITY,
         HTTP_STATE_TRANSITION_CAPABILITY,
     }:
+        return _authorize_origin_path(plan, compiled_scope, program_policy)
+    if plan.required_capability == HTTP_RAW_EXCHANGE_CAPABILITY:
+        issue = validate_http_raw_exchange_arguments(plan.action, plan.arguments)
+        if issue is not None:
+            return _from_argument_issue(issue)
         return _authorize_origin_path(plan, compiled_scope, program_policy)
     if plan.required_capability != HTTP_TRANSACTION_CAPABILITY:
         return HttpTransactionScopeDecision(accepted=True, reason_code=None)

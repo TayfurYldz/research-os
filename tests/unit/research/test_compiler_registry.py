@@ -31,9 +31,11 @@ from research_os.research.proposals import parse_hypothesis_challenge, parse_hyp
 from research_os.research.selection import HunterFamilyView
 from research_os.research.target_model import TargetEpistemicStatus
 from research_os.data.postgres.hunter_family_seed import SEED_FAMILIES
+from research_os.research.protocol.parser_plan import build_protocol_parser_plan
 from research_os.tools.capabilities import (
     DIAGNOSTIC_ECHO_CAPABILITY,
     HTTP_AUTHORIZATION_DIFFERENTIAL_CAPABILITY,
+    HTTP_RAW_EXCHANGE_CAPABILITY,
     HTTP_STATE_TRANSITION_CAPABILITY,
     HTTP_TRANSACTION_CAPABILITY,
 )
@@ -304,12 +306,13 @@ class CompilerRegistryGenericFallbackTests(unittest.TestCase):
 
 
 class MutationAndProtocolCompilerTests(unittest.TestCase):
-    def test_every_mutation_matrix_family_fails_closed_without_payload_contract(self) -> None:
+    def test_every_mutation_matrix_family_compiles_selected_cell_to_http_transaction(self) -> None:
         registry = ExperimentCompilerRegistry()
-        family = _seed_family("hf-sqli")
-        matrix = build_mutation_matrix(family)
-        cell = matrix.cells[0]
         for name in sorted(MUTATION_MATRIX_FAMILIES):
+            family_id = next(item["family_id"] for item in SEED_FAMILIES if item["name"] == name)
+            family = _seed_family(str(family_id))
+            matrix = build_mutation_matrix(family)
+            cell = matrix.cells[0]
             result = registry.compile(
                 CompilerRequest(
                     hypothesis_id="hyp-1",
@@ -323,13 +326,38 @@ class MutationAndProtocolCompilerTests(unittest.TestCase):
                         "authorized_origin": "http://127.0.0.1:8090",
                         "path": "/api/users",
                         "method": "GET",
+                        "body": "attacker-supplied",
+                        "query": {"injected": "no"},
                     },
                 )
             )
-            self.assertEqual(result.compiler_id, COMPILER_MUTATION_MATRIX_CELL)
-            self.assertEqual(result.outcome, CompilerOutcome.BLOCKED_MISSING_SEMANTICS)
-            self.assertEqual(result.reason_code, "MUTATION_MATRIX_CELL_HAS_NO_PAYLOAD_CONTRACT")
-            self.assertIsNone(result.plan)
+            with self.subTest(family=name):
+                self.assertEqual(result.compiler_id, COMPILER_MUTATION_MATRIX_CELL)
+                self.assertTrue(result.compiled)
+                assert result.plan is not None
+                self.assertEqual(result.plan.required_capability, HTTP_TRANSACTION_CAPABILITY)
+                self.assertNotEqual(result.plan.arguments.get("body"), "attacker-supplied")
+                self.assertNotIn("injected", result.plan.arguments.get("query") or {})
+                self.assertEqual(result.plan.evaluation_strategy, "mutation.matrix.v1")
+                self.assertTrue(result.plan.disconfirming_observation)
+                assert_plan_not_understated(result.plan)
+
+    def test_mutation_cell_without_dimensions_stays_blocked_missing_semantics(self) -> None:
+        result = ExperimentCompilerRegistry().compile(
+            CompilerRequest(
+                hypothesis_id="hyp-1",
+                budget_id="budget-1",
+                target_reference="target-1",
+                family_name="SQL_INJECTION",
+                arguments={
+                    "cell_id": "hf-sqli:cell:000",
+                    "authorized_origin": "http://127.0.0.1:8090",
+                    "path": "/api/users",
+                },
+            )
+        )
+        self.assertEqual(result.outcome, CompilerOutcome.BLOCKED_MISSING_SEMANTICS)
+        self.assertIsNone(result.plan)
 
     def test_mutation_engine_variant_compiles_to_http_transaction(self) -> None:
         node = _mutation_node()
@@ -362,9 +390,16 @@ class MutationAndProtocolCompilerTests(unittest.TestCase):
         self.assertEqual(result.plan.hypothesis_id, "hyp-1")
         assert_plan_not_understated(result.plan)
 
-    def test_protocol_families_fail_closed_as_unsupported_capability(self) -> None:
+    def test_protocol_families_compile_selected_step_to_raw_exchange(self) -> None:
         registry = ExperimentCompilerRegistry()
+        family_ids = {
+            "HTTP_REQUEST_SMUGGLING_DESYNC": "hf-http-smuggling-desync",
+            "HTTP_CACHE_POISONING_DECEPTION": "hf-cache-poison-deception",
+        }
         for name in sorted(PROTOCOL_FAMILIES):
+            family = _seed_family(family_ids[name])
+            plan = build_protocol_parser_plan(family)
+            step = plan.steps[0]
             result = registry.compile(
                 CompilerRequest(
                     hypothesis_id="hyp-1",
@@ -372,23 +407,29 @@ class MutationAndProtocolCompilerTests(unittest.TestCase):
                     target_reference="target-1",
                     family_name=name,
                     arguments={
-                        "step_id": "hf-http-smuggling-desync:protocol-step:000",
-                        "protocol_lane": "http_request_smuggling_desync",
+                        "step_id": step.step_id,
+                        "dimension_values": dict(step.dimension_values),
+                        "control": step.control,
+                        "protocol_lane": plan.lane,
                         "capability_id": "http.transaction",
                         "action": "read",
                         "authorized_origin": "http://127.0.0.1:8090",
                         "method": "GET",
                         "path": "/",
+                        "body": "attacker-supplied",
                     },
                 )
             )
-            self.assertEqual(result.compiler_id, COMPILER_PROTOCOL_STEP)
-            self.assertEqual(result.outcome, CompilerOutcome.BLOCKED_UNSUPPORTED_CAPABILITY)
-            self.assertEqual(
-                result.reason_code,
-                "PROTOCOL_WIRE_SEMANTICS_NOT_REPRESENTABLE_BY_HTTP_TRANSACTION",
-            )
-            self.assertIsNone(result.plan)
+            with self.subTest(family=name):
+                self.assertEqual(result.compiler_id, COMPILER_PROTOCOL_STEP)
+                self.assertTrue(result.compiled)
+                assert result.plan is not None
+                self.assertEqual(result.plan.required_capability, HTTP_RAW_EXCHANGE_CAPABILITY)
+                self.assertEqual(result.plan.action, "probe")
+                self.assertNotIn("body", result.plan.arguments)
+                self.assertEqual(result.plan.side_effect_level, 0)
+                self.assertTrue(result.plan.disconfirming_observation)
+                assert_plan_not_understated(result.plan)
 
 
 if __name__ == "__main__":

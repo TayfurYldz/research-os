@@ -332,6 +332,14 @@ class ArchitectureBoundaryTests(unittest.TestCase):
             packaged.read_text(encoding="utf-8"),
         )
 
+    def test_http_raw_exchange_worker_copies_stay_in_sync(self) -> None:
+        runtime = SRC_ROOT / "worker_runtime" / "python" / "http_raw_exchange.py"
+        packaged = WORKERS_DIR / "python" / "research_os_worker" / "http_raw_exchange.py"
+        self.assertEqual(
+            runtime.read_text(encoding="utf-8"),
+            packaged.read_text(encoding="utf-8"),
+        )
+
     def test_http_transaction_worker_copies_stay_in_sync(self) -> None:
         runtime = SRC_ROOT / "worker_runtime" / "python" / "http_transaction.py"
         packaged = WORKERS_DIR / "python" / "research_os_worker" / "http_transaction.py"
@@ -377,6 +385,7 @@ class ArchitectureBoundaryTests(unittest.TestCase):
                 "diagnostic.echo.json",
                 "http.authentication.json",
                 "http.authorization.differential.json",
+                "http.raw_exchange.json",
                 "http.state_transition.json",
                 "http.transaction.json",
             },

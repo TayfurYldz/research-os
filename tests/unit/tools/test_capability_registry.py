@@ -130,6 +130,7 @@ class CapabilityRegistryTests(unittest.TestCase):
                 "diagnostic.echo",
                 "http.authentication",
                 "http.authorization.differential",
+                "http.raw_exchange",
                 "http.state_transition",
                 "http.transaction",
             },

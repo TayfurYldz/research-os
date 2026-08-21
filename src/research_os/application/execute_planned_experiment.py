@@ -76,7 +76,7 @@ from research_os.platform.worker import InvocationStatus, WorkerInvocationOutcom
 from research_os.research.identity_session import HttpFormLoginProfile, Identity
 from research_os.research.types import ExperimentPlan
 from research_os.tools.browser_page_policy import BROWSER_PAGE_MAX_NETWORK_REQUESTS
-from research_os.tools.capabilities import BROWSER_PAGE_CAPABILITY
+from research_os.tools.capabilities import BROWSER_PAGE_CAPABILITY, HTTP_RAW_EXCHANGE_CAPABILITY
 
 WORKER_CONTRACT_VERSION = "v1"
 AUDIT_EXECUTION_DECISION = "EXECUTION_DECISION"
@@ -1118,6 +1118,12 @@ def _request_consumption_amount(
     attempt: ExecutionAttemptRecord,
     issued: IssuedBudgetRecord,
 ) -> int:
+    if attempt.worker_capability == HTTP_RAW_EXCHANGE_CAPABILITY:
+        plan = uow.experiment_plans.get(attempt.experiment_id)
+        profile = None
+        if plan is not None and isinstance(plan.arguments, Mapping):
+            profile = plan.arguments.get("framing_profile")
+        return 2 if profile == "http1_connection_reuse" else 1
     if attempt.worker_capability != BROWSER_PAGE_CAPABILITY:
         return 1
     usage = usage_from_consumptions(uow.budget_consumptions.list_for_budget(issued.budget_id))

@@ -4,6 +4,7 @@ This is the research-layer planning stage. Variants are not executed here;
 execution flows through the existing capability/envelope/approval pipeline.
 """
 
+from research_os.research.mutation.cell_contract import bind_mutation_matrix_cell
 from research_os.research.mutation.engine import MutationEngine, mutate_for_node
 from research_os.research.mutation.families import (
     AuthHeaderVariationFamily,
@@ -39,4 +40,5 @@ __all__ = [
     "MutationMatrixCell",
     "MutationMatrixPlan",
     "build_mutation_matrix",
+    "bind_mutation_matrix_cell",
 ]

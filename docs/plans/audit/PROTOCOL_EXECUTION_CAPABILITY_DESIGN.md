@@ -1,19 +1,21 @@
-# Protocol execution capability design (Slice 4 / MR-4)
+# Protocol execution capability design (Slice 4C)
 
-Status: DESIGN ONLY. No protocol Worker capability is implemented in this slice.
+Status: IMPLEMENTED in pair 4B+4C (`http.raw_exchange` Worker capability +
+`ProtocolStepCompiler`). Specialist `ProtocolParserPlan` documents are unchanged.
+See `docs/plans/audit/PAIR_4B_4C_COMPLETION_RECORD.md`.
 
 ## Decision
 
-`http.transaction` cannot faithfully execute protocol-specialist plans
-(`HTTP_REQUEST_SMUGGLING_DESYNC`, `HTTP_CACHE_POISONING_DECEPTION`).
+`http.transaction` still cannot faithfully execute protocol-specialist plans
+(`HTTP_REQUEST_SMUGGLING_DESYNC`, `HTTP_CACHE_POISONING_DECEPTION`). Pair 4C
+adds `http.raw_exchange` / `probe` instead of impersonating wire semantics
+through the normalized HTTP client.
 
-`ExperimentCompilerRegistry` therefore fail-closes those families with:
-
-`BLOCKED_UNSUPPORTED_CAPABILITY` /
-`PROTOCOL_WIRE_SEMANTICS_NOT_REPRESENTABLE_BY_HTTP_TRANSACTION`
-
-An APPROVED V3 item for these families is durable, is never marked RUN or
-covered, and never reaches a Worker. Approval is not authorization.
+`ProtocolStepCompiler` binds one `ProtocolParserPlanStep` at a time onto that
+capability. An APPROVED ProtocolPlan is compile admission, not an execution
+token. Each step gets a fresh Core authorization, attempt/request id, and
+budget/rate-limit consumption. Redirect / new origin → STOP +
+`REAUTHORIZATION_REQUIRED`. `UNKNOWN_OUTCOME` does not retry the same step.
 
 ## Why `http.transaction` is insufficient
 
@@ -44,28 +46,23 @@ Protocol-plan dimensions that the current primitive abstracts away:
 Faking smuggling through `http.transaction` would produce a false observation
 and a false coverage cell. That is forbidden.
 
-## Minimal typed primitive (not implemented here)
+## Minimal typed primitive
 
-A future `http.raw_exchange` (name illustrative) would need all of the following
-before it can be added to the capability registry:
+`http.raw_exchange` / `probe` is now in the capability registry. Constraints that landed:
 
-1. Narrow argument schema, `additionalProperties: false`, no shell/command field.
-2. Bounded connection count (1) and bounded request count per connection (explicit, small).
-3. Side-effect class derived from the action (read-only probe vs mutate), never from the model.
-4. Exact Core/network-envelope interaction: origin still authorized as `http_origin` /
-   compiled scope; no raw IP escape.
-5. Deterministic normalization of *observations* (what bytes were written/read), not of
-   the on-wire request — the request bytes are the experiment.
-6. Vulnerable / secure / deceptive fixtures for CL.TE and TE.CL at minimum.
-7. Per-step fresh Core authorization: ProtocolPlan is not a one-shot execution token.
-   Each `ProtocolParserPlanStep` compiles separately and is re-authorized.
-8. No arbitrary raw command/payload escape hatch (no `argv`, no `connect(any_host)`).
+1. Narrow argument schema, `additionalProperties: false`, closed `framing_profile` enum, no shell/command/raw-bytes field.
+2. Bounded writes (max 2) per invocation; connection reuse is one profile, not an open session.
+3. Side-effect class is the action minimum (probe = 0), never from the model. Queue-row SE3 remains the approval gate, not execution authorization.
+4. Origin/path still authorized as compiled Core scope + loopback envelope.
+5. Transition A normalizes observed status/byte counts/fingerprint, not a finding.
+6. Per-step fresh Core authorization. One step's outcome does not authorize the next.
+7. No argv / connect(any_host). Catalog bytes only.
 
-Until that contract exists and is fixture-proven, protocol V3 items remain
-`BLOCKED_UNSUPPORTED_CAPABILITY`.
+Vulnerable/secure/deceptive *lab fixtures* for CL.TE vs TE.CL remain operator-owned; the worker emits the catalog profile and records the observation.
 
-## What this slice does implement
+## What pair 4C adds on top of Slice 4 persistence
 
-- Persist protocol `steps` on the V3 queue row so a future executor has the plan.
-- V3 consumer compiles, fail-closes, sets `BLOCKED`, audits the reason.
-- No Worker dispatch, no coverage reduction, no silent success.
+- `ProtocolStepCompiler` → `http.raw_exchange` for each selected step.
+- `DispatchApprovedV3Queue` keeps the protocol queue item APPROVED so later steps can be authorized separately.
+- Same step id cannot be blindly retried (`HUNT_V3_UNIT_INTENT`).
+- Coverage is recorded only after an Observation, never after compile.
