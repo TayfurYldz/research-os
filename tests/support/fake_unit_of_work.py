@@ -12,6 +12,7 @@ from research_os.data.errors import (
     PersistenceConflictError,
     PersistenceError,
     PersistenceInputError,
+    TerminalOrchestrationStateError,
 )
 from research_os.data.records import (
     ALLOWED_CANDIDATE_STATES,
@@ -58,6 +59,7 @@ from research_os.data.records import (
     SnapshotMemberRecord,
     SnapshotRecord,
     TargetInferenceRecord,
+    TERMINAL_ORCHESTRATION_STATES,
     ChangeEventRecord,
     CoverageDebtSnapshotRecord,
     VerificationRecord,
@@ -1179,8 +1181,14 @@ class _ResearchOrchestrationRepo:
         return self._root.research_orchestrations.get(research_run_id)
 
     def save(self, record: ResearchOrchestrationRecord) -> None:
-        if record.research_run_id not in self._root.research_orchestrations:
+        current = self._root.research_orchestrations.get(record.research_run_id)
+        if current is None:
             raise PersistenceError("research_orchestration not found for checkpoint")
+        if current.state in TERMINAL_ORCHESTRATION_STATES:
+            raise TerminalOrchestrationStateError(
+                f"research_orchestration {record.research_run_id} is terminal "
+                f"({current.state}); state and stop_reason are immutable"
+            )
         self._root.research_orchestrations[record.research_run_id] = record
 
 

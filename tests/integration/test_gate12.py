@@ -203,8 +203,36 @@ class Gate12AutonomousOrchestrationTests(unittest.TestCase):
         self.assertEqual(counts["finding"], 0)
         self.assertEqual(counts["evidence"], 0)
         self.assertEqual(counts["candidate"], 0)
+        # RT-A: the run already reached its own terminal COMPLETED/
+        # MAX_CYCLES_REACHED checkpoint via run_bounded() above. A cancel
+        # issued after the fact must not resurrect or reclassify a terminal
+        # run -- it is a rejected no-op that preserves the original
+        # state/stop_reason, proven here against real PostgreSQL.
         cancelled = controller.cancel("run-1")
+        self.assertEqual(cancelled.state, OrchestrationState.COMPLETED.value)
+        self.assertEqual(cancelled.stop_reason, StopReason.MAX_CYCLES_REACHED.value)
+        with factory.open() as uow:
+            reloaded = uow.research_orchestrations.get("run-1")
+            uow.rollback()
+        assert reloaded is not None
+        self.assertEqual(reloaded.stop_reason, StopReason.MAX_CYCLES_REACHED.value)
+
+    def test_cancel_actually_cancels_a_still_active_run(self) -> None:
+        """RT-A companion: cancel() must still work -- and persist
+        OPERATOR_CANCELLED -- when the run has not yet reached a terminal
+        checkpoint on its own."""
+        factory = PostgresUnitOfWorkFactory(self.engine)
+        _seed(factory)
+        controller = self._controller(factory)
+        controller.start(_command(bounds=_bounds(max_cycles=5)))
+        cancelled = controller.cancel("run-1")
+        self.assertEqual(cancelled.state, OrchestrationState.COMPLETED.value)
         self.assertEqual(cancelled.stop_reason, StopReason.OPERATOR_CANCELLED.value)
+        with factory.open() as uow:
+            reloaded = uow.research_orchestrations.get("run-1")
+            uow.rollback()
+        assert reloaded is not None
+        self.assertEqual(reloaded.stop_reason, StopReason.OPERATOR_CANCELLED.value)
 
     def test_max_cycles_zero_executes_nothing(self) -> None:
         factory = PostgresUnitOfWorkFactory(self.engine)

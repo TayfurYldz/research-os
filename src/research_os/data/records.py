@@ -1863,6 +1863,16 @@ ALLOWED_ORCHESTRATION_STATES = frozenset(
         "FAILED_OPERATIONAL",
     }
 )
+# Mirrors research_os.research.orchestration.TERMINAL_ORCHESTRATION_STATES.
+# Duplicated (not imported) because Data must not import Research decisions;
+# keep both lists in sync if the set of terminal states ever changes.
+TERMINAL_ORCHESTRATION_STATES = frozenset(
+    {
+        "COMPLETED",
+        "BUDGET_EXHAUSTED",
+        "FAILED_OPERATIONAL",
+    }
+)
 ALLOWED_ORCHESTRATION_PHASES = frozenset(
     {
         "CYCLE_READY",

@@ -14,7 +14,7 @@ from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any, Callable, Mapping
-from urllib.parse import urlparse
+from urllib.parse import unquote, urlparse
 
 from sqlalchemy import text
 
@@ -40,6 +40,7 @@ from research_os.application.program_daily_budget import (
 from research_os.application.finalize_finding import FinalizeFinding, FinalizeFindingCommand
 from research_os.application.record_human_review import RecordHumanReview, RecordHumanReviewCommand
 from research_os.application.start_human_review import StartHumanReview, StartHumanReviewCommand
+from research_os.application.reconcile_research_run import ReconcileResearchRun
 from research_os.application.research_run_control import ResearchRunControl
 from research_os.core.scope_compiler import evaluate_scope_candidate
 from research_os.core.enums import ActorType
@@ -50,10 +51,12 @@ from research_os.integrations.models.cli_session import (
     load_codex_model_configurations,
     probe_codex_cli,
 )
-from research_os.platform.local_process_worker import LocalProcessWorkerAdapter
+from research_os.platform.persistent_browser_worker import PersistentBrowserWorkerAdapter
 from research_os.platform.url_normalize import normalize_url
 from research_os.research.orchestration import OrchestrationBounds
 from research_os.research.finding_proposal import HumanReviewDecision
+from research_os.research.discovery.config import DiscoveryBounds, DiscoveryRunConfig
+from research_os.application.discovery.runner import SurfaceDiscoveryStart
 from research_os.application.local_run_supervisor import LocalRunSupervisorRegistry
 from research_os.core.enums import ActorType, ScopeRuleEffect
 from research_os.data.records import (
@@ -170,7 +173,7 @@ def build_dashboard_run_control_runtime(
         model=configuration.model,
         configuration_id=configuration.configuration_id,
     )
-    worker = LocalProcessWorkerAdapter()
+    worker = PersistentBrowserWorkerAdapter()
     controller = AutonomousResearchController(factory, worker, model)
 
     def prepare_start(research_run_id: str) -> None:
@@ -196,6 +199,7 @@ def build_dashboard_run_control_runtime(
         LocalRunSupervisorRegistry(),
         factory,
         prepare_start=prepare_start,
+        reconciler=ReconcileResearchRun(factory),
     )
 
     def command_factory(
@@ -239,6 +243,35 @@ def build_dashboard_run_control_runtime(
         except (KeyError, TypeError, ValueError) as exc:
             raise ValueError("persisted orchestration configuration is invalid") from exc
         budget = _budget_for_run(factory, research_run_id)
+        if candidate.normalized_scheme is None or candidate.normalized_host is None:
+            raise ValueError("target reference cannot seed surface discovery")
+        default_port = 80 if candidate.normalized_scheme == "http" else 443
+        normalized_origin = f"{candidate.normalized_scheme}://{candidate.normalized_host}"
+        if candidate.normalized_port != default_port:
+            normalized_origin += f":{candidate.normalized_port}"
+        discovery_bounds = DiscoveryBounds(
+            max_discovery_cycles=bounds.max_cycles,
+            max_frontier_items=bounds.max_worker_invocations,
+            max_new_facts_per_cycle=bounds.max_worker_invocations,
+            max_browser_actions=bounds.max_worker_invocations,
+            max_http_transactions=bounds.max_worker_invocations,
+            max_per_route_revisit=1,
+            max_identity_variants=0,
+            max_transition_depth=1,
+            max_graph_depth_from_seed=2,
+            max_template_inference_fanout=4,
+            max_duplicate_observations=1,
+        )
+        surface_discovery = SurfaceDiscoveryStart(
+            config=DiscoveryRunConfig(
+                research_run_id=research_run_id,
+                seed_target_reference=target_reference,
+                normalized_origin=normalized_origin,
+                normalized_path=candidate.raw_path,
+                bounds=discovery_bounds,
+            ),
+            compiled_scope=context.compiled_scope,
+        )
         return StartAutonomousResearchCommand(
             research_run_id=research_run_id,
             budget_id=budget,
@@ -246,12 +279,17 @@ def build_dashboard_run_control_runtime(
             scope=scope,
             bounds=bounds,
             research_question=research_question,
+            surface_discovery=surface_discovery,
         )
+
+    def close_runtime() -> None:
+        worker.shutdown()
+        engine.dispose()
 
     return DashboardRunControlRuntime(
         control=control,
         command_factory=command_factory,
-        close=engine.dispose,
+        close=close_runtime,
         approval=DashboardApprovalRuntime(
             start_review=StartHumanReview(factory),
             record_review=RecordHumanReview(factory),
@@ -979,7 +1017,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
         ):
             try:
                 result = _operator_run_action(
-                    parts[3], parts[2], self._read_json_body() if parts[3] in {"start", "resume"} else {}
+                    parts[3], unquote(parts[2]), self._read_json_body() if parts[3] in {"start", "resume"} else {}
                 )
             except ValueError as exc:
                 self._send_json(
@@ -1435,6 +1473,30 @@ HTML = r"""<!doctype html>
       min-width: 160px;
       text-align: right;
     }
+    .runControls {
+      display: flex;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 6px;
+      min-width: 220px;
+    }
+    .controlButton {
+      border: 1px solid var(--line);
+      border-radius: 5px;
+      background: #fff;
+      color: var(--ink);
+      padding: 5px 8px;
+      font-size: 11px;
+      font-weight: 800;
+      cursor: pointer;
+    }
+    .controlButton:hover { border-color: #66887e; background: #f3faf6; }
+    .controlButton:disabled { opacity: .55; cursor: wait; }
+    .controlStatus {
+      color: var(--muted);
+      font-size: 11px;
+      font-weight: 700;
+    }
     @media (max-width: 1120px) {
       .shell { grid-template-columns: 1fr; }
       .rail { display: none; }
@@ -1501,7 +1563,7 @@ HTML = r"""<!doctype html>
             <div class="panelHead"><span>Research Runs</span><span class="pill" id="runCount">0</span></div>
             <div class="panelBody">
               <table>
-                <thead><tr><th>Run</th><th>Program</th><th>State</th><th>Phase</th><th>Updated</th></tr></thead>
+                <thead><tr><th>Run</th><th>Program</th><th>State</th><th>Phase</th><th>Updated</th><th>Controls</th></tr></thead>
                 <tbody id="runs"></tbody>
               </table>
             </div>
@@ -1619,6 +1681,25 @@ out-of-scope probing</textarea></div>
       return text.length > n ? text.slice(0, n) : text;
     };
     const time = (value) => value ? new Date(value).toLocaleString() : '-';
+    const runState = (row) => String(row.state || 'CREATED').toUpperCase();
+    const runControls = (row) => {
+      const state = runState(row);
+      const runId = encodeURIComponent(String(row.research_run_id || ''));
+      const button = (action, label) => `<button type="button" class="controlButton" data-run-action="${action}" data-run-id="${runId}">${label}</button>`;
+      if (state === 'CREATED' || state === 'STARTABLE') {
+        return `<div class="runControls">${button('start', 'START')}<span class="controlStatus" data-run-status></span></div>`;
+      }
+      if (state === 'READY' || state === 'RUNNING') {
+        return `<div class="runControls">${button('pause', 'PAUSE')}${button('cancel', 'CANCEL')}<span class="controlStatus" data-run-status></span></div>`;
+      }
+      if (state === 'PAUSED') {
+        return `<div class="runControls">${button('resume', 'RESUME')}${button('cancel', 'CANCEL')}<span class="controlStatus" data-run-status></span></div>`;
+      }
+      if (state === 'WAITING_HUMAN') {
+        return `<div class="runControls"><span class="controlStatus">Approval required; review queue</span></div>`;
+      }
+      return `<div class="runControls"><span class="controlStatus">Terminal: ${escapeHtml(state)}</span></div>`;
+    };
     const numericFields = new Set([
       'max_response_bytes', 'timeout_ms', 'max_requests_per_window', 'window_seconds',
       'max_requests', 'max_tool_calls', 'max_runtime_ms', 'max_concurrency',
@@ -1713,7 +1794,8 @@ out-of-scope probing</textarea></div>
           <td>${pill(row.state || 'not started')}</td>
           <td>${escapeHtml(row.current_phase || '-')}</td>
           <td>${escapeHtml(time(row.updated_at || row.started_at))}</td>
-        </tr>`).join('') : `<tr><td colspan="5" class="empty">No research runs</td></tr>`;
+          <td>${runControls(row)}</td>
+        </tr>`).join('') : `<tr><td colspan="6" class="empty">No research runs</td></tr>`;
       $('setupRuns').innerHTML = runs.length ? runs.map(row => `
         <tr>
           <td class="mono" title="${escapeHtml(row.research_run_id)}">${escapeHtml(short(row.research_run_id, 14))}</td>
@@ -1756,6 +1838,34 @@ out-of-scope probing</textarea></div>
 
     document.querySelectorAll('.nav button').forEach(button => {
       button.addEventListener('click', () => switchView(button.dataset.view, button.dataset.title, button));
+    });
+
+    $('runs').addEventListener('click', async (event) => {
+      const button = event.target.closest('button[data-run-action]');
+      if (!button || button.disabled) return;
+      const action = button.dataset.runAction;
+      const runId = button.dataset.runId;
+      const controls = button.closest('.runControls');
+      const status = controls ? controls.querySelector('[data-run-status]') : null;
+      const labels = { start: 'starting', pause: 'pausing', resume: 'resuming', cancel: 'cancelling' };
+      const actionLabel = labels[action] || 'updating';
+      const rowButtons = controls ? controls.querySelectorAll('button[data-run-action]') : [button];
+      rowButtons.forEach(item => { item.disabled = true; });
+      if (status) status.textContent = actionLabel;
+      try {
+        const response = await fetch(`/api/runs/${runId}/${action}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({}),
+        });
+        const result = await response.json();
+        if (!response.ok || !result.ok) throw new Error(result.error || `${action} failed`);
+        if (status) status.textContent = `${action} accepted`;
+        await load();
+      } catch (err) {
+        if (status) status.textContent = `error: ${err.message}`;
+        rowButtons.forEach(item => { item.disabled = false; });
+      }
     });
 
     $('setupForm').addEventListener('submit', async (event) => {

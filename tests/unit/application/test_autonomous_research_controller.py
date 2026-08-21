@@ -278,5 +278,163 @@ class AutonomousResearchControllerTests(unittest.TestCase):
         self.assertGreaterEqual(len(port.calls), 1)
 
 
+class TerminalStateImmutabilityTests(unittest.TestCase):
+    """RT-A: a terminal orchestration checkpoint must never be overwritten by
+    an operator command, and the rejection itself must be audited."""
+
+    def _terminal_record(self, store: _Store, *, state: str, stop_reason: str):
+        controller, factory, _ = _controller(store)
+        controller.start(_command())
+        from dataclasses import replace
+
+        current = store.research_orchestrations["run-1"]
+        store.research_orchestrations["run-1"] = replace(
+            current,
+            state=state,
+            stop_reason=stop_reason,
+        )
+        return AutonomousResearchController(
+            factory, RecordingWorkerPort(store=store), ScriptedModelPort(), clock=FixedClock()
+        )
+
+    def test_pause_rejected_on_each_terminal_state(self) -> None:
+        for state, stop_reason in (
+            (OrchestrationState.COMPLETED.value, StopReason.COMPLETED_NO_MORE_OPPORTUNITIES.value),
+            (OrchestrationState.BUDGET_EXHAUSTED.value, StopReason.BUDGET_EXHAUSTED.value),
+            (OrchestrationState.FAILED_OPERATIONAL.value, StopReason.OPERATIONAL_FAILURE.value),
+        ):
+            with self.subTest(state=state):
+                store = _Store()
+                _seed_large_budget(store)
+                controller = self._terminal_record(store, state=state, stop_reason=stop_reason)
+                result = controller.pause("run-1")
+                self.assertEqual(result.state, state)
+                self.assertEqual(result.stop_reason, stop_reason)
+                self.assertEqual(store.research_orchestrations["run-1"].state, state)
+                self.assertEqual(store.research_orchestrations["run-1"].stop_reason, stop_reason)
+                rejections = [
+                    event
+                    for event in store.audit_events.values()
+                    if event.event_type == "ORCHESTRATION_OPERATOR_COMMAND_REJECTED"
+                ]
+                self.assertEqual(len(rejections), 1)
+                self.assertEqual(rejections[0].payload["current_state"], state)
+                self.assertEqual(rejections[0].payload["requested_state"], "PAUSED")
+
+    def test_cancel_rejected_on_each_terminal_state(self) -> None:
+        for state, stop_reason in (
+            (OrchestrationState.COMPLETED.value, StopReason.MAX_CYCLES_REACHED.value),
+            (OrchestrationState.BUDGET_EXHAUSTED.value, StopReason.BUDGET_EXHAUSTED.value),
+            (OrchestrationState.FAILED_OPERATIONAL.value, StopReason.OPERATIONAL_FAILURE.value),
+        ):
+            with self.subTest(state=state):
+                store = _Store()
+                _seed_large_budget(store)
+                controller = self._terminal_record(store, state=state, stop_reason=stop_reason)
+                result = controller.cancel("run-1")
+                self.assertEqual(result.state, state)
+                self.assertEqual(result.stop_reason, stop_reason)
+                self.assertEqual(store.research_orchestrations["run-1"].state, state)
+                self.assertEqual(store.research_orchestrations["run-1"].stop_reason, stop_reason)
+                rejections = [
+                    event
+                    for event in store.audit_events.values()
+                    if event.event_type == "ORCHESTRATION_OPERATOR_COMMAND_REJECTED"
+                ]
+                self.assertEqual(len(rejections), 1)
+                self.assertEqual(rejections[0].payload["requested_state"], "COMPLETED")
+                self.assertEqual(rejections[0].payload["requested_stop_reason"], "OPERATOR_CANCELLED")
+
+    def test_pause_and_cancel_still_work_on_non_terminal_states(self) -> None:
+        store = _Store()
+        _seed_large_budget(store)
+        controller, _, _ = _controller(store)
+        controller.start(_command())
+        paused = controller.pause("run-1")
+        self.assertEqual(paused.state, OrchestrationState.PAUSED.value)
+        cancelled = controller.cancel("run-1")
+        self.assertEqual(cancelled.state, OrchestrationState.COMPLETED.value)
+        self.assertEqual(cancelled.stop_reason, StopReason.OPERATOR_CANCELLED.value)
+
+    def test_repository_save_rejects_write_to_terminal_row(self) -> None:
+        from dataclasses import replace
+
+        from research_os.data.errors import TerminalOrchestrationStateError
+
+        store = _Store()
+        _seed_large_budget(store)
+        controller, factory, _ = _controller(store)
+        controller.start(_command())
+        current = store.research_orchestrations["run-1"]
+        store.research_orchestrations["run-1"] = replace(
+            current, state=OrchestrationState.COMPLETED.value
+        )
+        with factory.open() as uow:
+            terminal = uow.research_orchestrations.get("run-1")
+            with self.assertRaises(TerminalOrchestrationStateError):
+                uow.research_orchestrations.save(replace(terminal, last_phase="tampered"))
+            uow.rollback()
+        self.assertNotEqual(store.research_orchestrations["run-1"].last_phase, "tampered")
+
+
+class MarkOperationalFailureTests(unittest.TestCase):
+    """RT-B support: the controller entry point used by reconciliation to
+    close out a crash-left RUNNING checkpoint, without becoming a second
+    authority over research-run lifecycle state."""
+
+    def test_marks_running_checkpoint_as_failed_operational(self) -> None:
+        from dataclasses import replace
+
+        store = _Store()
+        _seed_large_budget(store)
+        controller, _, _ = _controller(store)
+        controller.start(_command())
+        current = store.research_orchestrations["run-1"]
+        store.research_orchestrations["run-1"] = replace(
+            current, state=OrchestrationState.RUNNING.value
+        )
+        result = controller.mark_operational_failure(
+            "run-1", reason="stale RUNNING checkpoint after process restart"
+        )
+        self.assertEqual(result.state, OrchestrationState.FAILED_OPERATIONAL.value)
+        self.assertEqual(result.stop_reason, StopReason.OPERATIONAL_FAILURE.value)
+        self.assertEqual(
+            store.research_orchestrations["run-1"].state,
+            OrchestrationState.FAILED_OPERATIONAL.value,
+        )
+        reconciled = [
+            event
+            for event in store.audit_events.values()
+            if event.event_type == "ORCHESTRATION_RECONCILED_OPERATIONAL_FAILURE"
+        ]
+        self.assertEqual(len(reconciled), 1)
+
+    def test_is_noop_when_not_running(self) -> None:
+        store = _Store()
+        _seed_large_budget(store)
+        controller, _, _ = _controller(store)
+        controller.start(_command())
+        result = controller.mark_operational_failure("run-1", reason="should not apply")
+        self.assertEqual(result.state, OrchestrationState.READY.value)
+        self.assertEqual(store.research_orchestrations["run-1"].state, OrchestrationState.READY.value)
+
+    def test_is_noop_when_already_terminal(self) -> None:
+        from dataclasses import replace
+
+        store = _Store()
+        _seed_large_budget(store)
+        controller, _, _ = _controller(store)
+        controller.start(_command())
+        current = store.research_orchestrations["run-1"]
+        store.research_orchestrations["run-1"] = replace(
+            current,
+            state=OrchestrationState.COMPLETED.value,
+            stop_reason=StopReason.MAX_CYCLES_REACHED.value,
+        )
+        result = controller.mark_operational_failure("run-1", reason="ignored")
+        self.assertEqual(result.state, OrchestrationState.COMPLETED.value)
+        self.assertEqual(result.stop_reason, StopReason.MAX_CYCLES_REACHED.value)
+
+
 if __name__ == "__main__":
     unittest.main()

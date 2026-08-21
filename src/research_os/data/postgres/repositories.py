@@ -15,6 +15,7 @@ from research_os.data.errors import (
     PersistenceConflictError,
     PersistenceError,
     PersistenceInputError,
+    TerminalOrchestrationStateError,
 )
 from research_os.data.postgres import mapping as map_row
 from research_os.data.postgres import tables
@@ -74,6 +75,7 @@ from research_os.data.records import (
     SnapshotMemberRecord,
     ChangeEventRecord,
     SessionContextRecord,
+    TERMINAL_ORCHESTRATION_STATES,
 )
 from research_os.data.budget_ledger import assert_within_allowance
 
@@ -2061,12 +2063,30 @@ class PostgresResearchOrchestrationRepository:
                     tables.research_orchestration.c.research_run_id
                     == record.research_run_id
                 )
+                .where(
+                    tables.research_orchestration.c.state.notin_(
+                        tuple(TERMINAL_ORCHESTRATION_STATES)
+                    )
+                )
                 .values(**values)
             )
         except SQLAlchemyError as exc:
             raise PersistenceError("persistence write failed") from exc
-        if result.rowcount != 1:
+        if result.rowcount == 1:
+            return
+        current = _fetch_one(
+            self._connection,
+            tables.research_orchestration,
+            tables.research_orchestration.c.research_run_id,
+            record.research_run_id,
+            map_row.research_orchestration_from_row,
+        )
+        if current is None:
             raise PersistenceError("research_orchestration not found for checkpoint")
+        raise TerminalOrchestrationStateError(
+            f"research_orchestration {record.research_run_id} is terminal "
+            f"({current.state}); state and stop_reason are immutable"
+        )
 
 
 class PostgresResearchCycleRepository:

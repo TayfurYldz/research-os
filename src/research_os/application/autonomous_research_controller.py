@@ -75,6 +75,7 @@ from research_os.research.model_port import ModelPort
 from research_os.research.model_runtime import RuntimeOutcome
 from research_os.research.orchestration import (
     ORCHESTRATION_POLICY_VERSION,
+    TERMINAL_ORCHESTRATION_STATES,
     CycleOutcome,
     OrchestrationBounds,
     OrchestrationPhase,
@@ -797,6 +798,27 @@ class AutonomousResearchController:
             current = uow.research_orchestrations.get(research_run_id)
             if current is None:
                 raise ApplicationError("orchestration not found")
+            if current.state in TERMINAL_ORCHESTRATION_STATES:
+                uow.audit_events.insert(
+                    AuditEventRecord(
+                        audit_event_id=new_opaque_id(),
+                        occurred_at=now,
+                        actor_id=self._actor_id,
+                        actor_type=ActorType.CONTROL_PLANE.value,
+                        event_type="ORCHESTRATION_OPERATOR_COMMAND_REJECTED",
+                        subject_type="research_run",
+                        subject_id=research_run_id,
+                        payload={
+                            "requested_state": state.value,
+                            "requested_stop_reason": reason.value,
+                            "current_state": current.state,
+                            "current_stop_reason": current.stop_reason,
+                            "rejection_reason": "terminal_state_immutable",
+                        },
+                    )
+                )
+                uow.commit()
+                return _result_from_record(current, CycleOutcome.CONTINUE)
             updated = replace(
                 current,
                 state=state.value,
@@ -809,6 +831,54 @@ class AutonomousResearchController:
             uow.research_orchestrations.save(updated)
             uow.commit()
         return _result_from_record(updated, outcome)
+
+    def mark_operational_failure(
+        self, research_run_id: str, *, reason: str
+    ) -> OrchestrationTickResult:
+        """Transition a RUNNING checkpoint to FAILED_OPERATIONAL from external
+        reconciliation evidence.
+
+        Callers must have already established, outside of this controller
+        (e.g. via `ReconcileResearchRun` and the local supervisor registry),
+        that the persisted RUNNING checkpoint has no active owner in this
+        process. This method re-validates state itself and is a safe no-op
+        both when the run is not RUNNING and when it is already terminal, so
+        it can be called speculatively without risk of double transition.
+        """
+        now = self._clock.now()
+        with self._uow_factory.open() as uow:
+            current = uow.research_orchestrations.get(research_run_id)
+            if current is None:
+                raise ApplicationError("orchestration not found")
+            if current.state != OrchestrationState.RUNNING.value:
+                uow.rollback()
+                return _result_from_record(current, CycleOutcome.CONTINUE)
+            updated = replace(
+                current,
+                state=OrchestrationState.FAILED_OPERATIONAL.value,
+                stop_reason=StopReason.OPERATIONAL_FAILURE.value,
+                last_phase="reconciliation",
+                updated_at=now,
+                checkpoint_at=now,
+            )
+            uow.research_orchestrations.save(updated)
+            uow.audit_events.insert(
+                AuditEventRecord(
+                    audit_event_id=new_opaque_id(),
+                    occurred_at=now,
+                    actor_id=self._actor_id,
+                    actor_type=ActorType.CONTROL_PLANE.value,
+                    event_type="ORCHESTRATION_RECONCILED_OPERATIONAL_FAILURE",
+                    subject_type="research_run",
+                    subject_id=research_run_id,
+                    payload={
+                        "previous_state": current.state,
+                        "reason": reason,
+                    },
+                )
+            )
+            uow.commit()
+        return _result_from_record(updated, CycleOutcome.BLOCKED)
 
     def _reload(self, research_run_id: str) -> ResearchOrchestrationRecord:
         with self._uow_factory.open() as uow:

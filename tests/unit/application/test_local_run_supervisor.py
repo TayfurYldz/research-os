@@ -14,6 +14,7 @@ from research_os.application.local_run_supervisor import (
 )
 from research_os.core.enums import ScopeRuleEffect
 from research_os.core.scope import ScopeEvaluationInput, ScopeRuleMatch
+from research_os.data.errors import TerminalOrchestrationStateError
 from research_os.research.orchestration import OrchestrationBounds, OrchestrationState
 from support.fake_model import ScriptedModelPort
 from support.fake_unit_of_work import FakeUnitOfWorkFactory, _Store
@@ -126,6 +127,65 @@ class LocalRunSupervisorTests(unittest.TestCase):
         first.join(1)
 
         self.assertIs(first, second)
+
+    def test_registry_is_active_reflects_live_supervisor_only(self) -> None:
+        store = _seed()
+        factory = FakeUnitOfWorkFactory(store=store)
+        controller = AutonomousResearchController(
+            factory,
+            RecordingWorkerPort(store=store),
+            ScriptedModelPort(),
+            clock=FixedClock(),
+        )
+        controller.start(_command())
+        controller.pause("run-1")
+        registry = LocalRunSupervisorRegistry()
+
+        self.assertFalse(registry.is_active("run-1"))
+
+        supervisor = registry.start(
+            research_run_id="run-1",
+            controller=controller,
+            command=_command(),
+            uow_factory=factory,
+            cadence_seconds=10,
+        )
+        self.assertTrue(registry.is_active("run-1"))
+
+        supervisor.request_stop()
+        supervisor.join(2)
+        self.assertFalse(registry.is_active("run-1"))
+
+    def test_tick_treats_a_terminal_race_as_stop_not_a_crash(self) -> None:
+        """RT-A follow-through: if another writer (operator cancel, or
+        reconciliation) finalizes the run terminally while this tick's
+        step() is in flight, the resulting TerminalOrchestrationStateError
+        must not escape tick() as an unhandled exception -- the persisted
+        terminal state wins and this supervisor stops cleanly."""
+        from dataclasses import replace
+
+        store = _seed()
+        supervisor = self._supervisor(store)
+        current = store.research_orchestrations["run-1"]
+        store.research_orchestrations["run-1"] = replace(
+            current, state=OrchestrationState.RUNNING.value
+        )
+
+        def _racing_step(*_args, **_kwargs):
+            finalized = store.research_orchestrations["run-1"]
+            store.research_orchestrations["run-1"] = replace(
+                finalized,
+                state=OrchestrationState.COMPLETED.value,
+                stop_reason="OPERATOR_CANCELLED",
+            )
+            raise TerminalOrchestrationStateError("race: run finalized concurrently")
+
+        supervisor.controller.step = _racing_step  # type: ignore[method-assign]
+
+        result = supervisor.tick()
+
+        self.assertEqual(result.state, OrchestrationState.COMPLETED.value)
+        self.assertEqual(result.stop_reason, "OPERATOR_CANCELLED")
 
 
 if __name__ == "__main__":

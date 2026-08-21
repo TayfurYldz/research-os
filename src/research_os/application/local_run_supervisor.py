@@ -7,7 +7,7 @@ ticks and treats the persisted orchestration record as authoritative.
 from __future__ import annotations
 
 import threading
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from research_os.application.autonomous_research_controller import (
     AutonomousResearchController,
@@ -16,6 +16,7 @@ from research_os.application.autonomous_research_controller import (
 )
 from research_os.application.errors import ApplicationError
 from research_os.application.ports import UnitOfWorkFactory
+from research_os.data.errors import TerminalOrchestrationStateError
 from research_os.research.orchestration import (
     CycleOutcome,
     OrchestrationState,
@@ -84,10 +85,27 @@ class LocalRunSupervisor:
             OrchestrationState.READY.value,
             OrchestrationState.RUNNING.value,
         }:
-            result = self.controller.step(self.command)
+            try:
+                result = self.controller.step(self.command)
+            except TerminalOrchestrationStateError:
+                # Another authority (operator pause/cancel, or reconciliation)
+                # finalized this run terminally while this tick was in
+                # flight. The persisted terminal state already wins; reload
+                # and stop supervising rather than raising in this thread.
+                with self.uow_factory.open() as uow:
+                    record = uow.research_orchestrations.get(self.research_run_id)
+                    uow.rollback()
+                if record is None:
+                    raise ApplicationError("orchestration not found")
+                result = _result_from_persisted(record)
         else:
             result = _result_from_persisted(record)
         self._last_result = result
+        if (
+            self.command.surface_discovery is not None
+            and result.state in {OrchestrationState.READY.value, OrchestrationState.RUNNING.value}
+        ):
+            self.command = replace(self.command, surface_discovery=None)
         if result.state in _TERMINAL_STATES:
             self._stop_event.set()
         return result
@@ -165,3 +183,15 @@ class LocalRunSupervisorRegistry:
             supervisor = self._supervisors.get(research_run_id)
         if supervisor is not None:
             supervisor.request_stop()
+
+    def is_active(self, research_run_id: str) -> bool:
+        """True if this process already owns a live supervisor thread for the run.
+
+        Process-local only: a run supervised by a different process will
+        report False here even though it is genuinely owned elsewhere. Full
+        cross-process ownership is the lease/fencing mechanism, not this
+        registry.
+        """
+        with self._lock:
+            supervisor = self._supervisors.get(research_run_id)
+        return supervisor is not None and supervisor.is_running

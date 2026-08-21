@@ -11,4 +11,5 @@ build/
 .claude/agent-memory-local/
 var/benchmark-results/
 var/security-benchmark-results/
+var/live-runs/
 *:Zone.Identifier
