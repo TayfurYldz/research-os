@@ -16,6 +16,7 @@ from research_os.application.reconcile_research_run import (
     ReconcileResearchRunCommand,
     ReconciliationResolution,
 )
+from research_os.data.errors import LeaseFencingError
 
 
 @dataclass
@@ -66,9 +67,16 @@ class ResearchRunControl:
                 item.subject_type == "research_orchestration"
                 and item.resolution is ReconciliationResolution.MARK_OPERATIONAL_FAILURE
             ):
-                self.controller.mark_operational_failure(
-                    research_run_id, reason=item.reason
-                )
+                try:
+                    self.controller.mark_operational_failure(
+                        research_run_id, reason=item.reason
+                    )
+                except LeaseFencingError:
+                    # A different runtime instance holds a live lease on this
+                    # run right now: it is not actually stale, only
+                    # unsupervised by *this* process. Leave it to its real
+                    # owner rather than overriding it.
+                    pass
 
     def pause(self, research_run_id: str) -> OrchestrationTickResult:
         return self.controller.pause(research_run_id)

@@ -470,7 +470,7 @@ class Gate07TargetDifferentialTests(unittest.TestCase):
                     text("SELECT tablename FROM pg_tables WHERE schemaname = 'public'")
                 )
             }
-        self.assertEqual(version, "a34_001_program_platforms")
+        self.assertEqual(version, "a35_001_orchestration_lease")
         self.assertIn("target_inference", tables)
         self.assertIn("differential_observation", tables)
         self.assertIn("finding", tables)

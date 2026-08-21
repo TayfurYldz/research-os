@@ -3,15 +3,16 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any, TypeVar
 
-from sqlalchemy import select, update
+from sqlalchemy import func, or_, select, update
 from sqlalchemy.engine import Connection
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 
 from research_os.data.errors import (
     BudgetOverspendError,
+    LeaseFencingError,
     PersistenceConflictError,
     PersistenceError,
     PersistenceInputError,
@@ -53,6 +54,8 @@ from research_os.data.records import (
     InvariantCounterexampleRefRecord,
     InvariantHypothesisRecord,
     IssuedBudgetRecord,
+    LeaseAcquireOutcome,
+    LeaseAcquireResult,
     ObservationRecord,
     OastTokenRecord,
     ProgramPolicyRecord,
@@ -100,6 +103,20 @@ def _execute_write(connection: Connection, statement) -> None:
         _raise_integrity(exc)
     except SQLAlchemyError as exc:
         raise PersistenceError("persistence write failed") from exc
+
+
+def _server_now(connection: Connection) -> datetime:
+    """Current time per PostgreSQL, not the application host's clock.
+
+    Lease-expiration decisions must not depend on app-server clock skew
+    across runtime instances; every comparison and every computed expiry in
+    this module is anchored to this single round trip.
+    """
+
+    try:
+        return connection.execute(select(func.now())).scalar_one()
+    except SQLAlchemyError as exc:
+        raise PersistenceError("persistence read failed") from exc
 
 
 def _fetch_one(
@@ -2052,12 +2069,29 @@ class PostgresResearchOrchestrationRepository:
             map_row.research_orchestration_from_row,
         )
 
-    def save(self, record: ResearchOrchestrationRecord) -> None:
+    def save(
+        self,
+        record: ResearchOrchestrationRecord,
+        *,
+        expect_owner_runtime_instance_id: str | None = None,
+        expect_lease_epoch: int | None = None,
+        require_unowned_or_expired: bool = False,
+    ) -> None:
         require_opaque_id(record.research_run_id, "research_run_id")
+        if (expect_owner_runtime_instance_id is None) != (expect_lease_epoch is None):
+            raise PersistenceInputError(
+                "expect_owner_runtime_instance_id and expect_lease_epoch must be "
+                "provided together or not at all"
+            )
+        fenced_by_epoch = expect_owner_runtime_instance_id is not None
+        if fenced_by_epoch and require_unowned_or_expired:
+            raise PersistenceInputError(
+                "cannot combine epoch fencing with require_unowned_or_expired"
+            )
         values = _orchestration_values(record)
         values.pop("research_run_id")
         try:
-            result = self._connection.execute(
+            statement = (
                 update(tables.research_orchestration)
                 .where(
                     tables.research_orchestration.c.research_run_id
@@ -2068,8 +2102,21 @@ class PostgresResearchOrchestrationRepository:
                         tuple(TERMINAL_ORCHESTRATION_STATES)
                     )
                 )
-                .values(**values)
             )
+            if fenced_by_epoch:
+                statement = statement.where(
+                    tables.research_orchestration.c.owner_runtime_instance_id
+                    == expect_owner_runtime_instance_id
+                ).where(tables.research_orchestration.c.lease_epoch == expect_lease_epoch)
+            if require_unowned_or_expired:
+                server_now = _server_now(self._connection)
+                statement = statement.where(
+                    or_(
+                        tables.research_orchestration.c.owner_runtime_instance_id.is_(None),
+                        tables.research_orchestration.c.lease_expires_at < server_now,
+                    )
+                )
+            result = self._connection.execute(statement.values(**values))
         except SQLAlchemyError as exc:
             raise PersistenceError("persistence write failed") from exc
         if result.rowcount == 1:
@@ -2083,10 +2130,150 @@ class PostgresResearchOrchestrationRepository:
         )
         if current is None:
             raise PersistenceError("research_orchestration not found for checkpoint")
-        raise TerminalOrchestrationStateError(
-            f"research_orchestration {record.research_run_id} is terminal "
-            f"({current.state}); state and stop_reason are immutable"
+        if current.state in TERMINAL_ORCHESTRATION_STATES:
+            raise TerminalOrchestrationStateError(
+                f"research_orchestration {record.research_run_id} is terminal "
+                f"({current.state}); state and stop_reason are immutable"
+            )
+        if fenced_by_epoch:
+            raise LeaseFencingError(
+                f"research_orchestration {record.research_run_id} lease has moved on "
+                f"(expected owner={expect_owner_runtime_instance_id!r} "
+                f"epoch={expect_lease_epoch}, current owner="
+                f"{current.owner_runtime_instance_id!r} epoch={current.lease_epoch}); "
+                "ownership lost, refusing to persist"
+            )
+        if require_unowned_or_expired:
+            raise LeaseFencingError(
+                f"research_orchestration {record.research_run_id} is still actively "
+                f"leased by {current.owner_runtime_instance_id!r} "
+                f"(epoch={current.lease_epoch}); refusing reconciliation write"
+            )
+        raise PersistenceError("persistence write failed")
+
+    def acquire_lease(
+        self,
+        research_run_id: str,
+        *,
+        owner_runtime_instance_id: str,
+        ttl_seconds: float,
+    ) -> LeaseAcquireResult:
+        require_opaque_id(research_run_id, "research_run_id")
+        if not isinstance(owner_runtime_instance_id, str) or not owner_runtime_instance_id.strip():
+            raise PersistenceInputError("owner_runtime_instance_id must be a non-empty string")
+        if not isinstance(ttl_seconds, (int, float)) or ttl_seconds <= 0:
+            raise PersistenceInputError("ttl_seconds must be > 0")
+        try:
+            server_now = _server_now(self._connection)
+            expires_at = server_now + timedelta(seconds=ttl_seconds)
+            result = self._connection.execute(
+                update(tables.research_orchestration)
+                .where(tables.research_orchestration.c.research_run_id == research_run_id)
+                .where(
+                    tables.research_orchestration.c.state.notin_(
+                        tuple(TERMINAL_ORCHESTRATION_STATES)
+                    )
+                )
+                .where(
+                    or_(
+                        tables.research_orchestration.c.owner_runtime_instance_id.is_(None),
+                        tables.research_orchestration.c.owner_runtime_instance_id
+                        == owner_runtime_instance_id,
+                        tables.research_orchestration.c.lease_expires_at < server_now,
+                    )
+                )
+                .values(
+                    owner_runtime_instance_id=owner_runtime_instance_id,
+                    lease_epoch=tables.research_orchestration.c.lease_epoch + 1,
+                    lease_expires_at=expires_at,
+                    updated_at=server_now,
+                )
+            )
+        except SQLAlchemyError as exc:
+            raise PersistenceError("persistence write failed") from exc
+        current = _fetch_one(
+            self._connection,
+            tables.research_orchestration,
+            tables.research_orchestration.c.research_run_id,
+            research_run_id,
+            map_row.research_orchestration_from_row,
         )
+        if result.rowcount == 1:
+            if current is None:
+                raise PersistenceError("research_orchestration vanished during lease acquire")
+            return LeaseAcquireResult(outcome=LeaseAcquireOutcome.ACQUIRED, record=current)
+        if current is None:
+            return LeaseAcquireResult(outcome=LeaseAcquireOutcome.NOT_FOUND)
+        if current.state in TERMINAL_ORCHESTRATION_STATES:
+            return LeaseAcquireResult(outcome=LeaseAcquireOutcome.DENIED_TERMINAL)
+        return LeaseAcquireResult(outcome=LeaseAcquireOutcome.DENIED_HELD_BY_OTHER)
+
+    def renew_lease(
+        self,
+        research_run_id: str,
+        *,
+        owner_runtime_instance_id: str,
+        expected_lease_epoch: int,
+        ttl_seconds: float,
+    ) -> bool:
+        require_opaque_id(research_run_id, "research_run_id")
+        if not isinstance(owner_runtime_instance_id, str) or not owner_runtime_instance_id.strip():
+            raise PersistenceInputError("owner_runtime_instance_id must be a non-empty string")
+        if not isinstance(ttl_seconds, (int, float)) or ttl_seconds <= 0:
+            raise PersistenceInputError("ttl_seconds must be > 0")
+        try:
+            server_now = _server_now(self._connection)
+            result = self._connection.execute(
+                update(tables.research_orchestration)
+                .where(tables.research_orchestration.c.research_run_id == research_run_id)
+                .where(
+                    tables.research_orchestration.c.owner_runtime_instance_id
+                    == owner_runtime_instance_id
+                )
+                .where(tables.research_orchestration.c.lease_epoch == expected_lease_epoch)
+                .where(
+                    tables.research_orchestration.c.state.notin_(
+                        tuple(TERMINAL_ORCHESTRATION_STATES)
+                    )
+                )
+                .values(
+                    lease_expires_at=server_now + timedelta(seconds=ttl_seconds),
+                    updated_at=server_now,
+                )
+            )
+        except SQLAlchemyError as exc:
+            raise PersistenceError("persistence write failed") from exc
+        return result.rowcount == 1
+
+    def release_lease(
+        self,
+        research_run_id: str,
+        *,
+        owner_runtime_instance_id: str,
+        expected_lease_epoch: int,
+    ) -> bool:
+        require_opaque_id(research_run_id, "research_run_id")
+        if not isinstance(owner_runtime_instance_id, str) or not owner_runtime_instance_id.strip():
+            raise PersistenceInputError("owner_runtime_instance_id must be a non-empty string")
+        try:
+            server_now = _server_now(self._connection)
+            result = self._connection.execute(
+                update(tables.research_orchestration)
+                .where(tables.research_orchestration.c.research_run_id == research_run_id)
+                .where(
+                    tables.research_orchestration.c.owner_runtime_instance_id
+                    == owner_runtime_instance_id
+                )
+                .where(tables.research_orchestration.c.lease_epoch == expected_lease_epoch)
+                .values(
+                    owner_runtime_instance_id=None,
+                    lease_expires_at=None,
+                    updated_at=server_now,
+                )
+            )
+        except SQLAlchemyError as exc:
+            raise PersistenceError("persistence write failed") from exc
+        return result.rowcount == 1
 
 
 class PostgresResearchCycleRepository:
@@ -2266,6 +2453,9 @@ def _orchestration_values(record: ResearchOrchestrationRecord) -> dict[str, obje
         "last_worker_result_id": record.last_worker_result_id,
         "routing_policy_version": record.routing_policy_version,
         "scope_fingerprint": record.scope_fingerprint,
+        "owner_runtime_instance_id": record.owner_runtime_instance_id,
+        "lease_epoch": record.lease_epoch,
+        "lease_expires_at": record.lease_expires_at,
         "created_at": record.created_at,
         "updated_at": record.updated_at,
         "checkpoint_at": record.checkpoint_at,

@@ -166,4 +166,4 @@ class EnduranceOrchestrationTests(unittest.TestCase):
         self.assertEqual(len(worker.calls), 3)
         with self.engine.connect() as connection:
             version = connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one()
-        self.assertEqual(version, "a34_001_program_platforms")
+        self.assertEqual(version, "a35_001_orchestration_lease")

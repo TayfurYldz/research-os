@@ -1962,12 +1962,16 @@ class ResearchOrchestrationRecord:
     last_worker_result_id: str | None = None
     routing_policy_version: str | None = None
     scope_fingerprint: str | None = None
+    owner_runtime_instance_id: str | None = None
+    lease_epoch: int = 0
+    lease_expires_at: datetime | None = None
 
     def __post_init__(self) -> None:
         require_opaque_id(self.research_run_id, "research_run_id")
         require_opaque_id(self.budget_id, "budget_id")
         if self.state not in ALLOWED_ORCHESTRATION_STATES:
             raise PersistenceInputError("state is not an orchestration state")
+        require_non_negative_int(self.lease_epoch, "lease_epoch")
         require_non_negative_int(self.cycle_number, "cycle_number")
         require_non_negative_int(self.max_cycles, "max_cycles")
         require_non_negative_int(self.max_experiments, "max_experiments")
@@ -2023,6 +2027,29 @@ class ResearchOrchestrationRecord:
             not isinstance(self.scope_fingerprint, str) or len(self.scope_fingerprint) != 64
         ):
             raise PersistenceInputError("scope_fingerprint must be a SHA-256 hex digest when set")
+
+
+class LeaseAcquireOutcome(Enum):
+    """Classification of an acquire_lease() attempt. Not a research decision."""
+
+    ACQUIRED = "ACQUIRED"
+    DENIED_TERMINAL = "DENIED_TERMINAL"
+    DENIED_HELD_BY_OTHER = "DENIED_HELD_BY_OTHER"
+    NOT_FOUND = "NOT_FOUND"
+
+
+@dataclass(frozen=True)
+class LeaseAcquireResult:
+    """Outcome of one acquire_lease() call. record is populated only on ACQUIRED."""
+
+    outcome: LeaseAcquireOutcome
+    record: "ResearchOrchestrationRecord | None" = None
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.outcome, LeaseAcquireOutcome):
+            raise PersistenceInputError("outcome must be a LeaseAcquireOutcome")
+        if self.outcome is LeaseAcquireOutcome.ACQUIRED and self.record is None:
+            raise PersistenceInputError("record is required when outcome is ACQUIRED")
 
 
 @dataclass(frozen=True)

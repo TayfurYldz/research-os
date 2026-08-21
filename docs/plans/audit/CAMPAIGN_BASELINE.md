@@ -57,7 +57,7 @@ Per `CURRENT_ARCHITECTURE_SNAPSHOT.md` / `PERSISTENT_RUNTIME_GAP_AUDIT.md`, conf
 | Campaign phase | Locked slice | Status at campaign start |
 |---|---|---|
 | A (terminal immutability + attempt/recovery semantics) | Slice 0 | DONE (prior session) |
-| B (fenced ownership) | Slice 1 | Not started |
+| B (fenced ownership) | Slice 1 | DONE this campaign (see `SLICE_1_COMPLETION_RECORD.md`; PASS criteria met, one documented residual risk — bounded, not per-write, fencing inside `AutonomousResearchController`) |
 | I (Preflight) | Slice 2 | Not started |
 | D (opportunity ingestion) | Slice 3 (MR-1) | Not started |
 | E + F (compiler + V3/mutation/protocol bridge) | Slice 4 (MR-2+MR-3) | Not started |

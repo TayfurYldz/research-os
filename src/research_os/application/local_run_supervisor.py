@@ -7,7 +7,8 @@ ticks and treats the persisted orchestration record as authoritative.
 from __future__ import annotations
 
 import threading
-from dataclasses import dataclass, replace
+import time
+from dataclasses import dataclass, field, replace
 
 from research_os.application.autonomous_research_controller import (
     AutonomousResearchController,
@@ -15,8 +16,11 @@ from research_os.application.autonomous_research_controller import (
     StartAutonomousResearchCommand,
 )
 from research_os.application.errors import ApplicationError
+from research_os.application.identity import new_opaque_id
+from research_os.application.orchestration_lease import LeaseConfig
 from research_os.application.ports import UnitOfWorkFactory
-from research_os.data.errors import TerminalOrchestrationStateError
+from research_os.data.errors import PersistenceError, TerminalOrchestrationStateError
+from research_os.data.records import LeaseAcquireOutcome
 from research_os.research.orchestration import (
     CycleOutcome,
     OrchestrationState,
@@ -55,13 +59,25 @@ def _result_from_persisted(record) -> OrchestrationTickResult:
 
 @dataclass
 class LocalRunSupervisor:
-    """One bounded cadence loop for one already-started ResearchRun."""
+    """One bounded cadence loop for one already-started ResearchRun.
+
+    When `owner_runtime_instance_id` is set (the production path, always
+    supplied by `LocalRunSupervisorRegistry` after a successful lease
+    acquisition), each tick renews the lease at `lease_config`'s heartbeat
+    interval and stops ticking immediately if renewal is ever rejected
+    (another runtime instance has since acquired a newer epoch). When left
+    `None` (legacy/test construction), the supervisor ticks unleased, exactly
+    as before this lease mechanism existed.
+    """
 
     research_run_id: str
     controller: AutonomousResearchController
     command: StartAutonomousResearchCommand
     uow_factory: UnitOfWorkFactory
     cadence_seconds: float = 0.25
+    owner_runtime_instance_id: str | None = None
+    lease_epoch: int = 0
+    lease_config: LeaseConfig = field(default_factory=LeaseConfig)
 
     def __post_init__(self) -> None:
         if self.cadence_seconds <= 0:
@@ -70,10 +86,49 @@ class LocalRunSupervisor:
         self._thread: threading.Thread | None = None
         self._lock = threading.Lock()
         self._last_result: OrchestrationTickResult | None = None
+        self._last_renewed_monotonic = time.monotonic()
+        self._lease_lost = False
+
+    @property
+    def lease_lost(self) -> bool:
+        """True once a heartbeat renewal has been rejected by the SoR."""
+
+        return self._lease_lost
+
+    def _renew_lease_if_due(self) -> bool:
+        """Return False only when renewal was attempted and rejected."""
+
+        if self.owner_runtime_instance_id is None:
+            return True
+        elapsed = time.monotonic() - self._last_renewed_monotonic
+        if elapsed < self.lease_config.heartbeat_interval_seconds:
+            return True
+        with self.uow_factory.open() as uow:
+            renewed = uow.research_orchestrations.renew_lease(
+                self.research_run_id,
+                owner_runtime_instance_id=self.owner_runtime_instance_id,
+                expected_lease_epoch=self.lease_epoch,
+                ttl_seconds=self.lease_config.lease_ttl_seconds,
+            )
+            uow.commit()
+        if renewed:
+            self._last_renewed_monotonic = time.monotonic()
+            return True
+        return False
 
     def tick(self) -> OrchestrationTickResult | None:
         """Run at most one controller step after reloading durable state."""
 
+        if self._lease_lost:
+            return self._last_result
+        if not self._renew_lease_if_due():
+            self._lease_lost = True
+            self._stop_event.set()
+            with self.uow_factory.open() as uow:
+                record = uow.research_orchestrations.get(self.research_run_id)
+                uow.rollback()
+            self._last_result = _result_from_persisted(record) if record is not None else None
+            return self._last_result
         with self.uow_factory.open() as uow:
             record = uow.research_orchestrations.get(self.research_run_id)
             uow.rollback()
@@ -145,14 +200,50 @@ class LocalRunSupervisor:
             self.tick()
             if not self._stop_event.wait(self.cadence_seconds):
                 continue
+        self._release_lease_best_effort()
+
+    def _release_lease_best_effort(self) -> None:
+        """Give up the lease on graceful stop. Never raises: a failed
+        release here (e.g. already superseded, already unowned) leaves the
+        row exactly as safe as before this call, since acquire/renew are
+        independently CAS-guarded regardless of whether release ran."""
+
+        if self.owner_runtime_instance_id is None or self._lease_lost:
+            return
+        try:
+            with self.uow_factory.open() as uow:
+                uow.research_orchestrations.release_lease(
+                    self.research_run_id,
+                    owner_runtime_instance_id=self.owner_runtime_instance_id,
+                    expected_lease_epoch=self.lease_epoch,
+                )
+                uow.commit()
+        except PersistenceError:
+            # Best-effort: a failed release leaves the row exactly as safe
+            # as before this call (acquire/renew are independently
+            # CAS-guarded regardless of whether release ever ran).
+            pass
 
 
 class LocalRunSupervisorRegistry:
-    """Process-local duplicate-start guard for local supervisors."""
+    """Process-local duplicate-start guard for local supervisors.
 
-    def __init__(self) -> None:
+    Also owns this process's identity as a lease holder
+    (`owner_runtime_instance_id`, one per registry instance, i.e. one per
+    process in production) and the lease timing policy applied to every
+    supervisor it starts.
+    """
+
+    def __init__(
+        self,
+        *,
+        owner_runtime_instance_id: str | None = None,
+        lease_config: LeaseConfig | None = None,
+    ) -> None:
         self._lock = threading.Lock()
         self._supervisors: dict[str, LocalRunSupervisor] = {}
+        self.owner_runtime_instance_id = owner_runtime_instance_id or new_opaque_id()
+        self.lease_config = lease_config or LeaseConfig()
 
     def start(
         self,
@@ -162,17 +253,35 @@ class LocalRunSupervisorRegistry:
         command: StartAutonomousResearchCommand,
         uow_factory: UnitOfWorkFactory,
         cadence_seconds: float = 0.25,
-    ) -> LocalRunSupervisor:
+    ) -> LocalRunSupervisor | None:
+        """Attach a supervisor for this run, or return None if the lease
+        could not be acquired (another runtime instance holds it, or the
+        run is terminal). Returning None is not an error: it means this
+        process must not drive this run, not that the request was invalid.
+        """
+
         with self._lock:
             existing = self._supervisors.get(research_run_id)
             if existing is not None and existing.is_running:
                 return existing
+            with uow_factory.open() as uow:
+                acquired = uow.research_orchestrations.acquire_lease(
+                    research_run_id,
+                    owner_runtime_instance_id=self.owner_runtime_instance_id,
+                    ttl_seconds=self.lease_config.lease_ttl_seconds,
+                )
+                uow.commit()
+            if acquired.outcome is not LeaseAcquireOutcome.ACQUIRED:
+                return None
             supervisor = LocalRunSupervisor(
                 research_run_id,
                 controller,
                 command,
                 uow_factory,
                 cadence_seconds,
+                owner_runtime_instance_id=self.owner_runtime_instance_id,
+                lease_epoch=acquired.record.lease_epoch,
+                lease_config=self.lease_config,
             )
             self._supervisors[research_run_id] = supervisor
             supervisor.start()

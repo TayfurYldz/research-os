@@ -4,11 +4,12 @@ from __future__ import annotations
 
 from copy import deepcopy
 from dataclasses import replace
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from research_os.data.errors import (
     BudgetOverspendError,
+    LeaseFencingError,
     PersistenceConflictError,
     PersistenceError,
     PersistenceInputError,
@@ -43,6 +44,8 @@ from research_os.data.records import (
     InvariantCounterexampleRefRecord,
     InvariantHypothesisRecord,
     IssuedBudgetRecord,
+    LeaseAcquireOutcome,
+    LeaseAcquireResult,
     ObservationRecord,
     ProgramPolicyRecord,
     ProgramRecord,
@@ -1180,7 +1183,24 @@ class _ResearchOrchestrationRepo:
     def get(self, research_run_id: str) -> ResearchOrchestrationRecord | None:
         return self._root.research_orchestrations.get(research_run_id)
 
-    def save(self, record: ResearchOrchestrationRecord) -> None:
+    def save(
+        self,
+        record: ResearchOrchestrationRecord,
+        *,
+        expect_owner_runtime_instance_id: str | None = None,
+        expect_lease_epoch: int | None = None,
+        require_unowned_or_expired: bool = False,
+    ) -> None:
+        if (expect_owner_runtime_instance_id is None) != (expect_lease_epoch is None):
+            raise PersistenceInputError(
+                "expect_owner_runtime_instance_id and expect_lease_epoch must be "
+                "provided together or not at all"
+            )
+        fenced_by_epoch = expect_owner_runtime_instance_id is not None
+        if fenced_by_epoch and require_unowned_or_expired:
+            raise PersistenceInputError(
+                "cannot combine epoch fencing with require_unowned_or_expired"
+            )
         current = self._root.research_orchestrations.get(record.research_run_id)
         if current is None:
             raise PersistenceError("research_orchestration not found for checkpoint")
@@ -1189,7 +1209,105 @@ class _ResearchOrchestrationRepo:
                 f"research_orchestration {record.research_run_id} is terminal "
                 f"({current.state}); state and stop_reason are immutable"
             )
+        if fenced_by_epoch and (
+            current.owner_runtime_instance_id != expect_owner_runtime_instance_id
+            or current.lease_epoch != expect_lease_epoch
+        ):
+            raise LeaseFencingError(
+                f"research_orchestration {record.research_run_id} lease has moved on "
+                f"(expected owner={expect_owner_runtime_instance_id!r} "
+                f"epoch={expect_lease_epoch}, current owner="
+                f"{current.owner_runtime_instance_id!r} epoch={current.lease_epoch}); "
+                "ownership lost, refusing to persist"
+            )
+        if require_unowned_or_expired:
+            now = datetime.now(timezone.utc)
+            is_unowned = current.owner_runtime_instance_id is None
+            is_expired = (
+                current.lease_expires_at is not None and current.lease_expires_at < now
+            )
+            if not (is_unowned or is_expired):
+                raise LeaseFencingError(
+                    f"research_orchestration {record.research_run_id} is still "
+                    f"actively leased by {current.owner_runtime_instance_id!r} "
+                    f"(epoch={current.lease_epoch}); refusing reconciliation write"
+                )
         self._root.research_orchestrations[record.research_run_id] = record
+
+    def acquire_lease(
+        self,
+        research_run_id: str,
+        *,
+        owner_runtime_instance_id: str,
+        ttl_seconds: float,
+    ) -> LeaseAcquireResult:
+        current = self._root.research_orchestrations.get(research_run_id)
+        if current is None:
+            return LeaseAcquireResult(outcome=LeaseAcquireOutcome.NOT_FOUND)
+        if current.state in TERMINAL_ORCHESTRATION_STATES:
+            return LeaseAcquireResult(outcome=LeaseAcquireOutcome.DENIED_TERMINAL)
+        now = datetime.now(timezone.utc)
+        is_free = current.owner_runtime_instance_id is None
+        is_same_owner = current.owner_runtime_instance_id == owner_runtime_instance_id
+        is_expired = (
+            current.lease_expires_at is not None and current.lease_expires_at < now
+        )
+        if not (is_free or is_same_owner or is_expired):
+            return LeaseAcquireResult(outcome=LeaseAcquireOutcome.DENIED_HELD_BY_OTHER)
+        updated = replace(
+            current,
+            owner_runtime_instance_id=owner_runtime_instance_id,
+            lease_epoch=current.lease_epoch + 1,
+            lease_expires_at=now + timedelta(seconds=ttl_seconds),
+            updated_at=now,
+        )
+        self._root.research_orchestrations[research_run_id] = updated
+        return LeaseAcquireResult(outcome=LeaseAcquireOutcome.ACQUIRED, record=updated)
+
+    def renew_lease(
+        self,
+        research_run_id: str,
+        *,
+        owner_runtime_instance_id: str,
+        expected_lease_epoch: int,
+        ttl_seconds: float,
+    ) -> bool:
+        current = self._root.research_orchestrations.get(research_run_id)
+        if current is None or current.state in TERMINAL_ORCHESTRATION_STATES:
+            return False
+        if (
+            current.owner_runtime_instance_id != owner_runtime_instance_id
+            or current.lease_epoch != expected_lease_epoch
+        ):
+            return False
+        now = datetime.now(timezone.utc)
+        self._root.research_orchestrations[research_run_id] = replace(
+            current, lease_expires_at=now + timedelta(seconds=ttl_seconds), updated_at=now
+        )
+        return True
+
+    def release_lease(
+        self,
+        research_run_id: str,
+        *,
+        owner_runtime_instance_id: str,
+        expected_lease_epoch: int,
+    ) -> bool:
+        current = self._root.research_orchestrations.get(research_run_id)
+        if current is None:
+            return False
+        if (
+            current.owner_runtime_instance_id != owner_runtime_instance_id
+            or current.lease_epoch != expected_lease_epoch
+        ):
+            return False
+        self._root.research_orchestrations[research_run_id] = replace(
+            current,
+            owner_runtime_instance_id=None,
+            lease_expires_at=None,
+            updated_at=datetime.now(timezone.utc),
+        )
+        return True
 
 
 class _ResearchCycleRepo(_Repo):

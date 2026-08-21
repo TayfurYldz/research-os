@@ -26,3 +26,15 @@ class TerminalOrchestrationStateError(PersistenceError):
     row; this is enforced at the repository boundary so it holds regardless
     of which caller attempts the write.
     """
+
+
+class LeaseFencingError(PersistenceError):
+    """Write rejected because the caller's remembered lease no longer holds.
+
+    Raised when a fenced research_orchestration write's expected
+    (owner_runtime_instance_id, lease_epoch) no longer matches the persisted
+    row (another owner has since acquired a newer epoch), or when a
+    reconciliation write required the row to be currently unowned/expired
+    and it was not. This is the "0 rows affected = ownership lost" signal;
+    the caller must stop producing new work for this run rather than retry.
+    """

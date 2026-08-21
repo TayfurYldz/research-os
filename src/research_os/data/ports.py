@@ -33,6 +33,7 @@ from research_os.data.records import (
     InvariantCounterexampleRefRecord,
     InvariantHypothesisRecord,
     IssuedBudgetRecord,
+    LeaseAcquireResult,
     ObservationRecord,
     ProgramPolicyRecord,
     ProgramRecord,
@@ -337,7 +338,36 @@ class CoverageDebtSnapshotRepository(Protocol):
 class ResearchOrchestrationRepository(Protocol):
     def insert(self, record: ResearchOrchestrationRecord) -> None: ...
     def get(self, research_run_id: str) -> ResearchOrchestrationRecord | None: ...
-    def save(self, record: ResearchOrchestrationRecord) -> None: ...
+    def save(
+        self,
+        record: ResearchOrchestrationRecord,
+        *,
+        expect_owner_runtime_instance_id: str | None = None,
+        expect_lease_epoch: int | None = None,
+        require_unowned_or_expired: bool = False,
+    ) -> None: ...
+    def acquire_lease(
+        self,
+        research_run_id: str,
+        *,
+        owner_runtime_instance_id: str,
+        ttl_seconds: float,
+    ) -> LeaseAcquireResult: ...
+    def renew_lease(
+        self,
+        research_run_id: str,
+        *,
+        owner_runtime_instance_id: str,
+        expected_lease_epoch: int,
+        ttl_seconds: float,
+    ) -> bool: ...
+    def release_lease(
+        self,
+        research_run_id: str,
+        *,
+        owner_runtime_instance_id: str,
+        expected_lease_epoch: int,
+    ) -> bool: ...
 
 
 class ResearchCycleRepository(Protocol):

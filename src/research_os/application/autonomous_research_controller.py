@@ -844,6 +844,12 @@ class AutonomousResearchController:
         process. This method re-validates state itself and is a safe no-op
         both when the run is not RUNNING and when it is already terminal, so
         it can be called speculatively without risk of double transition.
+
+        The actual write additionally requires (at the repository/SoR level)
+        that the row is currently unowned or its lease has expired, so a
+        live owner in a *different* process (undetectable by the
+        process-local supervisor registry alone) cannot be overwritten by a
+        reconciler that only checked local state.
         """
         now = self._clock.now()
         with self._uow_factory.open() as uow:
@@ -861,7 +867,7 @@ class AutonomousResearchController:
                 updated_at=now,
                 checkpoint_at=now,
             )
-            uow.research_orchestrations.save(updated)
+            uow.research_orchestrations.save(updated, require_unowned_or_expired=True)
             uow.audit_events.insert(
                 AuditEventRecord(
                     audit_event_id=new_opaque_id(),
