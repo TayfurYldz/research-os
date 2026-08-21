@@ -14,6 +14,8 @@ from research_os.research.selection import HunterFamilyView
 from research_os.research.types import ResearchInputError
 
 EXPLORATORY_HYPOTHESIS_STRATEGY_VERSION = "exploratory.hypothesis.registry_external.v1"
+EXPLORATORY_DRAFTED_EVENT = "EXPLORATORY_HYPOTHESIS_DRAFTED"
+EXPLORATORY_SUBJECT_TYPE = "exploratory_family_draft"
 VALIDATION_GATES = ("HYPOTHESIZED", "V1", "V2", "V3", "FALSE_FINDING_ZERO")
 FORBIDDEN_EXPLORATORY_KEYS = frozenset(
     {
@@ -194,6 +196,84 @@ class ExploratoryHypothesisDraft:
             "not_impact_graph_edge": self.not_impact_graph_edge,
             "false_finding_required_zero": self.false_finding_required_zero,
         }
+
+
+def assert_ephemeral_registry_binding(draft: ExploratoryHypothesisDraft) -> None:
+    """Run-scoped drafts never authorize a permanent HunterFamily write."""
+
+    if draft.may_write_hunter_registry:
+        raise ResearchInputError("exploratory draft cannot authorize hunter registry write")
+    if not draft.registry_external or not draft.requires_human_family_approval:
+        raise ResearchInputError("exploratory draft cannot bypass registry or finding gates")
+
+
+def exploratory_draft_from_audit(
+    *,
+    draft_id: str,
+    research_run_id: str,
+    payload: Mapping[str, Any],
+) -> ExploratoryHypothesisDraft:
+    """Rebuild a draft from the SD-G16 audit payload. Tampered flags fail closed."""
+
+    if not isinstance(payload, Mapping):
+        raise ResearchInputError("exploratory audit payload must be a mapping")
+    if payload.get("may_write_hunter_registry") is not False:
+        raise ResearchInputError("exploratory draft cannot authorize hunter registry write")
+    novelty_raw = payload.get("novelty_basis")
+    try:
+        novelty = (
+            NoveltyBasis(novelty_raw)
+            if isinstance(novelty_raw, str)
+            else NoveltyBasis.UNCLASSIFIED
+        )
+    except ValueError as exc:
+        raise ResearchInputError("novelty_basis must be NoveltyBasis") from exc
+    claimed = payload.get("model_claimed_novelty")
+    return ExploratoryHypothesisDraft(
+        draft_id=draft_id,
+        research_run_id=research_run_id,
+        hypothesis_claim=_require_text(payload.get("hypothesis_claim"), "hypothesis_claim"),
+        proposed_family_name=_require_text(
+            payload.get("proposed_family_name"), "proposed_family_name"
+        ),
+        proposed_family_rationale=_require_text(
+            payload.get("proposed_family_rationale"), "proposed_family_rationale"
+        ),
+        source_refs=_ids_from_payload(payload.get("source_refs"), "source_refs"),
+        signal_ids=_ids_from_payload(payload.get("signal_ids"), "signal_ids"),
+        target_node_kinds=_ids_from_payload(
+            payload.get("target_node_kinds"), "target_node_kinds"
+        ),
+        structural_identity=_require_text(
+            payload.get("structural_identity"), "structural_identity"
+        ),
+        novelty_basis=novelty,
+        model_claimed_novelty=(
+            _require_text(claimed, "model_claimed_novelty") if claimed is not None else None
+        ),
+        strategy_version=_require_text(
+            payload.get("strategy_version") or EXPLORATORY_HYPOTHESIS_STRATEGY_VERSION,
+            "strategy_version",
+        ),
+        status=_require_text(payload.get("status"), "status"),
+        validation_gates=_ids_from_payload(payload.get("validation_gates"), "validation_gates"),
+        registry_external=bool(payload.get("registry_external")),
+        requires_human_family_approval=bool(payload.get("requires_human_family_approval")),
+        may_write_hunter_registry=bool(payload.get("may_write_hunter_registry")),
+        not_evidence=bool(payload.get("not_evidence")),
+        not_candidate=bool(payload.get("not_candidate")),
+        not_finding=bool(payload.get("not_finding")),
+        not_impact_graph_edge=bool(payload.get("not_impact_graph_edge")),
+        false_finding_required_zero=bool(payload.get("false_finding_required_zero")),
+    )
+
+
+def _ids_from_payload(value: object, field_name: str) -> tuple[str, ...]:
+    if isinstance(value, tuple):
+        return _require_ids(value, field_name)
+    if isinstance(value, list):
+        return _require_ids(tuple(value), field_name)
+    raise ResearchInputError(f"{field_name} must be a non-empty tuple")
 
 
 def draft_registry_external_hypothesis(

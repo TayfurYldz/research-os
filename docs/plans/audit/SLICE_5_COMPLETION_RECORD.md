@@ -85,7 +85,7 @@ Tests:
 
 - `DispatchApprovedV3Queue` still uses a raw `EvaluateExperimentFeedback` (not the ARC wrapper). V3 dispatch is not ARC; wiring promotion there is a separate call-site decision, not this slice's lock production file.
 - CONTRADICTS_PREDICTION is not auto-admitted. Explicit `AdmitDiagnosticEvidence` still can admit diagnostic mismatch Evidence.
-- Candidate / Verification / FindingProposal remain separately invoked.
+- Candidate / Verification / FindingProposal remain separately invoked. That is **canonical MR-5 PromotionPipeline** (`RESEARCH_OS_HUNTER_RECONNECTION_PLAN.md` §10), still open. Slice 7 does not close it either.
 - Slice 6 (epistemic hardening) is next.
 
 ## Next
