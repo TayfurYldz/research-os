@@ -185,6 +185,39 @@ def classify_severity(signal: SeverityInput) -> SeverityResult:
     )
 
 
+_SEVERITY_RANK = {
+    InternalSeverity.P0: 0,
+    InternalSeverity.P1: 1,
+    InternalSeverity.P2: 2,
+    InternalSeverity.P3: 3,
+}
+
+
+def bound_severity(
+    demonstrated: SeverityResult,
+    requested: SeverityResult,
+) -> SeverityResult:
+    """Caller fields must not exceed the class supported by demonstrated impact.
+
+    `demonstrated` is classified from ImpactGraph/Evidence-derived kinds with
+    default (non-escalating) sensitivity/scope. `requested` may include
+    caller-supplied `data_sensitivity` / `affected_scope`. The result is never
+    more severe than `demonstrated`.
+    """
+
+    if not demonstrated.scored or demonstrated.severity is None:
+        return demonstrated
+    if not requested.scored or requested.severity is None:
+        return requested
+    if _SEVERITY_RANK[requested.severity] < _SEVERITY_RANK[demonstrated.severity]:
+        return SeverityResult(
+            severity=demonstrated.severity,
+            platform_mapping=demonstrated.platform_mapping,
+            reason_codes=(*demonstrated.reason_codes, "CALLER_SEVERITY_CLAMPED"),
+        )
+    return requested
+
+
 def _coerce_validation(value: ValidationState | str) -> ValidationState:
     if isinstance(value, ValidationState):
         return value

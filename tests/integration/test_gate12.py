@@ -314,7 +314,7 @@ class Gate12AutonomousOrchestrationTests(unittest.TestCase):
     def test_schema_head_is_a17(self) -> None:
         with self.engine.connect() as connection:
             version = connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one()
-        self.assertEqual(version, "a36_001_opportunity_candidate")
+        self.assertEqual(version, "a37_001_impact_edge_proof")
 
     def test_postgres_process_crash_matrix_does_not_duplicate(self) -> None:
         factory = PostgresUnitOfWorkFactory(self.engine)

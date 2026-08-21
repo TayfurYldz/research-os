@@ -34,6 +34,15 @@ def _node(node_id: str, **overrides) -> ImpactNode:
     return ImpactNode(node_id=node_id, **defaults)
 
 
+def _edge(from_node_id: str, to_node_id: str, **overrides) -> ImpactEdge:
+    defaults = dict(
+        relation=ImpactRelation.ENABLES,
+        proof_refs=("proof-1",),
+    )
+    defaults.update(overrides)
+    return ImpactEdge(from_node_id=from_node_id, to_node_id=to_node_id, **defaults)
+
+
 class ImpactChainConstructionTests(unittest.TestCase):
     def test_minimal_chain_accepts(self) -> None:
         node = _node("n1")
@@ -48,21 +57,21 @@ class ImpactChainConstructionTests(unittest.TestCase):
 
     def test_dangling_edge_from_node_rejected(self) -> None:
         node = _node("n1")
-        edge = ImpactEdge(from_node_id="missing", to_node_id="n1", relation=ImpactRelation.ENABLES)
+        edge = _edge("missing", "n1")
         with self.assertRaises(ImpactGraphError) as ctx:
             ImpactChain(chain_id="c1", nodes=(node,), edges=(edge,))
         self.assertIn("DANGLING_EDGE_FROM_NODE", str(ctx.exception))
 
     def test_dangling_edge_to_node_rejected(self) -> None:
         node = _node("n1")
-        edge = ImpactEdge(from_node_id="n1", to_node_id="missing", relation=ImpactRelation.ENABLES)
+        edge = _edge("n1", "missing")
         with self.assertRaises(ImpactGraphError) as ctx:
             ImpactChain(chain_id="c1", nodes=(node,), edges=(edge,))
         self.assertIn("DANGLING_EDGE_TO_NODE", str(ctx.exception))
 
     def test_self_loop_rejected(self) -> None:
         node = _node("n1")
-        edge = ImpactEdge(from_node_id="n1", to_node_id="n1", relation=ImpactRelation.ENABLES)
+        edge = _edge("n1", "n1")
         with self.assertRaises(ImpactGraphError) as ctx:
             ImpactChain(chain_id="c1", nodes=(node,), edges=(edge,))
         self.assertIn("SELF_LOOP_NOT_ALLOWED", str(ctx.exception))
@@ -71,11 +80,7 @@ class ImpactChainConstructionTests(unittest.TestCase):
         n1 = _node("n1")
         n2 = _node("n2")
         n3 = _node("n3")
-        edges = (
-            ImpactEdge(from_node_id="n1", to_node_id="n2", relation=ImpactRelation.ENABLES),
-            ImpactEdge(from_node_id="n2", to_node_id="n3", relation=ImpactRelation.ENABLES),
-            ImpactEdge(from_node_id="n3", to_node_id="n1", relation=ImpactRelation.ENABLES),
-        )
+        edges = (_edge("n1", "n2"), _edge("n2", "n3"), _edge("n3", "n1"))
         with self.assertRaises(ImpactGraphError) as ctx:
             ImpactChain(chain_id="c1", nodes=(n1, n2, n3), edges=edges)
         self.assertIn("CHAIN_CONTAINS_CYCLE", str(ctx.exception))
@@ -84,13 +89,15 @@ class ImpactChainConstructionTests(unittest.TestCase):
         n1 = _node("n1")
         n2 = _node("n2")
         n3 = _node("n3")
-        edges = (
-            ImpactEdge(from_node_id="n1", to_node_id="n2", relation=ImpactRelation.ENABLES),
-            ImpactEdge(from_node_id="n1", to_node_id="n3", relation=ImpactRelation.ENABLES),
-        )
+        edges = (_edge("n1", "n2"), _edge("n1", "n3"))
         chain = ImpactChain(chain_id="c1", nodes=(n1, n2, n3), edges=edges)
         self.assertEqual(len(chain.edges), 2)
 
     def test_empty_proof_refs_rejected_at_node(self) -> None:
         with self.assertRaises(Exception):
             _node("n1", proof_refs=())
+
+    def test_empty_proof_refs_rejected_at_edge(self) -> None:
+        with self.assertRaises(ImpactGraphError) as ctx:
+            _edge("n1", "n2", proof_refs=())
+        self.assertIn("EMPTY_EDGE_PROOF_REFS", str(ctx.exception))

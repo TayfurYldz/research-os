@@ -1640,6 +1640,7 @@ impact_chain_edge = Table(
     Column("from_node_id", Text, nullable=False),
     Column("to_node_id", Text, nullable=False),
     Column("relation", Text, nullable=False),
+    Column("proof_refs", JSONB, nullable=False),
     Column("created_at", DateTime(timezone=True), nullable=False),
     CheckConstraint(
         "relation IN ('ENABLES', 'ESCALATES', 'CONFIRMS')",

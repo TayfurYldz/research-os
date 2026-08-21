@@ -2841,13 +2841,14 @@ class ImpactChainNodeRecord:
 
 @dataclass(frozen=True)
 class ImpactChainEdgeRecord:
-    """One edge of a persisted impact chain."""
+    """One edge of a persisted impact chain. The relation itself must be proven."""
 
     edge_id: str
     chain_id: str
     from_node_id: str
     to_node_id: str
     relation: str
+    proof_refs: tuple[str, ...]
     created_at: datetime
 
     def __post_init__(self) -> None:
@@ -2857,4 +2858,14 @@ class ImpactChainEdgeRecord:
         require_opaque_id(self.to_node_id, "to_node_id")
         if not isinstance(self.relation, str) or not self.relation.strip():
             raise PersistenceInputError("relation must be a non-empty string")
+        if not isinstance(self.proof_refs, tuple) or not self.proof_refs:
+            raise PersistenceInputError("proof_refs must be a non-empty tuple")
+        object.__setattr__(
+            self,
+            "proof_refs",
+            tuple(
+                require_opaque_id(item, f"proof_refs[{index}]")
+                for index, item in enumerate(self.proof_refs)
+            ),
+        )
         require_aware_datetime(self.created_at, "created_at")

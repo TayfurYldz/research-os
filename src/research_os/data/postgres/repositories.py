@@ -2818,6 +2818,7 @@ class PostgresImpactChainRepository:
                     from_node_id=edge.from_node_id,
                     to_node_id=edge.to_node_id,
                     relation=edge.relation,
+                    proof_refs=list(edge.proof_refs),
                     created_at=edge.created_at,
                 ),
             )

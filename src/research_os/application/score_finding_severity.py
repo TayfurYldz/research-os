@@ -16,6 +16,7 @@ from research_os.research.validation.severity import (
     ScopeState,
     SeverityInput,
     ValidationState,
+    bound_severity,
     classify_severity,
 )
 
@@ -59,7 +60,24 @@ class ScoreFindingSeverity:
                 validation_view.decision is not None and validation_view.decision.admitted
             )
             impact_kinds = _impact_kinds_for_proposal(uow, proposal.impact_chain_ids)
-            severity = classify_severity(
+            demonstrated = classify_severity(
+                SeverityInput(
+                    validation_state=(
+                        ValidationState.PASSED
+                        if validation_passed
+                        else ValidationState.NOT_PASSED
+                    ),
+                    scope_state=(
+                        validation_view.scope_state
+                        if validation_passed
+                        else ScopeState.NOT_IN_SCOPE
+                    ),
+                    impact_kinds=impact_kinds,
+                    data_sensitivity="NONE",
+                    affected_scope="SINGLE_USER",
+                )
+            )
+            requested = classify_severity(
                 SeverityInput(
                     validation_state=(
                         ValidationState.PASSED
@@ -76,6 +94,7 @@ class ScoreFindingSeverity:
                     affected_scope=command.affected_scope,
                 )
             )
+            severity = bound_severity(demonstrated, requested)
             event_id = new_opaque_id()
             payload = {
                 "proposal_id": proposal.proposal_id,

@@ -78,6 +78,7 @@ class RegisterImpactChain:
                 from_node_id=edge.from_node_id,
                 to_node_id=edge.to_node_id,
                 relation=edge.relation.value,
+                proof_refs=edge.proof_refs,
                 created_at=now,
             )
             for edge in command.chain.edges

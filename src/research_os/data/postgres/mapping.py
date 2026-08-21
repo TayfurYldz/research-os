@@ -1098,5 +1098,6 @@ def impact_chain_edge_from_row(row: Mapping[str, Any]) -> ImpactChainEdgeRecord:
         from_node_id=data["from_node_id"],
         to_node_id=data["to_node_id"],
         relation=data["relation"],
+        proof_refs=_id_tuple(data["proof_refs"]),
         created_at=data["created_at"],
     )

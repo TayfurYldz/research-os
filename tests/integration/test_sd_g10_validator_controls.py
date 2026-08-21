@@ -382,6 +382,28 @@ class SDG10ValidatorControlsIntegrationTests(unittest.TestCase):
         self.assertEqual(event.payload["severity"], "P2")
         self.assertEqual(event.payload["platform_mapping"]["bugcrowd_priority"], "P3")
 
+    def test_caller_admin_scope_cannot_escalate_data_read_to_p0(self) -> None:
+        factory = PostgresUnitOfWorkFactory(self.engine)
+        with factory.open() as uow:
+            _seed_tier_events(
+                uow,
+                (("V1", "PASSED"), ("V2", "PASSED"), ("V3", "PASSED")),
+                scope_state="IN_SCOPE",
+            )
+            uow.commit()
+        _register_chain(factory)
+        proposal_id = _submit_proposal(factory)
+        scored = ScoreFindingSeverity(factory, clock=FixedClock()).execute(
+            ScoreFindingSeverityCommand(
+                proposal_id=proposal_id,
+                data_sensitivity="BULK_SENSITIVE",
+                affected_scope="ADMIN",
+            )
+        )
+        self.assertTrue(scored.scored)
+        self.assertEqual(scored.severity, InternalSeverity.P2)
+        self.assertIn("CALLER_SEVERITY_CLAMPED", scored.reason_codes)
+
     def test_out_of_scope_or_validation_missing_severity_is_not_scored(self) -> None:
         factory = PostgresUnitOfWorkFactory(self.engine)
         with factory.open() as uow:

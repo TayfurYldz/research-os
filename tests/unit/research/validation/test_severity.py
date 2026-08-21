@@ -10,6 +10,7 @@ from research_os.research.validation.severity import (
     ScopeState,
     SeverityInput,
     ValidationState,
+    bound_severity,
     classify_severity,
 )
 
@@ -78,6 +79,29 @@ class SeverityEngineTests(unittest.TestCase):
         )
 
         self.assertEqual(result.severity, InternalSeverity.P0)
+
+    def test_caller_bulk_sensitive_cannot_exceed_demonstrated_data_read(self) -> None:
+        demonstrated = classify_severity(
+            SeverityInput(
+                validation_state="PASSED",
+                scope_state="IN_SCOPE",
+                impact_kinds=(ImpactKind.DATA_READ,),
+            )
+        )
+        requested = classify_severity(
+            SeverityInput(
+                validation_state="PASSED",
+                scope_state="IN_SCOPE",
+                impact_kinds=(ImpactKind.DATA_READ,),
+                data_sensitivity="BULK_SENSITIVE",
+                affected_scope="ADMIN",
+            )
+        )
+        bounded = bound_severity(demonstrated, requested)
+        self.assertEqual(demonstrated.severity, InternalSeverity.P2)
+        self.assertEqual(requested.severity, InternalSeverity.P0)
+        self.assertEqual(bounded.severity, InternalSeverity.P2)
+        self.assertIn("CALLER_SEVERITY_CLAMPED", bounded.reason_codes)
 
 
 if __name__ == "__main__":

@@ -85,6 +85,7 @@ def rebuild_impact_chain(uow: UnitOfWork, record: ImpactChainRecord) -> ImpactCh
             from_node_id=edge.from_node_id,
             to_node_id=edge.to_node_id,
             relation=ImpactRelation(edge.relation),
+            proof_refs=edge.proof_refs,
         )
         for edge in edge_records
     )

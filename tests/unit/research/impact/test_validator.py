@@ -4,8 +4,8 @@ import unittest
 
 import pathsetup  # noqa: F401
 
-from research_os.research.impact.chain import ImpactChain, ImpactNode, ImpactScopeRef
-from research_os.research.impact.types import ImpactKind, ProofRecord, ProofResolver
+from research_os.research.impact.chain import ImpactChain, ImpactEdge, ImpactNode, ImpactScopeRef
+from research_os.research.impact.types import ImpactKind, ImpactRelation, ProofRecord, ProofResolver
 from research_os.research.impact.validator import validate_chain
 
 
@@ -95,3 +95,38 @@ class ValidateChainTests(unittest.TestCase):
         result = validate_chain(chain, resolver, "run-1")
         self.assertFalse(result.valid)
         self.assertIn("CROSS_RUN_PROOF", result.reason_codes)
+
+    def test_missing_edge_proof_rejected(self) -> None:
+        resolver = _FakeResolver({"proof-a"})
+        chain = ImpactChain(
+            chain_id="c1",
+            nodes=(_node("n1", ("proof-a",)), _node("n2", ("proof-a",))),
+            edges=(
+                ImpactEdge(
+                    from_node_id="n1",
+                    to_node_id="n2",
+                    relation=ImpactRelation.ENABLES,
+                    proof_refs=("missing-edge-proof",),
+                ),
+            ),
+        )
+        result = validate_chain(chain, resolver, "run-1")
+        self.assertFalse(result.valid)
+        self.assertIn("HALLUCINATED_OR_ABSENT_PROOF", result.reason_codes)
+
+    def test_proven_edge_resolves(self) -> None:
+        resolver = _FakeResolver({"proof-a", "proof-edge"})
+        chain = ImpactChain(
+            chain_id="c1",
+            nodes=(_node("n1", ("proof-a",)), _node("n2", ("proof-a",))),
+            edges=(
+                ImpactEdge(
+                    from_node_id="n1",
+                    to_node_id="n2",
+                    relation=ImpactRelation.ENABLES,
+                    proof_refs=("proof-edge",),
+                ),
+            ),
+        )
+        result = validate_chain(chain, resolver, "run-1")
+        self.assertTrue(result.valid)

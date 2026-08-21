@@ -65,11 +65,12 @@ class ImpactNode:
 
 @dataclass(frozen=True)
 class ImpactEdge:
-    """Directed relation between two nodes in the same chain."""
+    """Directed relation between two nodes. The relation itself must be proven."""
 
     from_node_id: str
     to_node_id: str
     relation: ImpactRelation
+    proof_refs: tuple[str, ...]
 
     def __post_init__(self) -> None:
         object.__setattr__(
@@ -80,6 +81,11 @@ class ImpactEdge:
         )
         if not isinstance(self.relation, ImpactRelation):
             raise ResearchInputError("relation must be an ImpactRelation")
+        object.__setattr__(
+            self, "proof_refs", _require_ids(self.proof_refs, "proof_refs")
+        )
+        if not self.proof_refs:
+            raise ImpactGraphError("EMPTY_EDGE_PROOF_REFS")
 
 
 @dataclass(frozen=True)

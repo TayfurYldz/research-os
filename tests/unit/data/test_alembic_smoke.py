@@ -42,6 +42,7 @@ A33_MIGRATION = ALEMBIC_VERSIONS / "a33_001_hypothesis_identity.py"
 A34_MIGRATION = ALEMBIC_VERSIONS / "a34_001_program_platforms.py"
 A35_MIGRATION = ALEMBIC_VERSIONS / "a35_001_orchestration_lease.py"
 A36_MIGRATION = ALEMBIC_VERSIONS / "a36_001_opportunity_candidate.py"
+A37_MIGRATION = ALEMBIC_VERSIONS / "a37_001_impact_edge_proof.py"
 
 
 def _imported_modules(tree: ast.AST) -> set[str]:
@@ -492,6 +493,16 @@ class AlembicSmokeTests(unittest.TestCase):
         self.assertNotIn("create_all", source)
         a35 = A35_MIGRATION.read_text(encoding="utf-8")
         self.assertNotIn("opportunity_selection_candidate", a35)
+
+    def test_a37_migration_adds_impact_edge_proof_refs(self) -> None:
+        source = A37_MIGRATION.read_text(encoding="utf-8")
+        self.assertIn("a37_001_impact_edge_proof", source)
+        self.assertIn("a36_001_opportunity_candidate", source)
+        self.assertIn("proof_refs", source)
+        self.assertIn("impact_chain_edge", source)
+        self.assertNotIn("create_all", source)
+        a36 = A36_MIGRATION.read_text(encoding="utf-8")
+        self.assertNotIn("a37_001_impact_edge_proof", a36)
 
 
 if __name__ == "__main__":
