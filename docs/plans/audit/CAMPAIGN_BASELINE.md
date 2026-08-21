@@ -59,7 +59,7 @@ Per `CURRENT_ARCHITECTURE_SNAPSHOT.md` / `PERSISTENT_RUNTIME_GAP_AUDIT.md`, conf
 | A (terminal immutability + attempt/recovery semantics) | Slice 0 | DONE (prior session) |
 | B (fenced ownership) | Slice 1 | DONE this campaign (see `SLICE_1_COMPLETION_RECORD.md`; PASS criteria met, one documented residual risk — bounded, not per-write, fencing inside `AutonomousResearchController`) |
 | I (Preflight) | Slice 2 | DONE this campaign (see `SLICE_2_COMPLETION_RECORD.md`; use case complete and unit-tested; live `dashboard.py` wiring explicitly deferred pending a browser-worker health-check design decision) |
-| D (opportunity ingestion) | Slice 3 (MR-1) | Not started |
+| D (opportunity ingestion) | Slice 3 (MR-1) | DONE this campaign (see `SLICE_3_COMPLETION_RECORD.md`; confirms and resolves the §6.1 finding below — `RESEARCH_LIFECYCLE_RECONNECTION_AUDIT.md`'s claim that the selector "already unions arbitrary opportunity rows" was false; corrected via a small additive `opportunity_selection_candidate` bridge table rather than either mutating the pure selector or the existing `research_opportunity` table) |
 | E + F (compiler + V3/mutation/protocol bridge) | Slice 4 (MR-2+MR-3) | Not started |
 | H (promotion trigger) | Slice 5 (MR-4) | Not started |
 | — (epistemic hardening, same-generation fix) | Slice 6 | Not started |

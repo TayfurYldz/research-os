@@ -48,6 +48,7 @@ from research_os.data.records import (
     TargetInferenceRecord,
     VerificationRecord,
     WorkerResultRecord,
+    OpportunitySelectionCandidateRecord,
     ResearchOpportunityRecord,
     ResearchSelectionRecord,
     SnapshotRecord,
@@ -312,6 +313,22 @@ class ResearchSelectionRepository(Protocol):
     def list_for_research_run(
         self, research_run_id: str
     ) -> list[ResearchSelectionRecord]: ...
+
+
+class OpportunitySelectionCandidateRepository(Protocol):
+    def insert(self, record: OpportunitySelectionCandidateRecord) -> None: ...
+    def get(self, candidate_id: str) -> OpportunitySelectionCandidateRecord | None: ...
+    def list_for_research_run(
+        self, research_run_id: str
+    ) -> list[OpportunitySelectionCandidateRecord]: ...
+    def mark_decided(
+        self,
+        candidate_id: str,
+        *,
+        outcome: str,
+        resulting_opportunity_id: str | None,
+        decided_at: datetime,
+    ) -> bool: ...
 
 
 class SnapshotRepository(Protocol):

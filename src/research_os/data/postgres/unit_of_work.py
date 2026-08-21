@@ -42,6 +42,7 @@ from research_os.data.postgres.repositories import (
     PostgresTargetInferenceRepository,
     PostgresVerificationRepository,
     PostgresWorkerResultRepository,
+    PostgresOpportunitySelectionCandidateRepository,
     PostgresResearchOpportunityRepository,
     PostgresResearchSelectionRepository,
     PostgresSnapshotRepository,
@@ -107,6 +108,7 @@ class PostgresUnitOfWork:
         self.chain_hypotheses: PostgresChainHypothesisRepository
         self.research_opportunities: PostgresResearchOpportunityRepository
         self.research_selections: PostgresResearchSelectionRepository
+        self.opportunity_selection_candidates: PostgresOpportunitySelectionCandidateRepository
         self.snapshots: PostgresSnapshotRepository
         self.change_events: PostgresChangeEventRepository
         self.research_orchestrations: PostgresResearchOrchestrationRepository
@@ -177,6 +179,9 @@ class PostgresUnitOfWork:
         self.chain_hypotheses = PostgresChainHypothesisRepository(self._connection)
         self.research_opportunities = PostgresResearchOpportunityRepository(self._connection)
         self.research_selections = PostgresResearchSelectionRepository(self._connection)
+        self.opportunity_selection_candidates = PostgresOpportunitySelectionCandidateRepository(
+            self._connection
+        )
         self.snapshots = PostgresSnapshotRepository(self._connection)
         self.change_events = PostgresChangeEventRepository(self._connection)
         self.research_orchestrations = PostgresResearchOrchestrationRepository(

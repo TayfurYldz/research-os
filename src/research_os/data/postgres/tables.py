@@ -963,6 +963,46 @@ research_selection = Table(
     ),
 )
 
+opportunity_selection_candidate = Table(
+    "opportunity_selection_candidate",
+    metadata,
+    Column("candidate_id", Text, primary_key=True),
+    Column("research_run_id", Text, ForeignKey("research_run.research_run_id"), nullable=False),
+    Column("source_system", Text, nullable=False),
+    Column("opportunity_kind", Text, nullable=False),
+    Column("mode", Text, nullable=False),
+    Column("source_refs", JSONB, nullable=False),
+    Column("proposed_direction", Text, nullable=False),
+    Column("unresolved_question", Text, nullable=False),
+    Column("expected_information_value_description", Text, nullable=False),
+    Column("assumptions", JSONB, nullable=False),
+    Column("dimensions", JSONB, nullable=False),
+    Column("context_signature", Text, nullable=False),
+    Column("structural_identity", Text, nullable=False),
+    Column("strategy_version", Text, nullable=False),
+    Column("created_at", DateTime(timezone=True), nullable=False),
+    Column("outcome", Text, nullable=False, server_default="PENDING"),
+    Column("resulting_opportunity_id", Text, nullable=True),
+    Column("decided_at", DateTime(timezone=True), nullable=True),
+    CheckConstraint(
+        "source_system IN ('HUNTER_COVERAGE')",
+        name="ck_opportunity_selection_candidate_source_system",
+    ),
+    CheckConstraint(
+        "mode IN ('EXPLORATION', 'EXPLOITATION')",
+        name="ck_opportunity_selection_candidate_mode",
+    ),
+    CheckConstraint(
+        "outcome IN ('PENDING', 'ADMITTED', 'NOT_ADMITTED')",
+        name="ck_opportunity_selection_candidate_outcome",
+    ),
+    UniqueConstraint(
+        "research_run_id",
+        "structural_identity",
+        name="uq_opportunity_selection_candidate_run_identity",
+    ),
+)
+
 snapshot = Table(
     "snapshot",
     metadata,
@@ -1641,6 +1681,7 @@ SPINE_TABLES = (
     chain_hypothesis,
     research_opportunity,
     research_selection,
+    opportunity_selection_candidate,
     snapshot,
     snapshot_member,
     change_event,

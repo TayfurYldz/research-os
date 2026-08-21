@@ -44,6 +44,7 @@ class OpportunityKind(Enum):
     UNRESOLVED_TARGET_RELATION = "UNRESOLVED_TARGET_RELATION"
     CONTROL_EXPERIMENT = "CONTROL_EXPERIMENT"
     SURFACE_DISCOVERY = "SURFACE_DISCOVERY"
+    HUNTER_COVERAGE_GAP = "HUNTER_COVERAGE_GAP"
     OTHER = "OTHER"
 
 
@@ -325,6 +326,40 @@ class ResearchOpportunity:
     @property
     def diversity_key(self) -> tuple[str, tuple[str, ...], str]:
         return (self.opportunity_kind.value, tuple(sorted(self.source_refs)), self.context_signature)
+
+
+def dimensions_from_mapping(mapping: Mapping[str, Any]) -> OpportunityDimensions:
+    """Reconstruct OpportunityDimensions from a persisted mapping.
+
+    Exact inverse of `OpportunityDimensions.to_mapping()` for the ten real
+    fields; the two descriptive markers `to_mapping()` adds
+    (`not_a_priority_score`/`not_confidence`) are not real fields and are
+    ignored on the way back in. Used to round-trip dimensions that were
+    computed once by a producer and persisted, without that producer or its
+    reader duplicating OpportunityDimensions' own validation.
+    """
+
+    def _ordinal(field_name: str) -> OrdinalLevel:
+        value = mapping.get(field_name)
+        if not isinstance(value, str):
+            raise ResearchInputError(f"{field_name} must be a string ordinal level")
+        try:
+            return OrdinalLevel(value)
+        except ValueError as exc:
+            raise ResearchInputError(f"{field_name} is not a recognized OrdinalLevel") from exc
+
+    return OpportunityDimensions(
+        expected_information_value=_ordinal("expected_information_value"),
+        security_relevance_potential=_ordinal("security_relevance_potential"),
+        novelty_composition=_ordinal("novelty_composition"),
+        unresolved_uncertainty=_ordinal("unresolved_uncertainty"),
+        chain_potential=_ordinal("chain_potential"),
+        evidence_coverage=_ordinal("evidence_coverage"),
+        execution_cost=_ordinal("execution_cost"),
+        side_effect_requirement=mapping.get("side_effect_requirement"),
+        duplicate_risk=_ordinal("duplicate_risk"),
+        previous_failed_attempts=mapping.get("previous_failed_attempts"),
+    )
 
 
 def opportunity_structural_identity(

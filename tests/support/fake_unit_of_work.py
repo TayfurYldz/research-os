@@ -52,6 +52,7 @@ from research_os.data.records import (
     RateLimitProfileRecord,
     ResearchAdmissionRecord,
     ResearchCycleRecord,
+    OpportunitySelectionCandidateRecord,
     ResearchOpportunityRecord,
     ResearchOrchestrationRecord,
     ResearchReasoningRecord,
@@ -122,6 +123,7 @@ class _Store:
         self.chain_hypotheses: dict[str, ChainHypothesisRecord] = {}
         self.research_opportunities: dict[str, ResearchOpportunityRecord] = {}
         self.research_selections: dict[str, ResearchSelectionRecord] = {}
+        self.opportunity_selection_candidates: dict[str, OpportunitySelectionCandidateRecord] = {}
         self.snapshots: dict[str, SnapshotRecord] = {}
         self.snapshot_members: dict[str, SnapshotMemberRecord] = {}
         self.change_events: dict[str, ChangeEventRecord] = {}
@@ -295,6 +297,8 @@ def _id_of(record: Any) -> str:
         return record.opportunity_id
     if isinstance(record, ResearchSelectionRecord):
         return record.selection_id
+    if isinstance(record, OpportunitySelectionCandidateRecord):
+        return record.candidate_id
     if isinstance(record, SnapshotRecord):
         return record.snapshot_id
     if isinstance(record, SnapshotMemberRecord):
@@ -1101,6 +1105,54 @@ class _ResearchSelectionRepo(_Repo):
         )
 
 
+class _OpportunitySelectionCandidateRepo(_Repo):
+    def __init__(self, store: _Store, fail_on_insert: bool = False) -> None:
+        super().__init__(store.opportunity_selection_candidates, fail_on_insert=fail_on_insert)
+        self._root = store
+
+    def insert(self, record: OpportunitySelectionCandidateRecord) -> None:
+        if self._fail_on_insert:
+            raise PersistenceError("injected persistence failure")
+        for existing in self._root.opportunity_selection_candidates.values():
+            if (
+                existing.research_run_id == record.research_run_id
+                and existing.structural_identity == record.structural_identity
+            ):
+                raise PersistenceConflictError("duplicate candidate structural identity")
+        super().insert(record)
+
+    def list_for_research_run(
+        self, research_run_id: str
+    ) -> list[OpportunitySelectionCandidateRecord]:
+        return sorted(
+            [
+                record
+                for record in self._root.opportunity_selection_candidates.values()
+                if record.research_run_id == research_run_id
+            ],
+            key=lambda record: record.candidate_id,
+        )
+
+    def mark_decided(
+        self,
+        candidate_id: str,
+        *,
+        outcome: str,
+        resulting_opportunity_id: str | None,
+        decided_at,
+    ) -> bool:
+        current = self._root.opportunity_selection_candidates.get(candidate_id)
+        if current is None or current.outcome != "PENDING":
+            return False
+        self._root.opportunity_selection_candidates[candidate_id] = replace(
+            current,
+            outcome=outcome,
+            resulting_opportunity_id=resulting_opportunity_id,
+            decided_at=decided_at,
+        )
+        return True
+
+
 class _SnapshotRepo:
     def __init__(self, store: _Store, fail_on_insert: bool = False) -> None:
         self._root = store
@@ -1693,6 +1745,9 @@ class FakeUnitOfWork:
         self.research_selections = _ResearchSelectionRepo(
             self._store, fail_on_insert=fail_on == "research_selections"
         )
+        self.opportunity_selection_candidates = _OpportunitySelectionCandidateRepo(
+            self._store, fail_on_insert=fail_on == "opportunity_selection_candidates"
+        )
         self.snapshots = _SnapshotRepo(
             self._store, fail_on_insert=fail_on == "snapshots"
         )
@@ -1826,6 +1881,10 @@ class FakeUnitOfWork:
         self._store.research_opportunities.update(snapshot.research_opportunities)
         self._store.research_selections.clear()
         self._store.research_selections.update(snapshot.research_selections)
+        self._store.opportunity_selection_candidates.clear()
+        self._store.opportunity_selection_candidates.update(
+            snapshot.opportunity_selection_candidates
+        )
         self._store.snapshots.clear()
         self._store.snapshots.update(snapshot.snapshots)
         self._store.snapshot_members.clear()

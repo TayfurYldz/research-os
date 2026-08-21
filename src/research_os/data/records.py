@@ -216,10 +216,14 @@ ALLOWED_OPPORTUNITY_KINDS = frozenset(
         "NEGATIVE_KNOWLEDGE_REVISIT",
         "UNRESOLVED_TARGET_RELATION",
         "CONTROL_EXPERIMENT",
+        "SURFACE_DISCOVERY",
+        "HUNTER_COVERAGE_GAP",
         "OTHER",
     }
 )
 ALLOWED_OPPORTUNITY_MODES = frozenset({"EXPLORATION", "EXPLOITATION"})
+ALLOWED_CANDIDATE_SOURCE_SYSTEMS = frozenset({"HUNTER_COVERAGE"})
+ALLOWED_CANDIDATE_OUTCOMES = frozenset({"PENDING", "ADMITTED", "NOT_ADMITTED"})
 ALLOWED_SELECTION_OUTCOMES = frozenset(
     {
         "SELECT",
@@ -1571,6 +1575,98 @@ class ResearchSelectionRecord:
         if self.outcome not in ALLOWED_SELECTION_OUTCOMES:
             raise PersistenceInputError("outcome is not a selection outcome")
         object.__setattr__(self, "reason_codes", tuple(self.reason_codes))
+
+
+@dataclass(frozen=True)
+class OpportunitySelectionCandidateRecord:
+    """A durable, pre-admission proposal for `ResearchOpportunityRecord`.
+
+    Bridges a non-diagnostic opportunity producer (e.g. Hunter/Coverage) to the
+    single `SelectResearchOpportunities` admission path without becoming a
+    second `ResearchOpportunity` authority: it holds exactly what is needed to
+    reconstruct one candidate `ResearchOpportunity` for the pure selector, plus
+    a one-way `PENDING -> ADMITTED|NOT_ADMITTED` decision outcome recorded by
+    that same selector. It never itself becomes the canonical opportunity
+    record -- an ADMITTED candidate's canonical form is the
+    `ResearchOpportunityRecord` referenced by `resulting_opportunity_id`.
+    """
+
+    candidate_id: str
+    research_run_id: str
+    source_system: str
+    opportunity_kind: str
+    mode: str
+    source_refs: tuple[str, ...]
+    proposed_direction: str
+    unresolved_question: str
+    expected_information_value_description: str
+    assumptions: tuple[str, ...]
+    dimensions: Mapping[str, Any]
+    context_signature: str
+    structural_identity: str
+    strategy_version: str
+    created_at: datetime
+    outcome: str = "PENDING"
+    resulting_opportunity_id: str | None = None
+    decided_at: datetime | None = None
+
+    def __post_init__(self) -> None:
+        require_opaque_id(self.candidate_id, "candidate_id")
+        require_opaque_id(self.research_run_id, "research_run_id")
+        require_opaque_id(self.structural_identity, "structural_identity")
+        require_aware_datetime(self.created_at, "created_at")
+        if self.source_system not in ALLOWED_CANDIDATE_SOURCE_SYSTEMS:
+            raise PersistenceInputError("source_system is not a recognized candidate producer")
+        if self.opportunity_kind not in ALLOWED_OPPORTUNITY_KINDS:
+            raise PersistenceInputError("opportunity_kind is not a research workflow category")
+        if self.mode not in ALLOWED_OPPORTUNITY_MODES:
+            raise PersistenceInputError("mode is not exploration or exploitation")
+        if not isinstance(self.proposed_direction, str) or not self.proposed_direction.strip():
+            raise PersistenceInputError("proposed_direction must be a non-empty string")
+        if not isinstance(self.unresolved_question, str) or not self.unresolved_question.strip():
+            raise PersistenceInputError("unresolved_question must be a non-empty string")
+        if not isinstance(self.dimensions, Mapping):
+            raise PersistenceInputError("dimensions must be a mapping")
+        found = FINDING_FORBIDDEN_KEYS.intersection(self.dimensions.keys())
+        if found:
+            raise PersistenceInputError(f"dimensions must not contain {sorted(found)}")
+        if "priority_score" in self.dimensions or "weighted_score" in self.dimensions:
+            raise PersistenceInputError("dimensions must not contain a priority score")
+        object.__setattr__(self, "dimensions", dict(self.dimensions))
+        object.__setattr__(
+            self,
+            "source_refs",
+            tuple(
+                require_opaque_id(item, f"source_refs[{index}]")
+                for index, item in enumerate(self.source_refs)
+            ),
+        )
+        if not self.source_refs:
+            raise PersistenceInputError("source_refs must be a non-empty tuple")
+        object.__setattr__(self, "assumptions", tuple(self.assumptions))
+        object.__setattr__(
+            self, "context_signature", require_opaque_id(self.context_signature, "context_signature")
+        )
+        object.__setattr__(
+            self, "strategy_version", require_opaque_id(self.strategy_version, "strategy_version")
+        )
+        if self.outcome not in ALLOWED_CANDIDATE_OUTCOMES:
+            raise PersistenceInputError("outcome is not a recognized candidate outcome")
+        object.__setattr__(
+            self,
+            "resulting_opportunity_id",
+            require_optional_opaque_id(self.resulting_opportunity_id, "resulting_opportunity_id"),
+        )
+        if self.outcome == "PENDING" and self.resulting_opportunity_id is not None:
+            raise PersistenceInputError("a PENDING candidate must not have a resulting_opportunity_id")
+        if self.outcome == "PENDING" and self.decided_at is not None:
+            raise PersistenceInputError("a PENDING candidate must not have decided_at")
+        if self.outcome != "PENDING":
+            require_aware_datetime(self.decided_at, "decided_at")
+        if self.outcome == "ADMITTED" and self.resulting_opportunity_id is None:
+            raise PersistenceInputError("an ADMITTED candidate must carry resulting_opportunity_id")
+        if self.outcome == "NOT_ADMITTED" and self.resulting_opportunity_id is not None:
+            raise PersistenceInputError("a NOT_ADMITTED candidate must not carry resulting_opportunity_id")
 
 
 @dataclass(frozen=True)

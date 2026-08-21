@@ -72,6 +72,7 @@ from research_os.data.records import (
     VerificationRecord,
     WorkerResultRecord,
     require_opaque_id,
+    OpportunitySelectionCandidateRecord,
     ResearchOpportunityRecord,
     ResearchSelectionRecord,
     SnapshotRecord,
@@ -1894,6 +1895,94 @@ class PostgresResearchSelectionRepository:
         except SQLAlchemyError as exc:
             raise PersistenceError("persistence read failed") from exc
         return [map_row.research_selection_from_row(row) for row in rows]
+
+
+class PostgresOpportunitySelectionCandidateRepository:
+    def __init__(self, connection: Connection) -> None:
+        self._connection = connection
+
+    def insert(self, record: OpportunitySelectionCandidateRecord) -> None:
+        _execute_write(
+            self._connection,
+            tables.opportunity_selection_candidate.insert().values(
+                candidate_id=record.candidate_id,
+                research_run_id=record.research_run_id,
+                source_system=record.source_system,
+                opportunity_kind=record.opportunity_kind,
+                mode=record.mode,
+                source_refs=list(record.source_refs),
+                proposed_direction=record.proposed_direction,
+                unresolved_question=record.unresolved_question,
+                expected_information_value_description=record.expected_information_value_description,
+                assumptions=list(record.assumptions),
+                dimensions=dict(record.dimensions),
+                context_signature=record.context_signature,
+                structural_identity=record.structural_identity,
+                strategy_version=record.strategy_version,
+                created_at=record.created_at,
+                outcome=record.outcome,
+                resulting_opportunity_id=record.resulting_opportunity_id,
+                decided_at=record.decided_at,
+            ),
+        )
+
+    def get(self, candidate_id: str) -> OpportunitySelectionCandidateRecord | None:
+        require_opaque_id(candidate_id, "candidate_id")
+        return _fetch_one(
+            self._connection,
+            tables.opportunity_selection_candidate,
+            tables.opportunity_selection_candidate.c.candidate_id,
+            candidate_id,
+            map_row.opportunity_selection_candidate_from_row,
+        )
+
+    def list_for_research_run(
+        self, research_run_id: str
+    ) -> list[OpportunitySelectionCandidateRecord]:
+        require_opaque_id(research_run_id, "research_run_id")
+        try:
+            rows = self._connection.execute(
+                select(tables.opportunity_selection_candidate)
+                .where(
+                    tables.opportunity_selection_candidate.c.research_run_id == research_run_id
+                )
+                .order_by(tables.opportunity_selection_candidate.c.candidate_id)
+            ).mappings().all()
+        except SQLAlchemyError as exc:
+            raise PersistenceError("persistence read failed") from exc
+        return [map_row.opportunity_selection_candidate_from_row(row) for row in rows]
+
+    def mark_decided(
+        self,
+        candidate_id: str,
+        *,
+        outcome: str,
+        resulting_opportunity_id: str | None,
+        decided_at: datetime,
+    ) -> bool:
+        """CAS: only a still-PENDING candidate can be decided, exactly once.
+
+        A second call for the same candidate_id (e.g. a retried cycle) is a
+        safe no-op rather than a silent overwrite of the first decision.
+        """
+
+        require_opaque_id(candidate_id, "candidate_id")
+        if outcome not in ("ADMITTED", "NOT_ADMITTED"):
+            raise PersistenceInputError("outcome must be ADMITTED or NOT_ADMITTED")
+        try:
+            result = self._connection.execute(
+                update(tables.opportunity_selection_candidate)
+                .where(tables.opportunity_selection_candidate.c.candidate_id == candidate_id)
+                .where(tables.opportunity_selection_candidate.c.outcome == "PENDING")
+                .values(
+                    outcome=outcome,
+                    resulting_opportunity_id=resulting_opportunity_id,
+                    decided_at=decided_at,
+                )
+            )
+        except SQLAlchemyError as exc:
+            raise PersistenceError("persistence write failed") from exc
+        return result.rowcount == 1
 
 
 class PostgresSnapshotRepository:

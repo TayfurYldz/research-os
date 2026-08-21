@@ -40,6 +40,8 @@ A29_MIGRATION = ALEMBIC_VERSIONS / "a29_001_hunter_family_registry.py"
 A32_MIGRATION = ALEMBIC_VERSIONS / "a32_001_coverage_debt_snapshot.py"
 A33_MIGRATION = ALEMBIC_VERSIONS / "a33_001_hypothesis_identity.py"
 A34_MIGRATION = ALEMBIC_VERSIONS / "a34_001_program_platforms.py"
+A35_MIGRATION = ALEMBIC_VERSIONS / "a35_001_orchestration_lease.py"
+A36_MIGRATION = ALEMBIC_VERSIONS / "a36_001_opportunity_candidate.py"
 
 
 def _imported_modules(tree: ast.AST) -> set[str]:
@@ -92,6 +94,7 @@ class AlembicSmokeTests(unittest.TestCase):
                 "chain_hypothesis",
                 "research_opportunity",
                 "research_selection",
+                "opportunity_selection_candidate",
                 "snapshot",
                 "snapshot_member",
                 "change_event",
@@ -467,6 +470,28 @@ class AlembicSmokeTests(unittest.TestCase):
         self.assertIn("intigriti", source)
         self.assertIn("other", source)
         self.assertNotIn("create_all", source)
+
+    def test_a35_migration_adds_orchestration_lease(self) -> None:
+        source = A35_MIGRATION.read_text(encoding="utf-8")
+        self.assertIn("a35_001_orchestration_lease", source)
+        self.assertIn("a34_001_program_platforms", source)
+        self.assertIn("owner_runtime_instance_id", source)
+        self.assertIn("lease_epoch", source)
+        self.assertIn("lease_expires_at", source)
+        self.assertNotIn("create_all", source)
+        a34 = A34_MIGRATION.read_text(encoding="utf-8")
+        self.assertNotIn("lease_epoch", a34)
+
+    def test_a36_migration_adds_opportunity_selection_candidate(self) -> None:
+        source = A36_MIGRATION.read_text(encoding="utf-8")
+        self.assertIn("a36_001_opportunity_candidate", source)
+        self.assertIn("a35_001_orchestration_lease", source)
+        self.assertIn("opportunity_selection_candidate", source)
+        self.assertIn("structural_identity", source)
+        self.assertIn("HUNTER_COVERAGE", source)
+        self.assertNotIn("create_all", source)
+        a35 = A35_MIGRATION.read_text(encoding="utf-8")
+        self.assertNotIn("opportunity_selection_candidate", a35)
 
 
 if __name__ == "__main__":

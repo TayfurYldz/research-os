@@ -38,6 +38,7 @@ from research_os.data.ports import (
     TargetInferenceRepository,
     VerificationRepository,
     WorkerResultRepository,
+    OpportunitySelectionCandidateRepository,
     ResearchOpportunityRepository,
     ResearchSelectionRepository,
     SnapshotRepository,
@@ -96,6 +97,7 @@ class UnitOfWork(Protocol):
     chain_hypotheses: ChainHypothesisRepository
     research_opportunities: ResearchOpportunityRepository
     research_selections: ResearchSelectionRepository
+    opportunity_selection_candidates: OpportunitySelectionCandidateRepository
     snapshots: SnapshotRepository
     change_events: ChangeEventRepository
     coverage_debt_snapshots: CoverageDebtSnapshotRepository

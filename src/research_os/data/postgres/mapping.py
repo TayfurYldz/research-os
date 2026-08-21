@@ -45,6 +45,7 @@ from research_os.data.records import (
     TargetInferenceRecord,
     VerificationRecord,
     WorkerResultRecord,
+    OpportunitySelectionCandidateRecord,
     ResearchOpportunityRecord,
     ResearchSelectionRecord,
     SnapshotRecord,
@@ -664,6 +665,34 @@ def research_selection_from_row(row: Mapping[str, Any]) -> ResearchSelectionReco
         reason_codes=_id_tuple(data["reason_codes"]),
         structural_identity=data["structural_identity"],
         created_at=data["created_at"],
+    )
+
+
+def opportunity_selection_candidate_from_row(
+    row: Mapping[str, Any]
+) -> OpportunitySelectionCandidateRecord:
+    data = _mapping(row)
+    return OpportunitySelectionCandidateRecord(
+        candidate_id=data["candidate_id"],
+        research_run_id=data["research_run_id"],
+        source_system=data["source_system"],
+        opportunity_kind=data["opportunity_kind"],
+        mode=data["mode"],
+        source_refs=_id_tuple(data["source_refs"]),
+        proposed_direction=data["proposed_direction"],
+        unresolved_question=data["unresolved_question"],
+        expected_information_value_description=data[
+            "expected_information_value_description"
+        ],
+        assumptions=_id_tuple(data["assumptions"]),
+        dimensions=dict(data["dimensions"] or {}),
+        context_signature=data["context_signature"],
+        structural_identity=data["structural_identity"],
+        strategy_version=data["strategy_version"],
+        created_at=data["created_at"],
+        outcome=data["outcome"],
+        resulting_opportunity_id=data["resulting_opportunity_id"],
+        decided_at=data["decided_at"],
     )
 
 
