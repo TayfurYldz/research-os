@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import os
 
+from alembic.config import Config
+from alembic.script import ScriptDirectory
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine import Engine, make_url
 
@@ -93,3 +95,17 @@ def ping_database(engine: Engine) -> bool:
     with engine.connect() as connection:
         connection.execute(text("SELECT 1"))
     return True
+
+
+def check_schema_head(engine: Engine, *, alembic_ini_path: str) -> tuple[bool, str]:
+    """Compare the database's current Alembic revision to this repository's
+    local migration head. Not a substitute for running migrations: a
+    mismatch means the running application code and the connected database
+    schema have drifted apart, which a live worker/model health check
+    cannot otherwise detect."""
+
+    config = Config(alembic_ini_path)
+    expected = ScriptDirectory.from_config(config).get_current_head()
+    with engine.connect() as connection:
+        current = connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one()
+    return current == expected, f"database={current!r} expected={expected!r}"
