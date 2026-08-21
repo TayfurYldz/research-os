@@ -268,19 +268,30 @@ def _v3_arguments_for_family(
     identity_id: str | None,
 ) -> dict[str, Any]:
     capability = V3_CAPABILITY_FOR_FAMILY.get(family.name)
+    context = _node_compile_context(node)
     if capability == "mutation.matrix":
         matrix = build_mutation_matrix(family)
         return {
             "claim": claim,
             "node_id": node.node_id,
             "family_name": family.name,
+            "family_id": family.family_id,
             "identity_id": identity_id or "ANONYMOUS",
             "matrix_hash": matrix.matrix_hash,
             "matrix_version": matrix.matrix_version,
             "cell_count": len(matrix.cells),
             "dimension_count": len(matrix.dimensions),
             "control_count": len(matrix.controls),
+            "cells": [
+                {
+                    "cell_id": cell.cell_id,
+                    "dimension_values": dict(cell.dimension_values),
+                    "control": cell.control,
+                }
+                for cell in matrix.cells
+            ],
             "worker_dispatch": "forbidden_until_operator_approval",
+            **context,
         }
     if capability == "protocol.parser":
         plan = build_protocol_parser_plan(family)
@@ -296,6 +307,7 @@ def _v3_arguments_for_family(
             "claim": claim,
             "node_id": node.node_id,
             "family_name": family.name,
+            "family_id": family.family_id,
             "identity_id": identity_id or "ANONYMOUS",
             "protocol_plan_hash": plan.plan_hash,
             "plan_version": plan.plan_version,
@@ -304,15 +316,52 @@ def _v3_arguments_for_family(
             "dimension_count": len(plan.dimensions),
             "control_count": len(plan.controls),
             "surface_signal_count": len(matching_signals),
+            "steps": [
+                {
+                    "step_id": step.step_id,
+                    "dimension_values": dict(step.dimension_values),
+                    "control": step.control,
+                }
+                for step in plan.steps
+            ],
             "approval_required": "SE3",
             "worker_dispatch": "forbidden_until_se3_approval",
+            **context,
         }
     return {
         "claim": claim,
         "node_id": node.node_id,
         "family_name": family.name,
+        "family_id": family.family_id,
         "identity_id": identity_id or "ANONYMOUS",
+        **context,
     }
+
+
+def _node_compile_context(node) -> dict[str, str]:
+    """Copy compile-relevant node attributes. Does not invent missing fields."""
+
+    attrs = node.attributes or {}
+    copied: dict[str, str] = {}
+    for key in (
+        "origin",
+        "authorized_origin",
+        "path",
+        "method",
+        "resource_id",
+        "actor",
+        "own_object",
+        "cross_object",
+        "mode",
+        "transition",
+        "area",
+    ):
+        value = attrs.get(key)
+        if isinstance(value, str) and value.strip():
+            copied[key] = value.strip()
+    if "authorized_origin" not in copied and "origin" in copied:
+        copied["authorized_origin"] = copied["origin"]
+    return copied
 
 
 def _matching_protocol_surface_signals(

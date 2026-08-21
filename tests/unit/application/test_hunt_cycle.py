@@ -530,6 +530,9 @@ class ValidateHuntTiersTests(unittest.TestCase):
         self.assertIsInstance(queue_record, HuntV3QueueRecord)
         self.assertEqual(queue_record.state, "PENDING")
         self.assertEqual(queue_record.capability, "http.authorization_differential")
+        self.assertEqual(queue_record.arguments["family_name"], "OBJECT_AUTHORIZATION")
+        self.assertEqual(queue_record.arguments["path"], "/api/users")
+        self.assertEqual(queue_record.arguments["authorized_origin"], "http://example.com")
 
     def test_protocol_parser_family_queues_se3_plan_only_when_surface_supported(self) -> None:
         store = _Store()
@@ -572,6 +575,9 @@ class ValidateHuntTiersTests(unittest.TestCase):
         self.assertEqual(queue_record.arguments["protocol_lane"], "http_request_smuggling_desync")
         self.assertGreaterEqual(queue_record.arguments["step_count"], 8)
         self.assertEqual(len(queue_record.arguments["protocol_plan_hash"]), 64)
+        self.assertEqual(queue_record.arguments["step_count"], len(queue_record.arguments["steps"]))
+        self.assertGreaterEqual(len(queue_record.arguments["steps"]), 8)
+        self.assertIn("step_id", queue_record.arguments["steps"][0])
         self.assertNotIn("payload", queue_record.arguments)
         self.assertNotIn("body", queue_record.arguments)
 

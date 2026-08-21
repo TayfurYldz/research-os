@@ -198,6 +198,8 @@ class SDG5HuntCycleIntegrationTests(unittest.TestCase):
                 self.assertEqual(item.action, "plan")
                 self.assertEqual(item.side_effect_level, 0)
                 self.assertGreaterEqual(item.arguments["cell_count"], 30)
+                self.assertEqual(len(item.arguments["cells"]), item.arguments["cell_count"])
+                self.assertIn("cell_id", item.arguments["cells"][0])
                 self.assertEqual(len(item.arguments["matrix_hash"]), 64)
                 self.assertEqual(
                     item.arguments["worker_dispatch"],
