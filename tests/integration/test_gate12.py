@@ -201,7 +201,9 @@ class Gate12AutonomousOrchestrationTests(unittest.TestCase):
         self.assertEqual(counts["hypothesis"], 2)
         self.assertEqual(counts["experiment"], 2)
         self.assertEqual(counts["finding"], 0)
-        self.assertEqual(counts["evidence"], 0)
+        # Slice 5: CONSISTENT_WITH_PREDICTION assessments auto-attempt Evidence
+        # admission. Candidate/Finding remain human-gated.
+        self.assertEqual(counts["evidence"], 2)
         self.assertEqual(counts["candidate"], 0)
         # RT-A: the run already reached its own terminal COMPLETED/
         # MAX_CYCLES_REACHED checkpoint via run_bounded() above. A cancel
@@ -357,7 +359,9 @@ class Gate12AutonomousOrchestrationTests(unittest.TestCase):
                 restarted = self._controller(factory)
                 result = restarted.step(_command(bounds=_bounds(max_cycles=2)))
                 after = self._counts(factory)
-                self.assertEqual(after["evidence"], 0)
+                self.assertLessEqual(after["evidence"], 1)
+                if before["evidence"]:
+                    self.assertEqual(after["evidence"], before["evidence"])
                 self.assertEqual(after["candidate"], 0)
                 self.assertEqual(after["finding"], 0)
                 self.assertLessEqual(after["hypothesis"], max(before["hypothesis"], 1))

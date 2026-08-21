@@ -165,6 +165,20 @@ class AdmitDiagnosticEvidenceTests(unittest.TestCase):
         self.assertEqual(len(store.evidence), 0)
         self.assertEqual(len(store.evidence_admissions), 0)
 
+    def test_second_admit_of_the_same_assessment_is_idempotent(self) -> None:
+        store = _Store()
+        seed_spine(store)
+        _run_success(store)
+        factory = FakeUnitOfWorkFactory(store)
+        use_case = AdmitDiagnosticEvidence(factory, clock=FixedClock())
+        first = use_case.execute(AdmitDiagnosticEvidenceCommand(experiment_id="exp-1"))
+        second = use_case.execute(AdmitDiagnosticEvidenceCommand(experiment_id="exp-1"))
+        self.assertEqual(first.outcome, EvidenceAdmissionOutcome.ADMITTED)
+        self.assertEqual(second.admission_record_id, first.admission_record_id)
+        self.assertEqual(second.evidence_id, first.evidence_id)
+        self.assertEqual(len(store.evidence), 1)
+        self.assertEqual(len(store.evidence_admissions), 1)
+
     def test_missing_experiment_is_application_error(self) -> None:
         store = _Store()
         seed_spine(store)

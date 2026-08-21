@@ -61,7 +61,7 @@ Per `CURRENT_ARCHITECTURE_SNAPSHOT.md` / `PERSISTENT_RUNTIME_GAP_AUDIT.md`, conf
 | I (Preflight) | Slice 2 | DONE this campaign (see `SLICE_2_COMPLETION_RECORD.md`; use case complete and unit-tested; live `dashboard.py` wiring explicitly deferred pending a browser-worker health-check design decision) |
 | D (opportunity ingestion) | Slice 3 (MR-1) | DONE this campaign (see `SLICE_3_COMPLETION_RECORD.md`; confirms and resolves the §6.1 finding below — `RESEARCH_LIFECYCLE_RECONNECTION_AUDIT.md`'s claim that the selector "already unions arbitrary opportunity rows" was false; corrected via a small additive `opportunity_selection_candidate` bridge table rather than either mutating the pure selector or the existing `research_opportunity` table) |
 | E + F (compiler + V3/mutation/protocol bridge) | Slice 4 (MR-2+MR-3) | DONE this campaign (see `SLICE_4_COMPLETION_RECORD.md`; split qualification — MR-2 PASS, mutation execution PARTIAL, V3 consumer PASS, protocol execution FAIL/deferred; no invented Worker primitives) |
-| H (promotion trigger) | Slice 5 (MR-4) | Not started |
+| H (promotion trigger) | Slice 5 (MR-4) | DONE this campaign (see `SLICE_5_COMPLETION_RECORD.md`; CONSISTENT_WITH_PREDICTION assessments auto-attempt Evidence admission exactly once; Candidate/Verification/FindingProposal remain ungated by this hop) |
 | — (epistemic hardening, same-generation fix) | Slice 6 | Not started |
 | G (exploratory execution + family promotion) | Slice 7 (MR-5) | Not started |
 | C (one lifecycle) | Satisfied structurally by Slices 3–5 (ARC remains sole owner; no second brain introduced) | N/A — no separate implementation slice |

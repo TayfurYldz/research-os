@@ -83,6 +83,14 @@ class AdmitDiagnosticEvidence:
                 raise ApplicationError("AdmitDiagnosticEvidence has no evaluator for this strategy")
             assessments = uow.hypothesis_assessments.list_for_experiment(experiment.experiment_id)
             assessment = _select_assessment(assessments, command.assessment_id)
+            if command.proposal is None and assessment is not None:
+                existing = _admitted_for_assessment(
+                    uow.evidence_admissions.list_for_research_run(experiment.research_run_id),
+                    assessment.assessment_id,
+                )
+                if existing is not None:
+                    uow.rollback()
+                    return _result_from_admission(existing)
             observations = uow.observations.list_for_experiment(experiment.experiment_id)
             attempts = uow.execution_attempts.list_for_experiment(experiment.experiment_id)
             attempt = attempts[0] if attempts else None
@@ -206,6 +214,29 @@ class AdmitDiagnosticEvidence:
             reason_codes=decision.reason_codes,
             proposal_id=proposal.proposal_id,
         )
+
+
+def _admitted_for_assessment(
+    records: list[EvidenceAdmissionRecord], assessment_id: str
+) -> EvidenceAdmissionRecord | None:
+    matches = [
+        record
+        for record in records
+        if assessment_id in record.assessment_ids and record.outcome == "ADMITTED"
+    ]
+    if not matches:
+        return None
+    return sorted(matches, key=lambda item: item.created_at)[0]
+
+
+def _result_from_admission(record: EvidenceAdmissionRecord) -> AdmitDiagnosticEvidenceResult:
+    return AdmitDiagnosticEvidenceResult(
+        outcome=EvidenceAdmissionOutcome(record.outcome),
+        admission_record_id=record.admission_record_id,
+        evidence_id=record.admitted_evidence_id,
+        reason_codes=record.reason_codes,
+        proposal_id=record.proposal_id,
+    )
 
 
 def _select_assessment(

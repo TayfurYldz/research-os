@@ -45,6 +45,7 @@ from research_os.application.prepare_planned_experiment import (
     PreparePlannedExperiment,
     PreparePlannedExperimentCommand,
 )
+from research_os.application.promotion_pipeline import PromoteOnAssessment, PromotionPipeline
 from research_os.application.propose_research_hypothesis import (
     ProposeResearchHypothesis,
     ProposeResearchHypothesisCommand,
@@ -198,7 +199,10 @@ class AutonomousResearchController:
             uow_factory, model, clock=self._clock
         )
         self._prepare = PreparePlannedExperiment(uow_factory, clock=self._clock)
-        self._evaluate = EvaluateExperimentFeedback(uow_factory, clock=self._clock)
+        evaluate = EvaluateExperimentFeedback(uow_factory, clock=self._clock)
+        self._evaluate = PromoteOnAssessment(
+            evaluate, PromotionPipeline(uow_factory, clock=self._clock)
+        )
         self._select = SelectResearchOpportunities(
             uow_factory, clock=self._clock, actor_id=actor_id
         )
